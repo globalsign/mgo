@@ -33,7 +33,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/domodwyer/mgo/bson"
+	"github.com/globalsign/mgo/bson"
 )
 
 type replyFunc func(err error, reply *replyOp, docNum int, docData []byte)
@@ -67,17 +67,18 @@ const (
 )
 
 type queryOp struct {
-	query      interface{}
-	collection string
-	serverTags []bson.D
-	selector   interface{}
-	replyFunc  replyFunc
-	mode       Mode
-	skip       int32
-	limit      int32
-	options    queryWrapper
-	hasOptions bool
-	flags      queryOpFlags
+	query       interface{}
+	collection  string
+	serverTags  []bson.D
+	selector    interface{}
+	replyFunc   replyFunc
+	mode        Mode
+	skip        int32
+	limit       int32
+	options     queryWrapper
+	hasOptions  bool
+	flags       queryOpFlags
+	readConcern string
 }
 
 type queryWrapper struct {

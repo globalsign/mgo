@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/domodwyer/mgo.svg?branch=master)](https://travis-ci.org/domodwyer/mgo) [![GoDoc](https://godoc.org/github.com/domodwyer/mgo?status.svg)](https://godoc.org/github.com/domodwyer/mgo)
+[![Build Status](https://travis-ci.org/domodwyer/mgo.svg?branch=master)](https://travis-ci.org/domodwyer/mgo) [![GoDoc](https://godoc.org/github.com/globalsign/mgo?status.svg)](https://godoc.org/github.com/globalsign/mgo)
 
 The MongoDB driver for Go
 -------------------------

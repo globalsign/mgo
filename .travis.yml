@@ -1,6 +1,6 @@
 language: go
 
-go_import_path: github.com/domodwyer/mgo
+go_import_path: github.com/globalsign/mgo
 
 addons:
     apt:

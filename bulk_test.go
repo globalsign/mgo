@@ -27,7 +27,7 @@
 package mgo_test
 
 import (
-	mgo "github.com/domodwyer/mgo"
+	mgo "github.com/globalsign/mgo"
 	. "gopkg.in/check.v1"
 )
 

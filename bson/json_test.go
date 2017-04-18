@@ -1,7 +1,7 @@
 package bson_test
 
 import (
-	"github.com/domodwyer/mgo/bson"
+	"github.com/globalsign/mgo/bson"
 
 	"reflect"
 	"strings"

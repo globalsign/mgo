@@ -34,8 +34,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/domodwyer/mgo/bson"
-	"github.com/domodwyer/mgo/internal/scram"
+	"github.com/globalsign/mgo/bson"
+	"github.com/globalsign/mgo/internal/scram"
 )
 
 type authCmd struct {

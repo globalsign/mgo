@@ -38,8 +38,8 @@ import (
 	"testing"
 	"time"
 
-	mgo "github.com/domodwyer/mgo"
-	"github.com/domodwyer/mgo/bson"
+	mgo "github.com/globalsign/mgo"
+	"github.com/globalsign/mgo/bson"
 	. "gopkg.in/check.v1"
 )
 
@@ -2781,6 +2781,7 @@ func (s *S) TestSafeSetting(c *C) {
 	safe := session.Safe()
 	c.Assert(safe.W, Equals, 0)
 	c.Assert(safe.WMode, Equals, "")
+	c.Assert(safe.RMode, Equals, "")
 	c.Assert(safe.WTimeout, Equals, 0)
 	c.Assert(safe.FSync, Equals, false)
 	c.Assert(safe.J, Equals, false)
@@ -2790,6 +2791,7 @@ func (s *S) TestSafeSetting(c *C) {
 	safe = session.Safe()
 	c.Assert(safe.W, Equals, 1)
 	c.Assert(safe.WMode, Equals, "")
+	c.Assert(safe.RMode, Equals, "")
 	c.Assert(safe.WTimeout, Equals, 2)
 	c.Assert(safe.FSync, Equals, true)
 	c.Assert(safe.J, Equals, false)
@@ -2799,6 +2801,7 @@ func (s *S) TestSafeSetting(c *C) {
 	safe = session.Safe()
 	c.Assert(safe.W, Equals, 0)
 	c.Assert(safe.WMode, Equals, "")
+	c.Assert(safe.RMode, Equals, "")
 	c.Assert(safe.WTimeout, Equals, 0)
 	c.Assert(safe.FSync, Equals, false)
 	c.Assert(safe.J, Equals, false)
@@ -2808,6 +2811,7 @@ func (s *S) TestSafeSetting(c *C) {
 	safe = session.Safe()
 	c.Assert(safe.W, Equals, 5)
 	c.Assert(safe.WMode, Equals, "")
+	c.Assert(safe.RMode, Equals, "")
 	c.Assert(safe.WTimeout, Equals, 6)
 	c.Assert(safe.FSync, Equals, false)
 	c.Assert(safe.J, Equals, true)
@@ -2817,6 +2821,7 @@ func (s *S) TestSafeSetting(c *C) {
 	safe = session.Safe()
 	c.Assert(safe.W, Equals, 5)
 	c.Assert(safe.WMode, Equals, "")
+	c.Assert(safe.RMode, Equals, "")
 	c.Assert(safe.WTimeout, Equals, 6)
 	c.Assert(safe.FSync, Equals, false)
 	c.Assert(safe.J, Equals, true)
@@ -2826,6 +2831,7 @@ func (s *S) TestSafeSetting(c *C) {
 	safe = session.Safe()
 	c.Assert(safe.W, Equals, 6)
 	c.Assert(safe.WMode, Equals, "")
+	c.Assert(safe.RMode, Equals, "")
 	c.Assert(safe.WTimeout, Equals, 4)
 	c.Assert(safe.FSync, Equals, true)
 	c.Assert(safe.J, Equals, false)
@@ -2835,6 +2841,17 @@ func (s *S) TestSafeSetting(c *C) {
 	safe = session.Safe()
 	c.Assert(safe.W, Equals, 0)
 	c.Assert(safe.WMode, Equals, "majority")
+	c.Assert(safe.RMode, Equals, "")
+	c.Assert(safe.WTimeout, Equals, 2)
+	c.Assert(safe.FSync, Equals, true)
+	c.Assert(safe.J, Equals, false)
+
+	// Read concern
+	session.EnsureSafe(&mgo.Safe{RMode: "majority"})
+	safe = session.Safe()
+	c.Assert(safe.W, Equals, 0)
+	c.Assert(safe.WMode, Equals, "majority")
+	c.Assert(safe.RMode, Equals, "majority")
 	c.Assert(safe.WTimeout, Equals, 2)
 	c.Assert(safe.FSync, Equals, true)
 	c.Assert(safe.J, Equals, false)
@@ -2844,6 +2861,7 @@ func (s *S) TestSafeSetting(c *C) {
 	safe = session.Safe()
 	c.Assert(safe.W, Equals, 0)
 	c.Assert(safe.WMode, Equals, "something")
+	c.Assert(safe.RMode, Equals, "majority")
 	c.Assert(safe.WTimeout, Equals, 2)
 	c.Assert(safe.FSync, Equals, true)
 	c.Assert(safe.J, Equals, false)
@@ -2853,6 +2871,7 @@ func (s *S) TestSafeSetting(c *C) {
 	safe = session.Safe()
 	c.Assert(safe.W, Equals, 0)
 	c.Assert(safe.WMode, Equals, "something")
+	c.Assert(safe.RMode, Equals, "majority")
 	c.Assert(safe.WTimeout, Equals, 2)
 	c.Assert(safe.FSync, Equals, true)
 	c.Assert(safe.J, Equals, false)
@@ -2863,6 +2882,7 @@ func (s *S) TestSafeSetting(c *C) {
 	clone.EnsureSafe(&mgo.Safe{WMode: "foo"})
 	safe = session.Safe()
 	c.Assert(safe.WMode, Equals, "something")
+	c.Assert(safe.RMode, Equals, "majority")
 }
 
 func (s *S) TestSafeInsert(c *C) {

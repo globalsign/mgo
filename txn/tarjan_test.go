@@ -3,7 +3,7 @@ package txn
 import (
 	"fmt"
 
-	"github.com/domodwyer/mgo/bson"
+	"github.com/globalsign/mgo/bson"
 	. "gopkg.in/check.v1"
 )
 

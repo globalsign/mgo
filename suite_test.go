@@ -38,8 +38,8 @@ import (
 	"testing"
 	"time"
 
-	mgo "github.com/domodwyer/mgo"
-	"github.com/domodwyer/mgo/bson"
+	mgo "github.com/globalsign/mgo"
+	"github.com/globalsign/mgo/bson"
 	. "gopkg.in/check.v1"
 )
 

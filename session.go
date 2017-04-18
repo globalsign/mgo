@@ -41,7 +41,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/domodwyer/mgo/bson"
+	"github.com/globalsign/mgo/bson"
 )
 
 type Mode int
@@ -1889,6 +1889,7 @@ func (s *Session) SetPrefetch(p float64) {
 type Safe struct {
 	W        int    // Min # of servers to ack before success
 	WMode    string // Write mode for MongoDB 2.0+ (e.g. "majority")
+	RMode    string // Read mode for MonogDB 3.2+ ("majority", "local", "linearizable")
 	WTimeout int    // Milliseconds to wait for W before timing out
 	FSync    bool   // Sync via the journal if present, or via data files sync otherwise
 	J        bool   // Sync via the journal if present
@@ -1980,6 +1981,7 @@ func (s *Session) Safe() (safe *Safe) {
 //
 // Relevant documentation:
 //
+//     https://docs.mongodb.com/manual/reference/read-concern/
 //     http://www.mongodb.org/display/DOCS/getLastError+Command
 //     http://www.mongodb.org/display/DOCS/Verifying+Propagation+of+Writes+with+getLastError
 //     http://www.mongodb.org/display/DOCS/Data+Center+Awareness
@@ -1998,6 +2000,7 @@ func (s *Session) SetSafe(safe *Safe) {
 // That is:
 //
 //     - safe.WMode is always used if set.
+//     - safe.RMode is always used if set.
 //     - safe.W is used if larger than the current W and WMode is empty.
 //     - safe.FSync is always used if true.
 //     - safe.J is used if FSync is false.
@@ -2034,6 +2037,13 @@ func (s *Session) ensureSafe(safe *Safe) {
 		w = safe.WMode
 	} else if safe.W > 0 {
 		w = safe.W
+	}
+
+	// Set the read concern
+	switch safe.RMode {
+	case "majority", "local", "linearizable":
+		s.queryConfig.op.readConcern = safe.RMode
+	default:
 	}
 
 	var cmd getLastError
@@ -3284,7 +3294,9 @@ func prepareFindOp(socket *mongoSocket, op *queryOp, limit int32) bool {
 		Snapshot:    op.options.Snapshot,
 		OplogReplay: op.flags&flagLogReplay != 0,
 		Collation:   op.options.Collation,
+		ReadConcern: readLevel{level: op.readConcern},
 	}
+
 	if op.limit < 0 {
 		find.BatchSize = -op.limit
 		find.SingleBatch = true
@@ -3334,7 +3346,7 @@ type findCmd struct {
 	Comment             string      `bson:"comment,omitempty"`
 	MaxScan             int         `bson:"maxScan,omitempty"`
 	MaxTimeMS           int         `bson:"maxTimeMS,omitempty"`
-	ReadConcern         interface{} `bson:"readConcern,omitempty"`
+	ReadConcern         readLevel   `bson:"readConcern,omitempty"`
 	Max                 interface{} `bson:"max,omitempty"`
 	Min                 interface{} `bson:"min,omitempty"`
 	ReturnKey           bool        `bson:"returnKey,omitempty"`
@@ -3346,6 +3358,12 @@ type findCmd struct {
 	NoCursorTimeout     bool        `bson:"noCursorTimeout,omitempty"`
 	AllowPartialResults bool        `bson:"allowPartialResults,omitempty"`
 	Collation           *Collation  `bson:"collation,omitempty"`
+}
+
+// readLevel provides the nested "level: majority" serialisation needed for the
+// query read concern.
+type readLevel struct {
+	level string `bson:"level,omitempty"`
 }
 
 // getMoreCmd holds the command used for requesting more query results on MongoDB 3.2+.

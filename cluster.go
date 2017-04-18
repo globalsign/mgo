@@ -35,7 +35,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/domodwyer/mgo/bson"
+	"github.com/globalsign/mgo/bson"
 )
 
 // ---------------------------------------------------------------------------
