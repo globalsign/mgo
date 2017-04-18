@@ -1901,7 +1901,7 @@ func (s *Session) Safe() (safe *Safe) {
 	defer s.m.Unlock()
 	if s.safeOp != nil {
 		cmd := s.safeOp.query.(*getLastError)
-		safe = &Safe{WTimeout: cmd.WTimeout, FSync: cmd.FSync, J: cmd.J}
+		safe = &Safe{WTimeout: cmd.WTimeout, FSync: cmd.FSync, J: cmd.J, RMode: s.queryConfig.op.readConcern}
 		switch w := cmd.W.(type) {
 		case string:
 			safe.WMode = w
