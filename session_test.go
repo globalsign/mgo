@@ -3478,6 +3478,31 @@ func (s *S) TestEnsureIndexDropIndexName(c *C) {
 	c.Assert(err, ErrorMatches, "index not found.*")
 }
 
+func (s *S) TestEnsureIndexDropAllIndexes(c *C) {
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+
+	err = coll.EnsureIndexKey("a")
+	c.Assert(err, IsNil)
+
+	err = coll.EnsureIndexKey("b")
+	c.Assert(err, IsNil)
+
+	err = coll.DropAllIndexes()
+	c.Assert(err, IsNil)
+
+	sysidx := session.DB("mydb").C("system.indexes")
+
+	err = sysidx.Find(M{"name": "a_1"}).One(nil)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+
+	err = sysidx.Find(M{"name": "b_1"}).One(nil)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+}
+
 func (s *S) TestEnsureIndexCaching(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)

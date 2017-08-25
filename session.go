@@ -1499,6 +1499,29 @@ func (c *Collection) DropIndexName(name string) error {
 	return nil
 }
 
+// DropAllIndexes drops all the indexes from the c collection
+func (c *Collection) DropAllIndexes() error {
+	session := c.Database.Session
+	session.ResetIndexCache()
+
+	session = session.Clone()
+	defer session.Close()
+
+	db := c.Database.With(session)
+	result := struct {
+		ErrMsg string
+		Ok     bool
+	}{}
+	err := db.Run(bson.D{{"dropIndexes", c.Name}, {"index", "*"}}, &result)
+	if err != nil {
+		return err
+	}
+	if !result.Ok {
+		return errors.New(result.ErrMsg)
+	}
+	return nil
+}
+
 // nonEventual returns a clone of session and ensures it is not Eventual.
 // This guarantees that the server that is used for queries may be reused
 // afterwards when a cursor is received.
@@ -1511,19 +1534,6 @@ func (session *Session) nonEventual() *Session {
 }
 
 // Indexes returns a list of all indexes for the collection.
-//
-// For example, this snippet would drop all available indexes:
-//
-//   indexes, err := collection.Indexes()
-//   if err != nil {
-//       return err
-//   }
-//   for _, index := range indexes {
-//       err = collection.DropIndex(index.Key...)
-//       if err != nil {
-//           return err
-//       }
-//   }
 //
 // See the EnsureIndex method for more details on indexes.
 func (c *Collection) Indexes() (indexes []Index, err error) {
