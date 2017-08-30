@@ -21,6 +21,7 @@ Further PR's (with tests) are welcome, but please maintain backwards compatibili
 * Improved multi-document transaction performance ([details](https://github.com/globalsign/mgo/pull/10), [more](https://github.com/globalsign/mgo/pull/11), [more](https://github.com/globalsign/mgo/pull/16))
 * Fixes cursor timeouts ([detials](https://jira.mongodb.org/browse/SERVER-24899))
 * Support index hints and timeouts for count queries ([details](https://github.com/globalsign/mgo/pull/17))
+* Allow dropping all indexes on a collection ([details](https://github.com/globalsign/mgo/pull/25))
 
 ---
 
@@ -30,6 +31,7 @@ Further PR's (with tests) are welcome, but please maintain backwards compatibili
 * @cezarsa
 * @drichelson
 * @eaglerayp
+* @feliixx
 * @fmpwizard
 * @jameinel
 * @Reenjii
