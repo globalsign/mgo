@@ -35,6 +35,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -60,13 +61,28 @@ var (
 
 const itoaCacheSize = 32
 
+const (
+	getterUnknown = iota
+	getterNone
+	getterTypeVal
+	getterTypePtr
+	getterAddr
+)
+
 var itoaCache []string
+
+var getterStyles map[reflect.Type]int
+var getterIface reflect.Type
+var getterMutex sync.RWMutex
 
 func init() {
 	itoaCache = make([]string, itoaCacheSize)
 	for i := 0; i != itoaCacheSize; i++ {
 		itoaCache[i] = strconv.Itoa(i)
 	}
+	var iface Getter
+	getterIface = reflect.TypeOf(&iface).Elem()
+	getterStyles = make(map[reflect.Type]int)
 }
 
 func itoa(i int) string {
@@ -74,6 +90,50 @@ func itoa(i int) string {
 		return itoaCache[i]
 	}
 	return strconv.Itoa(i)
+}
+
+func getterStyle(outt reflect.Type) int {
+	getterMutex.RLock()
+	style := getterStyles[outt]
+	getterMutex.RUnlock()
+	if style == getterUnknown {
+		getterMutex.Lock()
+		defer getterMutex.Unlock()
+		if outt.Implements(getterIface) {
+			vt := outt
+			for vt.Kind() == reflect.Ptr {
+				vt = vt.Elem()
+			}
+			if vt.Implements(getterIface) {
+				getterStyles[outt] = getterTypeVal
+			} else {
+				getterStyles[outt] = getterTypePtr
+			}
+		} else if reflect.PtrTo(outt).Implements(getterIface) {
+			getterStyles[outt] = getterAddr
+		} else {
+			getterStyles[outt] = getterNone
+		}
+		style = getterStyles[outt]
+	}
+	return style
+}
+
+func getGetter(outt reflect.Type, out reflect.Value) Getter {
+	style := getterStyle(outt)
+	if style == getterNone {
+		return nil
+	}
+	if style == getterAddr {
+		if !out.CanAddr() {
+			return nil
+		}
+		return out.Addr().Interface().(Getter)
+	}
+	if style == getterTypeVal && out.Kind() == reflect.Ptr && out.IsNil() {
+		return nil
+	}
+	return out.Interface().(Getter)
 }
 
 // --------------------------------------------------------------------------
@@ -253,7 +313,7 @@ func (e *encoder) addElem(name string, v reflect.Value, minSize bool) {
 		return
 	}
 
-	if getter, ok := v.Interface().(Getter); ok {
+	if getter := getGetter(v.Type(), v); getter != nil {
 		getv, err := getter.GetBSON()
 		if err != nil {
 			panic(err)
