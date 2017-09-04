@@ -1,8 +1,3 @@
-[![Build Status](https://travis-ci.org/domodwyer/mgo.svg?branch=master)](https://travis-ci.org/domodwyer/mgo) [![GoDoc](https://godoc.org/github.com/domodwyer/mgo?status.svg)](https://godoc.org/github.com/domodwyer/mgo)
+## Forked! ##
 
-The MongoDB driver for Go
--------------------------
-
-This fork has had serveral PR's merged from the original mgo repo that are currently awaiting review.
-
-Futher PR's (with tests) are welcome, but please maintain backwards compatibility.
+This has grown into a supported fork at GlobalSign - please head over to https://github.com/globalsign/mgo for the fork of this fork :)
