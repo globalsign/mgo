@@ -235,6 +235,10 @@ const (
 //        Defines the per-server socket pool limit. Defaults to 4096.
 //        See Session.SetPoolLimit for details.
 //
+//     appName=<appName>
+//
+//        The identifier of the client application which ran the operation. This
+//        param can't exceed 128 bytes
 //
 // Relevant documentation:
 //
@@ -279,6 +283,7 @@ func ParseURL(url string) (*DialInfo, error) {
 	source := ""
 	setName := ""
 	poolLimit := 0
+	appName := ""
 	readPreferenceMode := Primary
 	var readPreferenceTagSets []bson.D
 	for _, opt := range uinfo.options {
@@ -296,6 +301,11 @@ func ParseURL(url string) (*DialInfo, error) {
 			if err != nil {
 				return nil, errors.New("bad value for maxPoolSize: " + opt.value)
 			}
+		case "appName":
+			if len(opt.value) > 128 {
+				return nil, errors.New("appName too long, must be < 128 bytes: " + opt.value)
+			}
+			appName = opt.value
 		case "readPreference":
 			switch opt.value {
 			case "nearest":
@@ -350,6 +360,7 @@ func ParseURL(url string) (*DialInfo, error) {
 		Service:   service,
 		Source:    source,
 		PoolLimit: poolLimit,
+		AppName:   appName,
 		ReadPreference: &ReadPreference{
 			Mode:    readPreferenceMode,
 			TagSets: readPreferenceTagSets,
@@ -408,6 +419,9 @@ type DialInfo struct {
 	// PoolLimit defines the per-server socket pool limit. Defaults to 4096.
 	// See Session.SetPoolLimit for details.
 	PoolLimit int
+
+	// The identifier of the client application which ran the operation.
+	AppName string
 
 	// ReadPreference defines the manner in which servers are chosen. See
 	// Session.SetMode and Session.SelectServers.
@@ -472,7 +486,7 @@ func DialWithInfo(info *DialInfo) (*Session, error) {
 		}
 		addrs[i] = addr
 	}
-	cluster := newCluster(addrs, info.Direct, info.FailFast, dialer{info.Dial, info.DialServer}, info.ReplicaSetName)
+	cluster := newCluster(addrs, info.Direct, info.FailFast, dialer{info.Dial, info.DialServer}, info.ReplicaSetName, info.AppName)
 	session := newSession(Eventual, cluster, info.Timeout)
 	session.defaultdb = info.Database
 	if session.defaultdb == "" {

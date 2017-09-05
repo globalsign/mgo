@@ -200,6 +200,50 @@ func (s *S) TestURLInvalidReadPreferenceTags(c *C) {
 	}
 }
 
+func (s *S) TestURLWithAppName(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("appName depends on MongoDB 3.4+")
+	}
+	appName := "myAppName"
+	session, err := mgo.Dial("localhost:40001?appName=" + appName)
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	db := session.DB("mydb")
+
+	err = db.Run(bson.D{{"profile", 2}}, nil)
+	c.Assert(err, IsNil)
+
+	coll := db.C("mycoll")
+	err = coll.Insert(M{"a": 1, "b": 2})
+	c.Assert(err, IsNil)
+
+	result := struct{ A, B int }{}
+	err = coll.Find(M{"a": 1}).One(&result)
+	c.Assert(err, IsNil)
+
+	profileResult := struct {
+		AppName string `bson:"appName"`
+	}{}
+
+	err = db.C("system.profile").Find(nil).Sort("-ts").One(&profileResult)
+	c.Assert(err, IsNil)
+	c.Assert(appName, Equals, profileResult.AppName)
+	// reset profiling to 0 as it add unecessary overhead to all other test
+	err = db.Run(bson.D{{"profile", 0}}, nil)
+	c.Assert(err, IsNil)
+}
+
+func (s *S) TestURLWithAppNameTooLong(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("appName depends on MongoDB 3.4+")
+	}
+	appName := "myAppNameWayTooLongmyAppNameWayTooLongmyAppNameWayTooLongmyAppNameWayTooLong"
+	appName += appName
+	_, err := mgo.Dial("localhost:40001?appName=" + appName)
+	c.Assert(err, ErrorMatches, "appName too long, must be < 128 bytes: "+appName)
+}
+
 func (s *S) TestInsertFindOne(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
