@@ -157,9 +157,9 @@ const (
 // topology.
 //
 // Dial will timeout after 10 seconds if a server isn't reached. The returned
-// session will timeout operations after one minute by default if servers
-// aren't available. To customize the timeout, see DialWithTimeout,
-// SetSyncTimeout, and SetSocketTimeout.
+// session will timeout operations after one minute by default if servers aren't
+// available. To customize the timeout, see DialWithTimeout, SetSyncTimeout, and
+// SetSocketTimeout.
 //
 // This method is generally called just once for a given cluster.  Further
 // sessions to the same cluster are then established using the New or Copy
@@ -184,8 +184,8 @@ const (
 // If the port number is not provided for a server, it defaults to 27017.
 //
 // The username and password provided in the URL will be used to authenticate
-// into the database named after the slash at the end of the host names, or
-// into the "admin" database if none is provided.  The authentication information
+// into the database named after the slash at the end of the host names, or into
+// the "admin" database if none is provided.  The authentication information
 // will persist in sessions obtained through the New method as well.
 //
 // The following connection options are supported after the question mark:
@@ -237,8 +237,8 @@ const (
 //
 //     appName=<appName>
 //
-//        The identifier of the client application which ran the operation. This
-//        param can't exceed 128 bytes
+//        The identifier of this client application. This parameter is used to
+//        annotate logs / profiler output and cannot exceed 128 bytes.
 //
 // Relevant documentation:
 //
