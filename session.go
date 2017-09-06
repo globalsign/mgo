@@ -666,6 +666,30 @@ func (db *Database) C(name string) *Collection {
 	return &Collection{db, name, db.Name + "." + name}
 }
 
+// CreateView creates a view as the result of the applying the specified
+// aggregation pipeline to the source collection or view. Views act as
+// read-only collections, and are computed on demand during read operations.
+// MongoDB executes read operations on views as part of the underlying aggregation pipeline.
+//
+// For example:
+//
+//     db := session.DB("mydb")
+//     db.CreateView("myview", "mycoll", []bson.M{{"$match": bson.M{"c": 1}}}, nil)
+//     view := db.C("myview")
+//
+// Relevant documentation:
+//
+//     https://docs.mongodb.com/manual/core/views/
+//     https://docs.mongodb.com/manual/reference/method/db.createView/
+//
+func (db *Database) CreateView(view string, source string, pipeline interface{}, collation *Collation) error {
+	command := bson.D{{"create", view}, {"viewOn", source}, {"pipeline", pipeline}}
+	if collation != nil {
+		command = append(command, bson.DocElem{"collation", collation})
+	}
+	return db.Run(command, nil)
+}
+
 // With returns a copy of db that uses session s.
 func (db *Database) With(s *Session) *Database {
 	newdb := *db

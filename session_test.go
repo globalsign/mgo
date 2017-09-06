@@ -1261,6 +1261,131 @@ func (s *S) TestCountCollection(c *C) {
 	c.Assert(n, Equals, 3)
 }
 
+func (s *S) TestView(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("depends on mongodb 3.4+")
+	}
+	// CreateView has to be run against mongos
+	session, err := mgo.Dial("localhost:40201")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	db := session.DB("mydb")
+
+	coll := db.C("mycoll")
+
+	for i := 0; i < 4; i++ {
+		err = coll.Insert(bson.M{"_id": i, "nm": "a"})
+		c.Assert(err, IsNil)
+	}
+
+	pipeline := []bson.M{{"$match": bson.M{"_id": bson.M{"$gte": 2}}}}
+
+	err = db.CreateView("myview", coll.Name, pipeline, nil)
+	c.Assert(err, IsNil)
+
+	names, err := db.CollectionNames()
+	c.Assert(err, IsNil)
+	c.Assert(names, DeepEquals, []string{"mycoll", "myview", "system.views"})
+
+	var viewInfo struct {
+		ID       string   `bson:"_id"`
+		ViewOn   string   `bson:"viewOn"`
+		Pipeline []bson.M `bson:"pipeline"`
+	}
+
+	err = db.C("system.views").Find(nil).One(&viewInfo)
+	c.Assert(viewInfo.ID, Equals, "mydb.myview")
+	c.Assert(viewInfo.ViewOn, Equals, "mycoll")
+	c.Assert(viewInfo.Pipeline, DeepEquals, pipeline)
+
+	view := db.C("myview")
+
+	n, err := view.Count()
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 2)
+
+	var result struct {
+		ID int    `bson:"_id"`
+		Nm string `bson:"nm"`
+	}
+
+	err = view.Find(nil).Sort("_id").One(&result)
+	c.Assert(err, IsNil)
+	c.Assert(result.ID, Equals, 2)
+
+	err = view.Find(bson.M{"_id": 3}).One(&result)
+	c.Assert(err, IsNil)
+	c.Assert(result.ID, Equals, 3)
+
+	var resultPipe struct {
+		ID int    `bson:"_id"`
+		Nm string `bson:"nm"`
+		C  int    `bson:"c"`
+	}
+
+	err = view.Pipe([]bson.M{{"$project": bson.M{"c": bson.M{"$sum": []interface{}{"$_id", 10}}}}}).One(&resultPipe)
+	c.Assert(err, IsNil)
+	c.Assert(resultPipe.C, Equals, 12)
+
+	err = view.EnsureIndexKey("nm")
+	c.Assert(err, NotNil)
+
+	err = view.Insert(bson.M{"_id": 5, "nm": "b"})
+	c.Assert(err, NotNil)
+
+	err = view.Remove(bson.M{"_id": 2})
+	c.Assert(err, NotNil)
+
+	err = view.Update(bson.M{"_id": 2}, bson.M{"$set": bson.M{"d": true}})
+	c.Assert(err, NotNil)
+
+	err = db.C("myview").DropCollection()
+	c.Assert(err, IsNil)
+
+	names, err = db.CollectionNames()
+	c.Assert(err, IsNil)
+	c.Assert(names, DeepEquals, []string{"mycoll", "system.views"})
+
+	n, err = db.C("system.views").Count()
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 0)
+
+}
+
+func (s *S) TestViewWithCollation(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("depends on mongodb 3.4+")
+	}
+	// CreateView has to be run against mongos
+	session, err := mgo.Dial("localhost:40201")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	db := session.DB("mydb")
+
+	coll := db.C("mycoll")
+
+	names := []string{"case", "CaSe", "cäse"}
+	for _, name := range names {
+		err = coll.Insert(bson.M{"nm": name})
+		c.Assert(err, IsNil)
+	}
+
+	collation := &mgo.Collation{Locale: "en", Strength: 2}
+
+	err = db.CreateView("myview", "mycoll", []bson.M{{"$match": bson.M{"nm": "case"}}}, collation)
+	c.Assert(err, IsNil)
+
+	var docs []struct {
+		Nm string `bson:"nm"`
+	}
+	err = db.C("myview").Find(nil).All(&docs)
+	c.Assert(err, IsNil)
+	c.Assert(docs[0].Nm, Equals, "case")
+	c.Assert(docs[1].Nm, Equals, "CaSe")
+}
+
 func (s *S) TestCountQuery(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
