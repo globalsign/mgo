@@ -2,29 +2,22 @@ language: go
 
 go_import_path: github.com/globalsign/mgo
 
-addons:
-    apt:
-        packages:
-
 env:
     global:
         - BUCKET=https://s3.eu-west-2.amazonaws.com/globalsign-mgo
     matrix:
-        - GO=1.6   MONGODB=x86_64-2.6.11
         - GO=1.7   MONGODB=x86_64-2.6.11
         - GO=1.8.x MONGODB=x86_64-2.6.11
-        - GO=1.6   MONGODB=x86_64-3.0.9
         - GO=1.7   MONGODB=x86_64-3.0.9
         - GO=1.8.x MONGODB=x86_64-3.0.9
-        - GO=1.6   MONGODB=x86_64-3.2.3-nojournal
         - GO=1.7   MONGODB=x86_64-3.2.3-nojournal
         - GO=1.8.x MONGODB=x86_64-3.2.3-nojournal
-        - GO=1.6   MONGODB=x86_64-3.2.12
         - GO=1.7   MONGODB=x86_64-3.2.12
         - GO=1.8.x MONGODB=x86_64-3.2.12
-        - GO=1.6   MONGODB=x86_64-3.2.16
         - GO=1.7   MONGODB=x86_64-3.2.16
         - GO=1.8.x MONGODB=x86_64-3.2.16
+        - GO=1.7   MONGODB=x86_64-3.4.8
+        - GO=1.8.x MONGODB=x86_64-3.4.8
 
 install:
     - eval "$(gimme $GO)"
@@ -50,5 +43,8 @@ script:
     - go test -check.v -fast
     - (cd txn && go test -check.v)
     - make stopdb
+
+git:
+  depth: 3
 
 # vim:sw=4:ts=4:et

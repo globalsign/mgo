@@ -25,6 +25,9 @@ for (var i = 0; i != 60; i++) {
 		rs1a = new Mongo("127.0.0.1:40011").getDB("admin")
 		rs2a = new Mongo("127.0.0.1:40021").getDB("admin")
 		rs3a = new Mongo("127.0.0.1:40031").getDB("admin")
+        cfg1 = new Mongo("127.0.0.1:40101").getDB("admin")
+        cfg2 = new Mongo("127.0.0.1:40102").getDB("admin")
+        cfg3 = new Mongo("127.0.0.1:40103").getDB("admin")
 		break
 	} catch(err) {
 		print("Can't connect yet...")
@@ -36,20 +39,31 @@ function hasSSL() {
     return Boolean(db1.serverBuildInfo().OpenSSLVersion)
 }
 
+function getMongoVersion() {
+    return db1.version()
+}
+
 rs1a.runCommand({replSetInitiate: rs1cfg})
 rs2a.runCommand({replSetInitiate: rs2cfg})
 rs3a.runCommand({replSetInitiate: rs3cfg})
 
+if (getMongoVersion() == "3.4.8") {
+  print("configuring config server for mongodb 3.4")
+  cfg1.runCommand({replSetInitiate: {_id:"conf1", members: [{"_id":1, "host":"localhost:40101"}]}})
+  cfg2.runCommand({replSetInitiate: {_id:"conf2", members: [{"_id":1, "host":"localhost:40102"}]}})
+  cfg3.runCommand({replSetInitiate: {_id:"conf3", members: [{"_id":1, "host":"localhost:40103"}]}})
+}
+
 function configShards() {
-    cfg1 = new Mongo("127.0.0.1:40201").getDB("admin")
-    cfg1.runCommand({addshard: "127.0.0.1:40001"})
-    cfg1.runCommand({addshard: "rs1/127.0.0.1:40011"})
+    s1 = new Mongo("127.0.0.1:40201").getDB("admin")
+    s1.runCommand({addshard: "127.0.0.1:40001"})
+    s1.runCommand({addshard: "rs1/127.0.0.1:40011"})
 
-    cfg2 = new Mongo("127.0.0.1:40202").getDB("admin")
-    cfg2.runCommand({addshard: "rs2/127.0.0.1:40021"})
+    s2 = new Mongo("127.0.0.1:40202").getDB("admin")
+    s2.runCommand({addshard: "rs2/127.0.0.1:40021"})
 
-    cfg3 = new Mongo("127.0.0.1:40203").getDB("admin")
-    cfg3.runCommand({addshard: "rs3/127.0.0.1:40031"})
+    s3 = new Mongo("127.0.0.1:40203").getDB("admin")
+    s3.runCommand({addshard: "rs3/127.0.0.1:40031"})
 }
 
 function configAuth() {
