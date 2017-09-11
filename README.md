@@ -22,7 +22,7 @@ Further PR's (with tests) are welcome, but please maintain backwards compatibili
 * Fixes cursor timeouts ([details](https://jira.mongodb.org/browse/SERVER-24899))
 * Support index hints and timeouts for count queries ([details](https://github.com/globalsign/mgo/pull/17))
 * Don't panic when handling indexed `int64` fields ([detials](https://github.com/go-mgo/mgo/issues/475))
-* Allow dropping all indexes on a collection ([details](https://github.com/globalsign/mgo/pull/25))
+* Supports dropping all indexes on a collection ([details](https://github.com/globalsign/mgo/pull/25))
 * Annotates log entries/profiler output with optional appName on 3.4+ ([details](https://github.com/globalsign/mgo/pull/28))
 
 ---
