@@ -200,6 +200,50 @@ func (s *S) TestURLInvalidReadPreferenceTags(c *C) {
 	}
 }
 
+func (s *S) TestURLWithAppName(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("appName depends on MongoDB 3.4+")
+	}
+	appName := "myAppName"
+	session, err := mgo.Dial("localhost:40001?appName=" + appName)
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	db := session.DB("mydb")
+
+	err = db.Run(bson.D{{"profile", 2}}, nil)
+	c.Assert(err, IsNil)
+
+	coll := db.C("mycoll")
+	err = coll.Insert(M{"a": 1, "b": 2})
+	c.Assert(err, IsNil)
+
+	result := struct{ A, B int }{}
+	err = coll.Find(M{"a": 1}).One(&result)
+	c.Assert(err, IsNil)
+
+	profileResult := struct {
+		AppName string `bson:"appName"`
+	}{}
+
+	err = db.C("system.profile").Find(nil).Sort("-ts").One(&profileResult)
+	c.Assert(err, IsNil)
+	c.Assert(appName, Equals, profileResult.AppName)
+	// reset profiling to 0 as it add unecessary overhead to all other test
+	err = db.Run(bson.D{{"profile", 0}}, nil)
+	c.Assert(err, IsNil)
+}
+
+func (s *S) TestURLWithAppNameTooLong(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("appName depends on MongoDB 3.4+")
+	}
+	appName := "myAppNameWayTooLongmyAppNameWayTooLongmyAppNameWayTooLongmyAppNameWayTooLong"
+	appName += appName
+	_, err := mgo.Dial("localhost:40001?appName=" + appName)
+	c.Assert(err, ErrorMatches, "appName too long, must be < 128 bytes: "+appName)
+}
+
 func (s *S) TestInsertFindOne(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
@@ -1215,6 +1259,131 @@ func (s *S) TestCountCollection(c *C) {
 	n, err := coll.Count()
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, 3)
+}
+
+func (s *S) TestView(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("depends on mongodb 3.4+")
+	}
+	// CreateView has to be run against mongos
+	session, err := mgo.Dial("localhost:40201")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	db := session.DB("mydb")
+
+	coll := db.C("mycoll")
+
+	for i := 0; i < 4; i++ {
+		err = coll.Insert(bson.M{"_id": i, "nm": "a"})
+		c.Assert(err, IsNil)
+	}
+
+	pipeline := []bson.M{{"$match": bson.M{"_id": bson.M{"$gte": 2}}}}
+
+	err = db.CreateView("myview", coll.Name, pipeline, nil)
+	c.Assert(err, IsNil)
+
+	names, err := db.CollectionNames()
+	c.Assert(err, IsNil)
+	c.Assert(names, DeepEquals, []string{"mycoll", "myview", "system.views"})
+
+	var viewInfo struct {
+		ID       string   `bson:"_id"`
+		ViewOn   string   `bson:"viewOn"`
+		Pipeline []bson.M `bson:"pipeline"`
+	}
+
+	err = db.C("system.views").Find(nil).One(&viewInfo)
+	c.Assert(viewInfo.ID, Equals, "mydb.myview")
+	c.Assert(viewInfo.ViewOn, Equals, "mycoll")
+	c.Assert(viewInfo.Pipeline, DeepEquals, pipeline)
+
+	view := db.C("myview")
+
+	n, err := view.Count()
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 2)
+
+	var result struct {
+		ID int    `bson:"_id"`
+		Nm string `bson:"nm"`
+	}
+
+	err = view.Find(nil).Sort("_id").One(&result)
+	c.Assert(err, IsNil)
+	c.Assert(result.ID, Equals, 2)
+
+	err = view.Find(bson.M{"_id": 3}).One(&result)
+	c.Assert(err, IsNil)
+	c.Assert(result.ID, Equals, 3)
+
+	var resultPipe struct {
+		ID int    `bson:"_id"`
+		Nm string `bson:"nm"`
+		C  int    `bson:"c"`
+	}
+
+	err = view.Pipe([]bson.M{{"$project": bson.M{"c": bson.M{"$sum": []interface{}{"$_id", 10}}}}}).One(&resultPipe)
+	c.Assert(err, IsNil)
+	c.Assert(resultPipe.C, Equals, 12)
+
+	err = view.EnsureIndexKey("nm")
+	c.Assert(err, NotNil)
+
+	err = view.Insert(bson.M{"_id": 5, "nm": "b"})
+	c.Assert(err, NotNil)
+
+	err = view.Remove(bson.M{"_id": 2})
+	c.Assert(err, NotNil)
+
+	err = view.Update(bson.M{"_id": 2}, bson.M{"$set": bson.M{"d": true}})
+	c.Assert(err, NotNil)
+
+	err = db.C("myview").DropCollection()
+	c.Assert(err, IsNil)
+
+	names, err = db.CollectionNames()
+	c.Assert(err, IsNil)
+	c.Assert(names, DeepEquals, []string{"mycoll", "system.views"})
+
+	n, err = db.C("system.views").Count()
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 0)
+
+}
+
+func (s *S) TestViewWithCollation(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("depends on mongodb 3.4+")
+	}
+	// CreateView has to be run against mongos
+	session, err := mgo.Dial("localhost:40201")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	db := session.DB("mydb")
+
+	coll := db.C("mycoll")
+
+	names := []string{"case", "CaSe", "cäse"}
+	for _, name := range names {
+		err = coll.Insert(bson.M{"nm": name})
+		c.Assert(err, IsNil)
+	}
+
+	collation := &mgo.Collation{Locale: "en", Strength: 2}
+
+	err = db.CreateView("myview", "mycoll", []bson.M{{"$match": bson.M{"nm": "case"}}}, collation)
+	c.Assert(err, IsNil)
+
+	var docs []struct {
+		Nm string `bson:"nm"`
+	}
+	err = db.C("myview").Find(nil).All(&docs)
+	c.Assert(err, IsNil)
+	c.Assert(docs[0].Nm, Equals, "case")
+	c.Assert(docs[1].Nm, Equals, "CaSe")
 }
 
 func (s *S) TestCountQuery(c *C) {
@@ -3476,6 +3645,31 @@ func (s *S) TestEnsureIndexDropIndexName(c *C) {
 
 	err = coll.DropIndexName("a_1")
 	c.Assert(err, ErrorMatches, "index not found.*")
+}
+
+func (s *S) TestEnsureIndexDropAllIndexes(c *C) {
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+
+	err = coll.EnsureIndexKey("a")
+	c.Assert(err, IsNil)
+
+	err = coll.EnsureIndexKey("b")
+	c.Assert(err, IsNil)
+
+	err = coll.DropAllIndexes()
+	c.Assert(err, IsNil)
+
+	sysidx := session.DB("mydb").C("system.indexes")
+
+	err = sysidx.Find(M{"name": "a_1"}).One(nil)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+
+	err = sysidx.Find(M{"name": "b_1"}).One(nil)
+	c.Assert(err, Equals, mgo.ErrNotFound)
 }
 
 func (s *S) TestEnsureIndexCaching(c *C) {

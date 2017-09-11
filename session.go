@@ -157,9 +157,9 @@ const (
 // topology.
 //
 // Dial will timeout after 10 seconds if a server isn't reached. The returned
-// session will timeout operations after one minute by default if servers
-// aren't available. To customize the timeout, see DialWithTimeout,
-// SetSyncTimeout, and SetSocketTimeout.
+// session will timeout operations after one minute by default if servers aren't
+// available. To customize the timeout, see DialWithTimeout, SetSyncTimeout, and
+// SetSocketTimeout.
 //
 // This method is generally called just once for a given cluster.  Further
 // sessions to the same cluster are then established using the New or Copy
@@ -184,8 +184,8 @@ const (
 // If the port number is not provided for a server, it defaults to 27017.
 //
 // The username and password provided in the URL will be used to authenticate
-// into the database named after the slash at the end of the host names, or
-// into the "admin" database if none is provided.  The authentication information
+// into the database named after the slash at the end of the host names, or into
+// the "admin" database if none is provided.  The authentication information
 // will persist in sessions obtained through the New method as well.
 //
 // The following connection options are supported after the question mark:
@@ -235,6 +235,10 @@ const (
 //        Defines the per-server socket pool limit. Defaults to 4096.
 //        See Session.SetPoolLimit for details.
 //
+//     appName=<appName>
+//
+//        The identifier of this client application. This parameter is used to
+//        annotate logs / profiler output and cannot exceed 128 bytes.
 //
 // Relevant documentation:
 //
@@ -279,6 +283,7 @@ func ParseURL(url string) (*DialInfo, error) {
 	source := ""
 	setName := ""
 	poolLimit := 0
+	appName := ""
 	readPreferenceMode := Primary
 	var readPreferenceTagSets []bson.D
 	for _, opt := range uinfo.options {
@@ -296,6 +301,11 @@ func ParseURL(url string) (*DialInfo, error) {
 			if err != nil {
 				return nil, errors.New("bad value for maxPoolSize: " + opt.value)
 			}
+		case "appName":
+			if len(opt.value) > 128 {
+				return nil, errors.New("appName too long, must be < 128 bytes: " + opt.value)
+			}
+			appName = opt.value
 		case "readPreference":
 			switch opt.value {
 			case "nearest":
@@ -350,6 +360,7 @@ func ParseURL(url string) (*DialInfo, error) {
 		Service:   service,
 		Source:    source,
 		PoolLimit: poolLimit,
+		AppName:   appName,
 		ReadPreference: &ReadPreference{
 			Mode:    readPreferenceMode,
 			TagSets: readPreferenceTagSets,
@@ -408,6 +419,9 @@ type DialInfo struct {
 	// PoolLimit defines the per-server socket pool limit. Defaults to 4096.
 	// See Session.SetPoolLimit for details.
 	PoolLimit int
+
+	// The identifier of the client application which ran the operation.
+	AppName string
 
 	// ReadPreference defines the manner in which servers are chosen. See
 	// Session.SetMode and Session.SelectServers.
@@ -472,7 +486,7 @@ func DialWithInfo(info *DialInfo) (*Session, error) {
 		}
 		addrs[i] = addr
 	}
-	cluster := newCluster(addrs, info.Direct, info.FailFast, dialer{info.Dial, info.DialServer}, info.ReplicaSetName)
+	cluster := newCluster(addrs, info.Direct, info.FailFast, dialer{info.Dial, info.DialServer}, info.ReplicaSetName, info.AppName)
 	session := newSession(Eventual, cluster, info.Timeout)
 	session.defaultdb = info.Database
 	if session.defaultdb == "" {
@@ -650,6 +664,30 @@ func (s *Session) DB(name string) *Database {
 // involves no network communication.
 func (db *Database) C(name string) *Collection {
 	return &Collection{db, name, db.Name + "." + name}
+}
+
+// CreateView creates a view as the result of the applying the specified
+// aggregation pipeline to the source collection or view. Views act as
+// read-only collections, and are computed on demand during read operations.
+// MongoDB executes read operations on views as part of the underlying aggregation pipeline.
+//
+// For example:
+//
+//     db := session.DB("mydb")
+//     db.CreateView("myview", "mycoll", []bson.M{{"$match": bson.M{"c": 1}}}, nil)
+//     view := db.C("myview")
+//
+// Relevant documentation:
+//
+//     https://docs.mongodb.com/manual/core/views/
+//     https://docs.mongodb.com/manual/reference/method/db.createView/
+//
+func (db *Database) CreateView(view string, source string, pipeline interface{}, collation *Collation) error {
+	command := bson.D{{"create", view}, {"viewOn", source}, {"pipeline", pipeline}}
+	if collation != nil {
+		command = append(command, bson.DocElem{"collation", collation})
+	}
+	return db.Run(command, nil)
 }
 
 // With returns a copy of db that uses session s.
@@ -1499,6 +1537,29 @@ func (c *Collection) DropIndexName(name string) error {
 	return nil
 }
 
+// DropAllIndexes drops all the indexes from the c collection
+func (c *Collection) DropAllIndexes() error {
+	session := c.Database.Session
+	session.ResetIndexCache()
+
+	session = session.Clone()
+	defer session.Close()
+
+	db := c.Database.With(session)
+	result := struct {
+		ErrMsg string
+		Ok     bool
+	}{}
+	err := db.Run(bson.D{{"dropIndexes", c.Name}, {"index", "*"}}, &result)
+	if err != nil {
+		return err
+	}
+	if !result.Ok {
+		return errors.New(result.ErrMsg)
+	}
+	return nil
+}
+
 // nonEventual returns a clone of session and ensures it is not Eventual.
 // This guarantees that the server that is used for queries may be reused
 // afterwards when a cursor is received.
@@ -1511,19 +1572,6 @@ func (session *Session) nonEventual() *Session {
 }
 
 // Indexes returns a list of all indexes for the collection.
-//
-// For example, this snippet would drop all available indexes:
-//
-//   indexes, err := collection.Indexes()
-//   if err != nil {
-//       return err
-//   }
-//   for _, index := range indexes {
-//       err = collection.DropIndex(index.Key...)
-//       if err != nil {
-//           return err
-//       }
-//   }
 //
 // See the EnsureIndex method for more details on indexes.
 func (c *Collection) Indexes() (indexes []Index, err error) {

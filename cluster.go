@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -61,9 +62,10 @@ type mongoCluster struct {
 	cachedIndex  map[string]bool
 	sync         chan bool
 	dial         dialer
+	appName      string
 }
 
-func newCluster(userSeeds []string, direct, failFast bool, dial dialer, setName string) *mongoCluster {
+func newCluster(userSeeds []string, direct, failFast bool, dial dialer, setName string, appName string) *mongoCluster {
 	cluster := &mongoCluster{
 		userSeeds:  userSeeds,
 		references: 1,
@@ -71,6 +73,7 @@ func newCluster(userSeeds []string, direct, failFast bool, dial dialer, setName 
 		failFast:   failFast,
 		dial:       dial,
 		setName:    setName,
+		appName:    appName,
 	}
 	cluster.serverSynced.L = cluster.RWMutex.RLocker()
 	cluster.sync = make(chan bool, 1)
@@ -144,7 +147,17 @@ func (cluster *mongoCluster) isMaster(socket *mongoSocket, result *isMasterResul
 	// Monotonic let's it talk to a slave and still hold the socket.
 	session := newSession(Monotonic, cluster, 10*time.Second)
 	session.setSocket(socket)
-	err := session.Run("ismaster", result)
+
+	// provide some meta infos on the client,
+	// see https://github.com/mongodb/specifications/blob/master/source/mongodb-handshake/handshake.rst#connection-handshake
+	// for details
+	metaInfo := bson.M{"driver": bson.M{"name": "mgo", "version": "globalsign"},
+		"os": bson.M{"type": runtime.GOOS, "architecture": runtime.GOARCH}}
+
+	if cluster.appName != "" {
+		metaInfo["application"] = bson.M{"name": cluster.appName}
+	}
+	err := session.Run(bson.D{{"isMaster", 1}, {"client", metaInfo}}, result)
 	session.Close()
 	return err
 }
