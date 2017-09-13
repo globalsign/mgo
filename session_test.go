@@ -1020,6 +1020,39 @@ func (s *S) TestCreateCollectionStorageEngine(c *C) {
 	c.Assert(err, ErrorMatches, "test is not a registered storage engine for this server")
 }
 
+func (s *S) TestCreateCollectionWithCollation(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("depends on mongodb 3.4+")
+	}
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	db := session.DB("mydb")
+	coll := db.C("mycoll")
+
+	info := &mgo.CollectionInfo{
+		Collation: &mgo.Collation{Locale: "en", Strength: 1},
+	}
+	err = coll.Create(info)
+	c.Assert(err, IsNil)
+
+	err = coll.Insert(M{"a": "case"})
+	c.Assert(err, IsNil)
+
+	err = coll.Insert(M{"a": "CaSe"})
+	c.Assert(err, IsNil)
+
+	var docs []struct {
+		A string `bson:"a"`
+	}
+	err = coll.Find(bson.M{"a": "case"}).All(&docs)
+	c.Assert(err, IsNil)
+	c.Assert(docs[0].A, Equals, "case")
+	c.Assert(docs[1].A, Equals, "CaSe")
+
+}
+
 func (s *S) TestIsDupValues(c *C) {
 	c.Assert(mgo.IsDup(nil), Equals, false)
 	c.Assert(mgo.IsDup(&mgo.LastError{Code: 1}), Equals, false)

@@ -2857,6 +2857,10 @@ type CollectionInfo struct {
 	// storage engine in use. The map keys must hold the storage engine
 	// name for which options are being specified.
 	StorageEngine interface{}
+	// Specifies the default collation for the collection.
+	// Collation allows users to specify language-specific rules for string
+	// comparison, such as rules for lettercase and accent marks.
+	Collation *Collation
 }
 
 // Create explicitly creates the c collection with details of info.
@@ -2900,6 +2904,10 @@ func (c *Collection) Create(info *CollectionInfo) error {
 	if info.StorageEngine != nil {
 		cmd = append(cmd, bson.DocElem{"storageEngine", info.StorageEngine})
 	}
+	if info.Collation != nil {
+		cmd = append(cmd, bson.DocElem{"collation", info.Collation})
+	}
+
 	return c.Database.Run(cmd, nil)
 }
 
@@ -3039,6 +3047,30 @@ func (q *Query) Sort(fields ...string) *Query {
 	return q
 }
 
+// Collation allows to specify language-specific rules for string comparison,
+// such as rules for lettercase and accent marks.
+// When specifying collation, the locale field is mandatory; all other collation
+// fields are optional
+//
+// For example, to perform a case and diacritic insensitive query:
+//
+//     var res []bson.M
+//     collation := &mgo.Collation{Locale: "en", Strength: 1}
+//     err = db.C("mycoll").Find(bson.M{"a": "a"}).Collation(collation).All(&res)
+//     if err != nil {
+//       return err
+//     }
+//
+// This query will match following documents:
+//
+//     {"a": "a"}
+//     {"a": "A"}
+//     {"a": "â"}
+//
+// Relevant documentation:
+//
+//      https://docs.mongodb.com/manual/reference/collation/
+//
 func (q *Query) Collation(collation *Collation) *Query {
 	q.m.Lock()
 	q.op.options.Collation = collation
