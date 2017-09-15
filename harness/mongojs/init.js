@@ -39,15 +39,24 @@ function hasSSL() {
     return Boolean(db1.serverBuildInfo().OpenSSLVersion)
 }
 
-function getMongoVersion() {
-    return db1.version()
+function versionAtLeast() {
+    var version = db1.version().split(".")
+    for (var i = 0; i < arguments.length; i++) {
+        if (i == arguments.length) {
+            return false
+        }
+        if (arguments[i] != version[i]) {
+            return version[i] >= arguments[i]
+        }
+    }
+    return true
 }
 
 rs1a.runCommand({replSetInitiate: rs1cfg})
 rs2a.runCommand({replSetInitiate: rs2cfg})
 rs3a.runCommand({replSetInitiate: rs3cfg})
 
-if (getMongoVersion() == "3.4.8") {
+if (versionAtLeast(3,4)) {
   print("configuring config server for mongodb 3.4")
   cfg1.runCommand({replSetInitiate: {_id:"conf1", members: [{"_id":1, "host":"localhost:40101"}]}})
   cfg2.runCommand({replSetInitiate: {_id:"conf2", members: [{"_id":1, "host":"localhost:40102"}]}})
