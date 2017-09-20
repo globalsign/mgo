@@ -56,6 +56,39 @@ import (
 // --------------------------------------------------------------------------
 // The public API.
 
+// Element types constants from BSON specification.
+const (
+	ElementFloat64                byte = 0x01
+	ElementString                 byte = 0x02
+	ElementDocument               byte = 0x03
+	ElementArray                  byte = 0x04
+	ElementBinary                 byte = 0x05
+	Element06                     byte = 0x06
+	ElementObjectId               byte = 0x07
+	ElementBool                   byte = 0x08
+	ElementDatetime               byte = 0x09
+	ElementNil                    byte = 0x0A
+	ElementRegEx                  byte = 0x0B
+	ElementDBPointer              byte = 0x0C
+	ElementJavaScriptWithoutScope byte = 0x0D
+	ElementSymbol                 byte = 0x0E
+	ElementJavaScriptWithScope    byte = 0x0F
+	ElementInt32                  byte = 0x10
+	ElementTimestamp              byte = 0x11
+	ElementInt64                  byte = 0x12
+	ElementDecimal128             byte = 0x13
+	ElementMinKey                 byte = 0xFF
+	ElementMaxKey                 byte = 0x7F
+
+	BinaryGeneric     byte = 0x00
+	BinaryFunction    byte = 0x01
+	BinaryBinaryOld   byte = 0x02
+	BinaryUUIDOld     byte = 0x03
+	BinaryUUID        byte = 0x04
+	BinaryMD5         byte = 0x05
+	BinaryUserDefined byte = 0x80
+)
+
 // A value implementing the bson.Getter interface will have its GetBSON
 // method called when the given value has to be marshalled, and the result
 // of this method will be marshaled in place of the actual object.
