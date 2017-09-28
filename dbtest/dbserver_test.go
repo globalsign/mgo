@@ -78,6 +78,8 @@ func (s *S) TestStop(c *C) {
 
 	// Server should not be running anymore.
 	session, err = mgo.DialWithTimeout(addr, 500*time.Millisecond)
+	c.Assert(err, IsNil)
+
 	if session != nil {
 		session.Close()
 		c.Fatalf("Stop did not stop the server")

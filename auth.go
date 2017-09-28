@@ -61,7 +61,7 @@ type getNonceCmd struct {
 
 type getNonceResult struct {
 	Nonce string
-	Err   string "$err"
+	Err   string `bson:"$err"`
 	Code  int
 }
 

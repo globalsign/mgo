@@ -580,7 +580,7 @@ func (s *S) TestAuthLoginCachingWithNewSession(c *C) {
 }
 
 func (s *S) TestAuthLoginCachingAcrossPool(c *C) {
-	// Logins are cached even when the conenction goes back
+	// Logins are cached even when the connection goes back
 	// into the pool.
 
 	session, err := mgo.Dial("localhost:40002")
@@ -934,7 +934,7 @@ func (s *S) TestAuthX509Cred(c *C) {
 	x509Subject := "CN=localhost,OU=Client,O=MGO,L=MGO,ST=MGO,C=GO"
 
 	externalDB := session.DB("$external")
-	var x509User mgo.User = mgo.User{
+	var x509User = mgo.User{
 		Username:     x509Subject,
 		OtherDBRoles: map[string][]mgo.Role{"admin": {mgo.RoleRoot}},
 	}
@@ -1080,11 +1080,11 @@ func (kerberosSuite *KerberosSuite) TestAuthKerberosURL(c *C) {
 		c.Skip("no -kerberos")
 	}
 	c.Logf("Connecting to %s...", kerberosHost)
-	connectUri := url.QueryEscape(kerberosUser) + "@" + kerberosHost + "?authMechanism=GSSAPI"
+	connectURI := url.QueryEscape(kerberosUser) + "@" + kerberosHost + "?authMechanism=GSSAPI"
 	if runtime.GOOS == "windows" {
-		connectUri = url.QueryEscape(kerberosUser) + ":" + url.QueryEscape(getWindowsKerberosPassword()) + "@" + kerberosHost + "?authMechanism=GSSAPI"
+		connectURI = url.QueryEscape(kerberosUser) + ":" + url.QueryEscape(getWindowsKerberosPassword()) + "@" + kerberosHost + "?authMechanism=GSSAPI"
 	}
-	session, err := mgo.Dial(connectUri)
+	session, err := mgo.Dial(connectURI)
 	c.Assert(err, IsNil)
 	defer session.Close()
 	n, err := session.DB("kerberos").C("test").Find(M{}).Count()

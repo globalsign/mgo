@@ -65,7 +65,7 @@ var jsonTests = []jsonTest{
 
 	// $regex
 	{
-		a: bson.RegEx{"pattern", "options"},
+		a: bson.RegEx{Pattern: "pattern", Options: "options"},
 		b: `{"$regex":"pattern","$options":"options"}`,
 	},
 

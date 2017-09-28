@@ -89,7 +89,7 @@ const (
 	BinaryUserDefined byte = 0x80
 )
 
-// A value implementing the bson.Getter interface will have its GetBSON
+// Getter interface: a value implementing the bson.Getter interface will have its GetBSON
 // method called when the given value has to be marshalled, and the result
 // of this method will be marshaled in place of the actual object.
 //
@@ -99,12 +99,12 @@ type Getter interface {
 	GetBSON() (interface{}, error)
 }
 
-// A value implementing the bson.Setter interface will receive the BSON
+// Setter interface: a value implementing the bson.Setter interface will receive the BSON
 // value via the SetBSON method during unmarshaling, and the object
 // itself will not be changed as usual.
 //
 // If setting the value works, the method should return nil or alternatively
-// bson.SetZero to set the respective field to its zero value (nil for
+// bson.ErrSetZero to set the respective field to its zero value (nil for
 // pointer types). If SetBSON returns a value of type bson.TypeError, the
 // BSON value will be omitted from a map or slice being decoded and the
 // unmarshalling will continue. If it returns any other non-nil error, the
@@ -130,10 +130,10 @@ type Setter interface {
 	SetBSON(raw Raw) error
 }
 
-// SetZero may be returned from a SetBSON method to have the value set to
+// ErrSetZero may be returned from a SetBSON method to have the value set to
 // its respective zero value. When used in pointer values, this will set the
 // field to nil rather than to the pre-allocated value.
-var SetZero = errors.New("set to zero")
+var ErrSetZero = errors.New("set to zero")
 
 // M is a convenient alias for a map[string]interface{} map, useful for
 // dealing with BSON in a native way.  For instance:
@@ -189,7 +189,7 @@ type Raw struct {
 // documents in general.
 type RawD []RawDocElem
 
-// See the RawD type.
+// RawDocElem elements of RawD type.
 type RawDocElem struct {
 	Name  string
 	Value Raw
@@ -199,7 +199,7 @@ type RawDocElem struct {
 // long. MongoDB objects by default have such a property set in their "_id"
 // property.
 //
-// http://www.mongodb.org/display/DOCS/Object+IDs
+// http://www.mongodb.org/display/DOCS/Object+Ids
 type ObjectId string
 
 // ObjectIdHex returns an ObjectId from the provided hex representation.
@@ -225,7 +225,7 @@ func IsObjectIdHex(s string) bool {
 
 // objectIdCounter is atomically incremented when generating a new ObjectId
 // using NewObjectId() function. It's used as a counter part of an id.
-var objectIdCounter uint32 = readRandomUint32()
+var objectIdCounter = readRandomUint32()
 
 // readRandomUint32 returns a random objectIdCounter.
 func readRandomUint32() uint32 {
@@ -333,12 +333,12 @@ func (id *ObjectId) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	if len(data) != 26 || data[0] != '"' || data[25] != '"' {
-		return errors.New(fmt.Sprintf("invalid ObjectId in JSON: %s", string(data)))
+		return fmt.Errorf("invalid ObjectId in JSON: %s", string(data))
 	}
 	var buf [12]byte
 	_, err := hex.Decode(buf[:], data[1:25])
 	if err != nil {
-		return errors.New(fmt.Sprintf("invalid ObjectId in JSON: %s (%s)", string(data), err))
+		return fmt.Errorf("invalid ObjectId in JSON: %s (%s)", string(data), err)
 	}
 	*id = ObjectId(string(buf[:]))
 	return nil
@@ -604,12 +604,12 @@ func Unmarshal(in []byte, out interface{}) (err error) {
 		d := newDecoder(in)
 		d.readDocTo(v)
 		if d.i < len(d.in) {
-			return errors.New("Document is corrupted")
+			return errors.New("document is corrupted")
 		}
 	case reflect.Struct:
-		return errors.New("Unmarshal can't deal with struct values. Use a pointer.")
+		return errors.New("unmarshal can't deal with struct values. Use a pointer")
 	default:
-		return errors.New("Unmarshal needs a map or a pointer to a struct.")
+		return errors.New("unmarshal needs a map or a pointer to a struct")
 	}
 	return nil
 }
@@ -633,13 +633,15 @@ func (raw Raw) Unmarshal(out interface{}) (err error) {
 			return &TypeError{v.Type(), raw.Kind}
 		}
 	case reflect.Struct:
-		return errors.New("Raw Unmarshal can't deal with struct values. Use a pointer.")
+		return errors.New("raw Unmarshal can't deal with struct values. Use a pointer")
 	default:
-		return errors.New("Raw Unmarshal needs a map or a valid pointer.")
+		return errors.New("raw Unmarshal needs a map or a valid pointer")
 	}
 	return nil
 }
 
+// TypeError store details for type error occuring
+// during unmarshaling
 type TypeError struct {
 	Type reflect.Type
 	Kind byte

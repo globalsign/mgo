@@ -33,6 +33,7 @@ import (
 var stats *Stats
 var statsMutex sync.Mutex
 
+// SetStats enable database state monitoring
 func SetStats(enabled bool) {
 	statsMutex.Lock()
 	if enabled {
@@ -45,6 +46,7 @@ func SetStats(enabled bool) {
 	statsMutex.Unlock()
 }
 
+// GetStats return the current database state
 func GetStats() (snapshot Stats) {
 	statsMutex.Lock()
 	snapshot = *stats
@@ -52,6 +54,7 @@ func GetStats() (snapshot Stats) {
 	return
 }
 
+// ResetStats reset Stats to the previous database state
 func ResetStats() {
 	statsMutex.Lock()
 	debug("Resetting stats")
@@ -66,6 +69,13 @@ func ResetStats() {
 	return
 }
 
+// Stats holds info on the database state
+//
+// Relevant documentation:
+//
+//    https://docs.mongodb.com/manual/reference/command/serverStatus/
+//
+// TODO outdated fields ?
 type Stats struct {
 	Clusters     int
 	MasterConns  int

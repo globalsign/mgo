@@ -64,7 +64,7 @@ func (s *S) TestBulkInsertError(c *C) {
 	c.Assert(mgo.IsDup(err), Equals, true)
 
 	type doc struct {
-		N int `_id`
+		N int `bson:"_id"`
 	}
 	var res []doc
 	err = coll.Find(nil).Sort("_id").All(&res)
@@ -85,7 +85,7 @@ func (s *S) TestBulkInsertErrorUnordered(c *C) {
 	c.Assert(err, ErrorMatches, ".*duplicate key.*")
 
 	type doc struct {
-		N int `_id`
+		N int `bson:"_id"`
 	}
 	var res []doc
 	err = coll.Find(nil).Sort("_id").All(&res)
@@ -110,7 +110,7 @@ func (s *S) TestBulkInsertErrorUnorderedSplitBatch(c *C) {
 
 	const total = 4096
 	type doc struct {
-		Id int `_id`
+		Id int `bson:"_id"`
 	}
 	docs := make([]interface{}, total)
 	for i := 0; i < total; i++ {

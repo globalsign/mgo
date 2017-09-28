@@ -157,7 +157,7 @@ func (cluster *mongoCluster) isMaster(socket *mongoSocket, result *isMasterResul
 	if cluster.appName != "" {
 		metaInfo["application"] = bson.M{"name": cluster.appName}
 	}
-	err := session.Run(bson.D{{"isMaster", 1}, {"client", metaInfo}}, result)
+	err := session.Run(bson.D{{Name: "isMaster", Value: 1}, {Name: "client", Value: metaInfo}}, result)
 	session.Close()
 	return err
 }
@@ -667,7 +667,6 @@ func (cluster *mongoCluster) AcquireSocket(mode Mode, slaveOk bool, syncTimeout 
 		}
 		return s, nil
 	}
-	panic("unreached")
 }
 
 func (cluster *mongoCluster) CacheIndex(cacheKey string, exists bool) {

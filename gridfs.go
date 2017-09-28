@@ -39,6 +39,26 @@ import (
 	"github.com/globalsign/mgo/bson"
 )
 
+// GridFS stores files in two collections:
+//
+// - chunks stores the binary chunks. For details, see the chunks Collection.
+// - files stores the file’s metadata. For details, see the files Collection.
+//
+// GridFS places the collections in a common bucket by prefixing each with the bucket name.
+// By default, GridFS uses two collections with a bucket named fs:
+//
+// - fs.files
+// - fs.chunks
+//
+// You can choose a different bucket name, as well as create multiple buckets in a single database.
+// The full collection name, which includes the bucket name, is subject to the namespace length limit.
+//
+// Relevant documentation:
+//
+//    https://docs.mongodb.com/manual/core/gridfs/
+//    https://docs.mongodb.com/manual/core/gridfs/#gridfs-chunks-collection
+//    https://docs.mongodb.com/manual/core/gridfs/#gridfs-files-collection
+//
 type GridFS struct {
 	Files  *Collection
 	Chunks *Collection
@@ -52,6 +72,7 @@ const (
 	gfsWriting gfsFileMode = 2
 )
 
+// GridFile document in files collection
 type GridFile struct {
 	m    sync.Mutex
 	c    sync.Cond
@@ -73,19 +94,19 @@ type GridFile struct {
 }
 
 type gfsFile struct {
-	Id          interface{} "_id"
-	ChunkSize   int         "chunkSize"
-	UploadDate  time.Time   "uploadDate"
-	Length      int64       ",minsize"
+	Id          interface{} `bson:"_id"`
+	ChunkSize   int         `bson:"chunkSize"`
+	UploadDate  time.Time   `bson:"uploadDate"`
+	Length      int64       `bson:",minsize"`
 	MD5         string
-	Filename    string    ",omitempty"
-	ContentType string    "contentType,omitempty"
-	Metadata    *bson.Raw ",omitempty"
+	Filename    string    `bson:",omitempty"`
+	ContentType string    `bson:"contentType,omitempty"`
+	Metadata    *bson.Raw `bson:",omitempty"`
 }
 
 type gfsChunk struct {
-	Id      interface{} "_id"
-	FilesId interface{} "files_id"
+	Id      interface{} `bson:"_id"`
+	FilesId interface{} `bson:"files_id"`
 	N       int
 	Data    []byte
 }
@@ -319,12 +340,12 @@ func (gfs *GridFS) RemoveId(id interface{}) error {
 	if err != nil {
 		return err
 	}
-	_, err = gfs.Chunks.RemoveAll(bson.D{{"files_id", id}})
+	_, err = gfs.Chunks.RemoveAll(bson.D{{Name: "files_id", Value: id}})
 	return err
 }
 
 type gfsDocId struct {
-	Id interface{} "_id"
+	Id interface{} `bson:"_id"`
 }
 
 // Remove deletes all files with the provided name from the GridFS.
@@ -411,7 +432,7 @@ func (file *GridFile) ContentType() string {
 	return file.doc.ContentType
 }
 
-// ContentType changes the optional file content type.  An empty string may be
+// SetContentType changes the optional file content type.  An empty string may be
 // used to unset it.
 //
 // It is a runtime error to call this function when the file is not open
@@ -530,7 +551,7 @@ func (file *GridFile) completeWrite() {
 		file.err = file.gfs.Files.Insert(file.doc)
 	}
 	if file.err != nil {
-		file.gfs.Chunks.RemoveAll(bson.D{{"files_id", file.doc.Id}})
+		file.gfs.Chunks.RemoveAll(bson.D{{Name: "files_id", Value: file.doc.Id}})
 	}
 	if file.err == nil {
 		index := Index{
@@ -734,7 +755,7 @@ func (file *GridFile) getChunk() (data []byte, err error) {
 	} else {
 		debugf("GridFile %p: Fetching chunk %d", file, file.chunk)
 		var doc gfsChunk
-		err = file.gfs.Chunks.Find(bson.D{{"files_id", file.doc.Id}, {"n", file.chunk}}).One(&doc)
+		err = file.gfs.Chunks.Find(bson.D{{Name: "files_id", Value: file.doc.Id}, {Name: "n", Value: file.chunk}}).One(&doc)
 		data = doc.Data
 	}
 	file.chunk++
@@ -750,7 +771,7 @@ func (file *GridFile) getChunk() (data []byte, err error) {
 			defer session.Close()
 			chunks = chunks.With(session)
 			var doc gfsChunk
-			cache.err = chunks.Find(bson.D{{"files_id", id}, {"n", n}}).One(&doc)
+			cache.err = chunks.Find(bson.D{{Name: "files_id", Value: id}, {Name: "n", Value: n}}).One(&doc)
 			cache.data = doc.Data
 			cache.wait.Unlock()
 		}(file.doc.Id, file.chunk)

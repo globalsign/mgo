@@ -457,7 +457,7 @@ func (d *decoder) dropElem(kind byte) {
 		}
 		d.i += l
 	case 0x06: // undefined
-	case 0x07: // objectID
+	case 0x07: // objectId
 		d.i += 12
 	case 0x08:
 		k := d.readByte()
@@ -629,7 +629,7 @@ func (d *decoder) readElemTo(out reflect.Value, kind byte) (good bool) {
 
 	if setter := getSetter(outt, out); setter != nil {
 		err := setter.SetBSON(Raw{kind, d.in[start:d.i]})
-		if err == SetZero {
+		if err == ErrSetZero {
 			out.Set(reflect.Zero(outt))
 			return true
 		}

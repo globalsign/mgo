@@ -27,162 +27,162 @@
 package bson_test
 
 import (
-    "encoding/hex"
-    "encoding/json"
-    "fmt"
-    "regexp"
-    "strings"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"strings"
 
-    "github.com/globalsign/mgo/bson"
+	"github.com/globalsign/mgo/bson"
 
-    . "gopkg.in/check.v1"
+	. "gopkg.in/check.v1"
 )
 
 // --------------------------------------------------------------------------
 // Decimal tests
 
 type decimalTests struct {
-    Valid []struct {
-        Description      string `json:"description"`
-        BSON             string `json:"bson"`
-        CanonicalBSON    string `json:"canonical_bson"`
-        ExtJSON          string `json:"extjson"`
-        CanonicalExtJSON string `json:"canonical_extjson"`
-        Lossy            bool   `json:"lossy"`
-    } `json:"valid"`
+	Valid []struct {
+		Description      string `json:"description"`
+		BSON             string `json:"bson"`
+		CanonicalBSON    string `json:"canonical_bson"`
+		ExtJSON          string `json:"extjson"`
+		CanonicalExtJSON string `json:"canonical_extjson"`
+		Lossy            bool   `json:"lossy"`
+	} `json:"valid"`
 
-    ParseErrors []struct {
-        Description string `json:"description"`
-        String      string `json:"string"`
-    } `json:"parseErrors"`
+	ParseErrors []struct {
+		Description string `json:"description"`
+		String      string `json:"string"`
+	} `json:"parseErrors"`
 }
 
 func extJSONRepr(s string) string {
-    var value struct {
-        D struct {
-            Repr string `json:"$numberDecimal"`
-        } `json:"d"`
-    }
-    err := json.Unmarshal([]byte(s), &value)
-    if err != nil {
-        panic(err)
-    }
-    return value.D.Repr
+	var value struct {
+		D struct {
+			Repr string `json:"$numberDecimal"`
+		} `json:"d"`
+	}
+	err := json.Unmarshal([]byte(s), &value)
+	if err != nil {
+		panic(err)
+	}
+	return value.D.Repr
 }
 
 func (s *S) TestDecimalTests(c *C) {
-    // These also conform to the spec and are used by Go elsewhere.
-    // (e.g. math/big won't parse "Infinity").
-    goStr := func(s string) string {
-        switch s {
-        case "Infinity":
-            return "Inf"
-        case "-Infinity":
-            return "-Inf"
-        }
-        return s
-    }
+	// These also conform to the spec and are used by Go elsewhere.
+	// (e.g. math/big won't parse "Infinity").
+	goStr := func(s string) string {
+		switch s {
+		case "Infinity":
+			return "Inf"
+		case "-Infinity":
+			return "-Inf"
+		}
+		return s
+	}
 
-    for _, testEntry := range decimalTestsJSON {
-        testFile := testEntry.file
+	for _, testEntry := range decimalTestsJSON {
+		testFile := testEntry.file
 
-        var tests decimalTests
-        err := json.Unmarshal([]byte(testEntry.json), &tests)
-        c.Assert(err, IsNil)
+		var tests decimalTests
+		err := json.Unmarshal([]byte(testEntry.json), &tests)
+		c.Assert(err, IsNil)
 
-        for _, test := range tests.Valid {
-            c.Logf("Running %s test: %s", testFile, test.Description)
+		for _, test := range tests.Valid {
+			c.Logf("Running %s test: %s", testFile, test.Description)
 
-            test.BSON = strings.ToLower(test.BSON)
+			test.BSON = strings.ToLower(test.BSON)
 
-            // Unmarshal value from BSON data.
-            bsonData, err := hex.DecodeString(test.BSON)
-            var bsonValue struct{ D interface{} }
-            err = bson.Unmarshal(bsonData, &bsonValue)
-            c.Assert(err, IsNil)
-            dec128, ok := bsonValue.D.(bson.Decimal128)
-            c.Assert(ok, Equals, true)
+			// Unmarshal value from BSON data.
+			bsonData, err := hex.DecodeString(test.BSON)
+			var bsonValue struct{ D interface{} }
+			err = bson.Unmarshal(bsonData, &bsonValue)
+			c.Assert(err, IsNil)
+			dec128, ok := bsonValue.D.(bson.Decimal128)
+			c.Assert(ok, Equals, true)
 
-            // Extract ExtJSON representations (canonical and not).
-            extjRepr := extJSONRepr(test.ExtJSON)
-            cextjRepr := extjRepr
-            if test.CanonicalExtJSON != "" {
-                cextjRepr = extJSONRepr(test.CanonicalExtJSON)
-            }
+			// Extract ExtJSON representations (canonical and not).
+			extjRepr := extJSONRepr(test.ExtJSON)
+			cextjRepr := extjRepr
+			if test.CanonicalExtJSON != "" {
+				cextjRepr = extJSONRepr(test.CanonicalExtJSON)
+			}
 
-            wantRepr := goStr(cextjRepr)
+			wantRepr := goStr(cextjRepr)
 
-            // Generate canonical representation.
-            c.Assert(dec128.String(), Equals, wantRepr)
+			// Generate canonical representation.
+			c.Assert(dec128.String(), Equals, wantRepr)
 
-            // Parse original canonical representation.
-            parsed, err := bson.ParseDecimal128(cextjRepr)
-            c.Assert(err, IsNil)
-            c.Assert(parsed.String(), Equals, wantRepr)
+			// Parse original canonical representation.
+			parsed, err := bson.ParseDecimal128(cextjRepr)
+			c.Assert(err, IsNil)
+			c.Assert(parsed.String(), Equals, wantRepr)
 
-            // Parse non-canonical representation.
-            parsed, err = bson.ParseDecimal128(extjRepr)
-            c.Assert(err, IsNil)
-            c.Assert(parsed.String(), Equals, wantRepr)
+			// Parse non-canonical representation.
+			parsed, err = bson.ParseDecimal128(extjRepr)
+			c.Assert(err, IsNil)
+			c.Assert(parsed.String(), Equals, wantRepr)
 
-            // Parse Go canonical representation (Inf vs. Infinity).
-            parsed, err = bson.ParseDecimal128(wantRepr)
-            c.Assert(err, IsNil)
-            c.Assert(parsed.String(), Equals, wantRepr)
+			// Parse Go canonical representation (Inf vs. Infinity).
+			parsed, err = bson.ParseDecimal128(wantRepr)
+			c.Assert(err, IsNil)
+			c.Assert(parsed.String(), Equals, wantRepr)
 
-            // Marshal original value back into BSON data.
-            data, err := bson.Marshal(bsonValue)
-            c.Assert(err, IsNil)
-            c.Assert(hex.EncodeToString(data), Equals, test.BSON)
+			// Marshal original value back into BSON data.
+			data, err := bson.Marshal(bsonValue)
+			c.Assert(err, IsNil)
+			c.Assert(hex.EncodeToString(data), Equals, test.BSON)
 
-            if test.Lossy {
-                continue
-            }
+			if test.Lossy {
+				continue
+			}
 
-            // Marshal the parsed canonical representation.
-            var parsedValue struct{ D interface{} }
-            parsedValue.D = parsed
-            data, err = bson.Marshal(parsedValue)
-            c.Assert(err, IsNil)
-            c.Assert(hex.EncodeToString(data), Equals, test.BSON)
-        }
+			// Marshal the parsed canonical representation.
+			var parsedValue struct{ D interface{} }
+			parsedValue.D = parsed
+			data, err = bson.Marshal(parsedValue)
+			c.Assert(err, IsNil)
+			c.Assert(hex.EncodeToString(data), Equals, test.BSON)
+		}
 
-        for _, test := range tests.ParseErrors {
-            c.Logf("Running %s parse error test: %s (string %q)", testFile, test.Description, test.String)
+		for _, test := range tests.ParseErrors {
+			c.Logf("Running %s parse error test: %s (string %q)", testFile, test.Description, test.String)
 
-            _, err := bson.ParseDecimal128(test.String)
-            quoted := regexp.QuoteMeta(fmt.Sprintf("%q", test.String))
-            c.Assert(err, ErrorMatches, `cannot parse `+quoted+` as a decimal128`)
-        }
-    }
+			_, err := bson.ParseDecimal128(test.String)
+			quoted := regexp.QuoteMeta(fmt.Sprintf("%q", test.String))
+			c.Assert(err, ErrorMatches, `cannot parse `+quoted+` as a decimal128`)
+		}
+	}
 }
 
 const decBenchNum = "9.999999999999999999999999999999999E+6144"
 
 func (s *S) BenchmarkDecimal128String(c *C) {
-    d, err := bson.ParseDecimal128(decBenchNum)
-    c.Assert(err, IsNil)
-    c.Assert(d.String(), Equals, decBenchNum)
+	d, err := bson.ParseDecimal128(decBenchNum)
+	c.Assert(err, IsNil)
+	c.Assert(d.String(), Equals, decBenchNum)
 
-    c.ResetTimer()
-    for i := 0; i < c.N; i++ {
-        d.String()
-    }
+	c.ResetTimer()
+	for i := 0; i < c.N; i++ {
+		_ = d.String()
+	}
 }
 
 func (s *S) BenchmarkDecimal128Parse(c *C) {
-    var err error
-    c.ResetTimer()
-    for i := 0; i < c.N; i++ {
-        _, err = bson.ParseDecimal128(decBenchNum)
-    }
-    if err != nil {
-        panic(err)
-    }
+	var err error
+	c.ResetTimer()
+	for i := 0; i < c.N; i++ {
+		_, err = bson.ParseDecimal128(decBenchNum)
+	}
+	if err != nil {
+		panic(err)
+	}
 }
 
 var decimalTestsJSON = []struct{ file, json string }{
-    {"decimal128-1.json", `
+	{"decimal128-1.json", `
 {
     "description": "Decimal128",
     "bson_type": "0x13",
@@ -502,7 +502,7 @@ var decimalTestsJSON = []struct{ file, json string }{
 }
 `},
 
-    {"decimal128-2.json", `
+	{"decimal128-2.json", `
 {
     "description": "Decimal128",
     "bson_type": "0x13",
@@ -1297,7 +1297,7 @@ var decimalTestsJSON = []struct{ file, json string }{
 }
 `},
 
-    {"decimal128-3.json", `
+	{"decimal128-3.json", `
 {
     "description": "Decimal128",
     "bson_type": "0x13",
@@ -3071,7 +3071,7 @@ var decimalTestsJSON = []struct{ file, json string }{
 }
 `},
 
-    {"decimal128-4.json", `
+	{"decimal128-4.json", `
 {
     "description": "Decimal128",
     "bson_type": "0x13",
@@ -3239,7 +3239,7 @@ var decimalTestsJSON = []struct{ file, json string }{
 }
 `},
 
-    {"decimal128-5.json", `
+	{"decimal128-5.json", `
 {
     "description": "Decimal128",
     "bson_type": "0x13",
@@ -3643,7 +3643,7 @@ var decimalTestsJSON = []struct{ file, json string }{
 }
 `},
 
-    {"decimal128-6.json", `
+	{"decimal128-6.json", `
 {
     "description": "Decimal128",
     "bson_type": "0x13",
@@ -3777,7 +3777,7 @@ var decimalTestsJSON = []struct{ file, json string }{
 }
 `},
 
-    {"decimal128-7.json", `
+	{"decimal128-7.json", `
 {
     "description": "Decimal128",
     "bson_type": "0x13",

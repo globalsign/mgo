@@ -142,7 +142,7 @@ func (dbs *DBServer) Session() *mgo.Session {
 
 // checkSessions ensures all mgo sessions opened were properly closed.
 // For slightly faster tests, it may be disabled setting the
-// environmnet variable CHECK_SESSIONS to 0.
+// environment variable CHECK_SESSIONS to 0.
 func (dbs *DBServer) checkSessions() {
 	if check := os.Getenv("CHECK_SESSIONS"); check == "0" || dbs.server == nil || dbs.session == nil {
 		return
