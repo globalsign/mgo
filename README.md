@@ -28,7 +28,7 @@ Further PR's (with tests) are welcome, but please maintain backwards compatibili
 * Support for [collations](https://docs.mongodb.com/manual/reference/collation/) in 3.4+ ([details](https://github.com/globalsign/mgo/pull/37))
 * Provide BSON constants for convenience/sanity ([details](https://github.com/globalsign/mgo/pull/41))
 * Consistently unmarshal time.Time values as UTC ([details](https://github.com/globalsign/mgo/pull/42))
-
+* Enforces best practise coding guidelines ([details](https://github.com/globalsign/mgo/pull/44))
 
 ---
 
