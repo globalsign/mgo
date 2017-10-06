@@ -87,18 +87,20 @@ func setterStyle(outt reflect.Type) int {
 	setterMutex.RLock()
 	style := setterStyles[outt]
 	setterMutex.RUnlock()
-	if style == setterUnknown {
-		setterMutex.Lock()
-		defer setterMutex.Unlock()
-		if outt.Implements(setterIface) {
-			setterStyles[outt] = setterType
-		} else if reflect.PtrTo(outt).Implements(setterIface) {
-			setterStyles[outt] = setterAddr
-		} else {
-			setterStyles[outt] = setterNone
-		}
-		style = setterStyles[outt]
+	if style != setterUnknown {
+		return style
 	}
+
+	setterMutex.Lock()
+	defer setterMutex.Unlock()
+	if outt.Implements(setterIface) {
+		style = setterType
+	} else if reflect.PtrTo(outt).Implements(setterIface) {
+		style = setterAddr
+	} else {
+		style = setterNone
+	}
+	setterStyles[outt] = style
 	return style
 }
 

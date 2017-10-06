@@ -96,26 +96,28 @@ func getterStyle(outt reflect.Type) int {
 	getterMutex.RLock()
 	style := getterStyles[outt]
 	getterMutex.RUnlock()
-	if style == getterUnknown {
-		getterMutex.Lock()
-		defer getterMutex.Unlock()
-		if outt.Implements(getterIface) {
-			vt := outt
-			for vt.Kind() == reflect.Ptr {
-				vt = vt.Elem()
-			}
-			if vt.Implements(getterIface) {
-				getterStyles[outt] = getterTypeVal
-			} else {
-				getterStyles[outt] = getterTypePtr
-			}
-		} else if reflect.PtrTo(outt).Implements(getterIface) {
-			getterStyles[outt] = getterAddr
-		} else {
-			getterStyles[outt] = getterNone
-		}
-		style = getterStyles[outt]
+	if style != getterUnknown {
+		return style
 	}
+
+	getterMutex.Lock()
+	defer getterMutex.Unlock()
+	if outt.Implements(getterIface) {
+		vt := outt
+		for vt.Kind() == reflect.Ptr {
+			vt = vt.Elem()
+		}
+		if vt.Implements(getterIface) {
+			style = getterTypeVal
+		} else {
+			style = getterTypePtr
+		}
+	} else if reflect.PtrTo(outt).Implements(getterIface) {
+		style = getterAddr
+	} else {
+		style = getterNone
+	}
+	getterStyles[outt] = style
 	return style
 }
 
