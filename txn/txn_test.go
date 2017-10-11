@@ -121,7 +121,7 @@ func (s *S) TestInsert(c *C) {
 	c.Assert(account.Balance, Equals, 200)
 }
 
-func (s *S) TestInsertStructID(c *C) {
+func (s *S) TestInsertStructId(c *C) {
 	type id struct {
 		FirstName string
 		LastName  string
@@ -374,8 +374,8 @@ func (s *S) TestAssertNestedOr(c *C) {
 	ops := []txn.Op{{
 		C:      "accounts",
 		Id:     0,
-		Assert: bson.D{{"$or", []bson.D{{{"balance", 100}}, {{"balance", 300}}}}},
-		Update: bson.D{{"$inc", bson.D{{"balance", 100}}}},
+		Assert: bson.D{{Name: "$or", Value: []bson.D{{{Name: "balance", Value: 100}}, {{Name: "balance", Value: 300}}}}},
+		Update: bson.D{{Name: "$inc", Value: bson.D{{Name: "balance", Value: 100}}}},
 	}}
 
 	err = s.runner.Run(ops, "", nil)
@@ -390,7 +390,7 @@ func (s *S) TestAssertNestedOr(c *C) {
 func (s *S) TestVerifyFieldOrdering(c *C) {
 	// Used to have a map in certain operations, which means
 	// the ordering of fields would be messed up.
-	fields := bson.D{{"a", 1}, {"b", 2}, {"c", 3}}
+	fields := bson.D{{Name: "a", Value: 1}, {Name: "b", Value: 2}, {Name: "c", Value: 3}}
 	ops := []txn.Op{{
 		C:      "accounts",
 		Id:     0,
@@ -441,8 +441,8 @@ func (s *S) TestChangeLog(c *C) {
 
 	type IdList []interface{}
 	type Log struct {
-		Docs   IdList  "d"
-		Revnos []int64 "r"
+		Docs   IdList  `bson:"d"`
+		Revnos []int64 `bson:"r"`
 	}
 	var m map[string]*Log
 	err = chglog.FindId(id).One(&m)
@@ -567,7 +567,7 @@ func (s *S) TestPurgeMissing(c *C) {
 		err = s.accounts.FindId(want.Id).One(&got)
 		if want.Balance == -1 {
 			if err != mgo.ErrNotFound {
-				c.Errorf("Account %d should not exist, find got err=%#v", err)
+				c.Errorf("Account %d should not exist, find got err=%#v", got, err)
 			}
 		} else if err != nil {
 			c.Errorf("Account %d should have balance of %d, but wasn't found", want.Id, want.Balance)
@@ -776,7 +776,7 @@ func (s *S) TestPurgeMissingPipelineSizeLimit(c *C) {
 	// processing the txn-queue fields of stash documents so insert
 	// the large txn-queue there too to ensure that no longer happens.
 	err = s.sc.Insert(
-		bson.D{{"c", "accounts"}, {"id", 0}},
+		bson.D{{Name: "c", Value: "accounts"}, {Name: "id", Value: 0}},
 		bson.M{"txn-queue": fakeTxnQueue},
 	)
 	c.Assert(err, IsNil)
@@ -788,7 +788,6 @@ func (s *S) TestPurgeMissingPipelineSizeLimit(c *C) {
 
 var flaky = flag.Bool("flaky", false, "Include flaky tests")
 var txnQueueLength = flag.Int("qlength", 100, "txn-queue length for tests")
-
 
 func (s *S) TestTxnQueueStressTest(c *C) {
 	// This fails about 20% of the time on Mongo 3.2 (I haven't tried
@@ -925,11 +924,6 @@ func (s *S) TestTxnQueueBrokenPrepared(c *C) {
 	c.Logf("%8.3fs to set up %d 'prepared' txns", time.Since(t).Seconds(), *txnQueueLength)
 	t = time.Now()
 	s.accounts.UpdateId(0, bson.M{"$pullAll": bson.M{"txn-queue": []string{badTxnToken}}})
-	ops = []txn.Op{{
-		C:      "accounts",
-		Id:     0,
-		Update: M{"$inc": M{"balance": 100}},
-	}}
 	err = s.runner.ResumeAll()
 	c.Assert(err, IsNil)
 	c.Logf("%8.3fs to ResumeAll N=%d 'prepared' txns",
@@ -975,4 +969,3 @@ func (s *S) TestTxnQueuePreparing(c *C) {
 	}
 	c.Check(len(qdoc.Queue), Equals, expectedCount)
 }
-

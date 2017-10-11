@@ -87,18 +87,20 @@ func setterStyle(outt reflect.Type) int {
 	setterMutex.RLock()
 	style := setterStyles[outt]
 	setterMutex.RUnlock()
-	if style == setterUnknown {
-		setterMutex.Lock()
-		defer setterMutex.Unlock()
-		if outt.Implements(setterIface) {
-			setterStyles[outt] = setterType
-		} else if reflect.PtrTo(outt).Implements(setterIface) {
-			setterStyles[outt] = setterAddr
-		} else {
-			setterStyles[outt] = setterNone
-		}
-		style = setterStyles[outt]
+	if style != setterUnknown {
+		return style
 	}
+
+	setterMutex.Lock()
+	defer setterMutex.Unlock()
+	if outt.Implements(setterIface) {
+		style = setterType
+	} else if reflect.PtrTo(outt).Implements(setterIface) {
+		style = setterAddr
+	} else {
+		style = setterNone
+	}
+	setterStyles[outt] = style
 	return style
 }
 
@@ -457,7 +459,7 @@ func (d *decoder) dropElem(kind byte) {
 		}
 		d.i += l
 	case 0x06: // undefined
-	case 0x07: // objectID
+	case 0x07: // objectId
 		d.i += 12
 	case 0x08:
 		k := d.readByte()
@@ -575,7 +577,7 @@ func (d *decoder) readElemTo(out reflect.Value, kind byte) (good bool) {
 		if i == -62135596800000 {
 			in = time.Time{} // In UTC for convenience.
 		} else {
-			in = time.Unix(i/1e3, i%1e3*1e6)
+			in = time.Unix(i/1e3, i%1e3*1e6).UTC()
 		}
 	case 0x0A: // Nil
 		in = nil
@@ -629,7 +631,7 @@ func (d *decoder) readElemTo(out reflect.Value, kind byte) (good bool) {
 
 	if setter := getSetter(outt, out); setter != nil {
 		err := setter.SetBSON(Raw{kind, d.in[start:d.i]})
-		if err == SetZero {
+		if err == ErrSetZero {
 			out.Set(reflect.Zero(outt))
 			return true
 		}

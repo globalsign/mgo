@@ -17,7 +17,7 @@ Further PR's (with tests) are welcome, but please maintain backwards compatibili
 * Hides SASL warnings ([details](https://github.com/globalsign/mgo/pull/7))
 * Support for partial indexes ([detials](https://github.com/domodwyer/mgo/commit/5efe8eccb028238d93c222828cae4806aeae9f51))
 * Fixes timezone handling ([details](https://github.com/go-mgo/mgo/pull/464)) 
-* Integration tests run against newest MongoDB 3.2 releases ([details](https://github.com/globalsign/mgo/pull/4), [more](https://github.com/globalsign/mgo/pull/24))
+* Integration tests run against MongoDB 3.2 & 3.4 releases ([details](https://github.com/globalsign/mgo/pull/4), [more](https://github.com/globalsign/mgo/pull/24), [more](https://github.com/globalsign/mgo/pull/35))
 * Improved multi-document transaction performance ([details](https://github.com/globalsign/mgo/pull/10), [more](https://github.com/globalsign/mgo/pull/11), [more](https://github.com/globalsign/mgo/pull/16))
 * Fixes cursor timeouts ([details](https://jira.mongodb.org/browse/SERVER-24899))
 * Support index hints and timeouts for count queries ([details](https://github.com/globalsign/mgo/pull/17))
@@ -25,10 +25,16 @@ Further PR's (with tests) are welcome, but please maintain backwards compatibili
 * Supports dropping all indexes on a collection ([details](https://github.com/globalsign/mgo/pull/25))
 * Annotates log entries/profiler output with optional appName on 3.4+ ([details](https://github.com/globalsign/mgo/pull/28))
 * Support for read-only [views](https://docs.mongodb.com/manual/core/views/) in 3.4+ ([details](https://github.com/globalsign/mgo/pull/33))
+* Support for [collations](https://docs.mongodb.com/manual/reference/collation/) in 3.4+ ([details](https://github.com/globalsign/mgo/pull/37))
+* Provide BSON constants for convenience/sanity ([details](https://github.com/globalsign/mgo/pull/41))
+* Consistently unmarshal time.Time values as UTC ([details](https://github.com/globalsign/mgo/pull/42))
+* Enforces best practise coding guidelines ([details](https://github.com/globalsign/mgo/pull/44))
+* GetBSON correctly handles structs with both fields and pointers ([details](https://github.com/globalsign/mgo/pull/40))
 
 ---
 
 ### Thanks to
+* @bozaro
 * @BenLubar
 * @carter2000
 * @cezarsa
@@ -37,6 +43,7 @@ Further PR's (with tests) are welcome, but please maintain backwards compatibili
 * @feliixx
 * @fmpwizard
 * @jameinel
+* @gazoon
 * @mapete94
 * @Reenjii
 * @smoya

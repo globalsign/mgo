@@ -11,15 +11,15 @@ import (
 
 var (
 	debugEnabled bool
-	logger       log_Logger
+	logger       logLogger
 )
 
-type log_Logger interface {
+type logLogger interface {
 	Output(calldepth int, s string) error
 }
 
-// Specify the *log.Logger where logged messages should be sent to.
-func SetLogger(l log_Logger) {
+// SetLogger specify the *log.Logger where logged messages should be sent to.
+func SetLogger(l logLogger) {
 	logger = l
 }
 
@@ -28,6 +28,8 @@ func SetDebug(debug bool) {
 	debugEnabled = debug
 }
 
+// ErrChaos error returned when operation failed due to
+// the failure injection mechanism.
 var ErrChaos = fmt.Errorf("interrupted by chaos")
 
 var debugId uint32

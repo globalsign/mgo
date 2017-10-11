@@ -44,23 +44,32 @@ import (
 	"github.com/globalsign/mgo/bson"
 )
 
+// Mode read preference mode. See Eventual, Monotonic and Strong for details
+//
+// Relevant documentation on read preference modes:
+//
+//     http://docs.mongodb.org/manual/reference/read-preference/
+//
 type Mode int
 
 const (
-	// Relevant documentation on read preference modes:
-	//
-	//     http://docs.mongodb.org/manual/reference/read-preference/
-	//
-	Primary            Mode = 2 // Default mode. All operations read from the current replica set primary.
-	PrimaryPreferred   Mode = 3 // Read from the primary if available. Read from the secondary otherwise.
-	Secondary          Mode = 4 // Read from one of the nearest secondary members of the replica set.
-	SecondaryPreferred Mode = 5 // Read from one of the nearest secondaries if available. Read from primary otherwise.
-	Nearest            Mode = 6 // Read from one of the nearest members, irrespective of it being primary or secondary.
+	// Primary mode is default mode. All operations read from the current replica set primary.
+	Primary Mode = 2
+	// PrimaryPreferred mode: read from the primary if available. Read from the secondary otherwise.
+	PrimaryPreferred Mode = 3
+	// Secondary mode:  read from one of the nearest secondary members of the replica set.
+	Secondary Mode = 4
+	// SecondaryPreferred mode: read from one of the nearest secondaries if available. Read from primary otherwise.
+	SecondaryPreferred Mode = 5
+	// Nearest mode: read from one of the nearest members, irrespective of it being primary or secondary.
+	Nearest Mode = 6
 
-	// Read preference modes are specific to mgo:
-	Eventual  Mode = 0 // Same as Nearest, but may change servers between reads.
-	Monotonic Mode = 1 // Same as SecondaryPreferred before first write. Same as Primary after first write.
-	Strong    Mode = 2 // Same as Primary.
+	// Eventual mode is specific to mgo, and is same as Nearest, but may change servers between reads.
+	Eventual Mode = 0
+	// Monotonic mode is specifc to mgo, and is same as SecondaryPreferred before first write. Same as Primary after first write.
+	Monotonic Mode = 1
+	// Strong mode is specific to mgo, and is same as Primary.
+	Strong Mode = 2
 )
 
 // mgo.v3: Drop Strong mode, suffix all modes with "Mode".
@@ -84,7 +93,7 @@ type Session struct {
 	creds            []Credential
 	dialCred         *Credential
 	safeOp           *queryOp
-	cluster_         *mongoCluster
+	mgoCluster       *mongoCluster
 	slaveSocket      *mongoSocket
 	masterSocket     *mongoSocket
 	m                sync.RWMutex
@@ -93,17 +102,30 @@ type Session struct {
 	slaveOk          bool
 }
 
+// Database holds collections of documents
+//
+// Relevant documentation:
+//
+//    https://docs.mongodb.com/manual/core/databases-and-collections/#databases
+//
 type Database struct {
 	Session *Session
 	Name    string
 }
 
+// Collection stores documents
+//
+// Relevant documentation:
+//
+//    https://docs.mongodb.com/manual/core/databases-and-collections/#collections
+//
 type Collection struct {
 	Database *Database
 	Name     string // "collection"
 	FullName string // "db.collection"
 }
 
+// Query keeps info on the query.
 type Query struct {
 	m       sync.Mutex
 	session *Session
@@ -117,13 +139,19 @@ type query struct {
 }
 
 type getLastError struct {
-	CmdName  int         "getLastError,omitempty"
-	W        interface{} "w,omitempty"
-	WTimeout int         "wtimeout,omitempty"
-	FSync    bool        "fsync,omitempty"
-	J        bool        "j,omitempty"
+	CmdName  int         `bson:"getLastError,omitempty"`
+	W        interface{} `bson:"w,omitempty"`
+	WTimeout int         `bson:"wtimeout,omitempty"`
+	FSync    bool        `bson:"fsync,omitempty"`
+	J        bool        `bson:"j,omitempty"`
 }
 
+// Iter stores informations about a Cursor
+//
+// Relevant documentation:
+//
+//    https://docs.mongodb.com/manual/tutorial/iterate-a-cursor/
+//
 type Iter struct {
 	m              sync.Mutex
 	gotReply       sync.Cond
@@ -142,8 +170,11 @@ type Iter struct {
 }
 
 var (
+	// ErrNotFound error returned when a document could not be found
 	ErrNotFound = errors.New("not found")
-	ErrCursor   = errors.New("invalid cursor")
+	// ErrCursor error returned when trying to retrieve documents from
+	// an invalid cursor
+	ErrCursor = errors.New("invalid cursor")
 )
 
 const (
@@ -599,7 +630,7 @@ func extractURL(s string) (*urlInfo, error) {
 func newSession(consistency Mode, cluster *mongoCluster, timeout time.Duration) (session *Session) {
 	cluster.Acquire()
 	session = &Session{
-		cluster_:    cluster,
+		mgoCluster:  cluster,
 		syncTimeout: timeout,
 		sockTimeout: timeout,
 		poolLimit:   4096,
@@ -627,9 +658,24 @@ func copySession(session *Session, keepCreds bool) (s *Session) {
 	} else if session.dialCred != nil {
 		creds = []Credential{*session.dialCred}
 	}
-	scopy := *session
-	scopy.m = sync.RWMutex{}
-	scopy.creds = creds
+	scopy := Session{
+		defaultdb:        session.defaultdb,
+		sourcedb:         session.sourcedb,
+		syncTimeout:      session.syncTimeout,
+		sockTimeout:      session.sockTimeout,
+		poolLimit:        session.poolLimit,
+		consistency:      session.consistency,
+		creds:            creds,
+		dialCred:         session.dialCred,
+		safeOp:           session.safeOp,
+		mgoCluster:       session.mgoCluster,
+		slaveSocket:      session.slaveSocket,
+		masterSocket:     session.masterSocket,
+		m:                sync.RWMutex{},
+		queryConfig:      session.queryConfig,
+		bypassValidation: session.bypassValidation,
+		slaveOk:          session.slaveOk,
+	}
 	s = &scopy
 	debugf("New session %p on cluster %p (copy from %p)", s, cluster, session)
 	return s
@@ -683,9 +729,9 @@ func (db *Database) C(name string) *Collection {
 //     https://docs.mongodb.com/manual/reference/method/db.createView/
 //
 func (db *Database) CreateView(view string, source string, pipeline interface{}, collation *Collation) error {
-	command := bson.D{{"create", view}, {"viewOn", source}, {"pipeline", pipeline}}
+	command := bson.D{{Name: "create", Value: view}, {Name: "viewOn", Value: source}, {Name: "pipeline", Value: pipeline}}
 	if collation != nil {
-		command = append(command, bson.DocElem{"collation", collation})
+		command = append(command, bson.DocElem{Name: "collation", Value: collation})
 	}
 	return db.Run(command, nil)
 }
@@ -910,23 +956,51 @@ type User struct {
 	UserSource string `bson:"userSource,omitempty"`
 }
 
+// Role available role for users
+//
+// Relevant documentation:
+//
+//     http://docs.mongodb.org/manual/reference/user-privileges/
+//
 type Role string
 
 const (
-	// Relevant documentation:
-	//
-	//     http://docs.mongodb.org/manual/reference/user-privileges/
-	//
-	RoleRoot         Role = "root"
-	RoleRead         Role = "read"
-	RoleReadAny      Role = "readAnyDatabase"
-	RoleReadWrite    Role = "readWrite"
+	// RoleRoot provides access to the operations and all the resources
+	// of the readWriteAnyDatabase, dbAdminAnyDatabase, userAdminAnyDatabase,
+	// clusterAdmin roles, restore, and backup roles combined.
+	RoleRoot Role = "root"
+	// RoleRead provides the ability to read data on all non-system collections
+	// and on the following system collections: system.indexes, system.js, and
+	// system.namespaces collections on a specific database.
+	RoleRead Role = "read"
+	// RoleReadAny provides the same read-only permissions as read, except it
+	// applies to it applies to all but the local and config databases in the cluster.
+	// The role also provides the listDatabases action on the cluster as a whole.
+	RoleReadAny Role = "readAnyDatabase"
+	//RoleReadWrite provides all the privileges of the read role plus ability to modify data on
+	//all non-system collections and the system.js collection on a specific database.
+	RoleReadWrite Role = "readWrite"
+	// RoleReadWriteAny provides the same read and write permissions as readWrite, except it
+	// applies to all but the local and config databases in the cluster. The role also provides
+	// the listDatabases action on the cluster as a whole.
 	RoleReadWriteAny Role = "readWriteAnyDatabase"
-	RoleDBAdmin      Role = "dbAdmin"
-	RoleDBAdminAny   Role = "dbAdminAnyDatabase"
-	RoleUserAdmin    Role = "userAdmin"
+	// RoleDBAdmin provides all the privileges of the dbAdmin role on a specific database
+	RoleDBAdmin Role = "dbAdmin"
+	// RoleDBAdminAny provides all the privileges of the dbAdmin role on all databases
+	RoleDBAdminAny Role = "dbAdminAnyDatabase"
+	// RoleUserAdmin Provides the ability to create and modify roles and users on the
+	// current database. This role also indirectly provides superuser access to either
+	// the database or, if scoped to the admin database, the cluster. The userAdmin role
+	// allows users to grant any user any privilege, including themselves.
+	RoleUserAdmin Role = "userAdmin"
+	// RoleUserAdminAny provides the same access to user administration operations as userAdmin,
+	// except it applies to all but the local and config databases in the cluster
 	RoleUserAdminAny Role = "userAdminAnyDatabase"
+	// RoleClusterAdmin Provides the greatest cluster-management access. This role combines
+	// the privileges granted by the clusterManager, clusterMonitor, and hostManager roles.
+	// Additionally, the role provides the dropDatabase action.
 	RoleClusterAdmin Role = "clusterAdmin"
+	// TODO some roles are missing: dbOwner/clusterManager/clusterMonitor/hostManager/backup/restore
 )
 
 // UpsertUser updates the authentication credentials and the roles for
@@ -972,32 +1046,32 @@ func (db *Database) UpsertUser(user *User) error {
 	if user.Password != "" {
 		psum := md5.New()
 		psum.Write([]byte(user.Username + ":mongo:" + user.Password))
-		set = append(set, bson.DocElem{"pwd", hex.EncodeToString(psum.Sum(nil))})
-		unset = append(unset, bson.DocElem{"userSource", 1})
+		set = append(set, bson.DocElem{Name: "pwd", Value: hex.EncodeToString(psum.Sum(nil))})
+		unset = append(unset, bson.DocElem{Name: "userSource", Value: 1})
 	} else if user.PasswordHash != "" {
-		set = append(set, bson.DocElem{"pwd", user.PasswordHash})
-		unset = append(unset, bson.DocElem{"userSource", 1})
+		set = append(set, bson.DocElem{Name: "pwd", Value: user.PasswordHash})
+		unset = append(unset, bson.DocElem{Name: "userSource", Value: 1})
 	}
 	if user.UserSource != "" {
-		set = append(set, bson.DocElem{"userSource", user.UserSource})
-		unset = append(unset, bson.DocElem{"pwd", 1})
+		set = append(set, bson.DocElem{Name: "userSource", Value: user.UserSource})
+		unset = append(unset, bson.DocElem{Name: "pwd", Value: 1})
 	}
 	if user.Roles != nil || user.OtherDBRoles != nil {
-		set = append(set, bson.DocElem{"roles", user.Roles})
+		set = append(set, bson.DocElem{Name: "roles", Value: user.Roles})
 		if len(user.OtherDBRoles) > 0 {
-			set = append(set, bson.DocElem{"otherDBRoles", user.OtherDBRoles})
+			set = append(set, bson.DocElem{Name: "otherDBRoles", Value: user.OtherDBRoles})
 		} else {
-			unset = append(unset, bson.DocElem{"otherDBRoles", 1})
+			unset = append(unset, bson.DocElem{Name: "otherDBRoles", Value: 1})
 		}
 	}
 	users := db.C("system.users")
-	err = users.Update(bson.D{{"user", user.Username}}, bson.D{{"$unset", unset}, {"$set", set}})
+	err = users.Update(bson.D{{Name: "user", Value: user.Username}}, bson.D{{Name: "$unset", Value: unset}, {Name: "$set", Value: set}})
 	if err == ErrNotFound {
-		set = append(set, bson.DocElem{"user", user.Username})
+		set = append(set, bson.DocElem{Name: "user", Value: user.Username})
 		if user.Roles == nil && user.OtherDBRoles == nil {
 			// Roles must be sent, as it's the way MongoDB distinguishes
 			// old-style documents from new-style documents in pre-2.6.
-			set = append(set, bson.DocElem{"roles", user.Roles})
+			set = append(set, bson.DocElem{Name: "roles", Value: user.Roles})
 		}
 		err = users.Insert(set)
 	}
@@ -1021,9 +1095,9 @@ func isAuthError(err error) bool {
 
 func (db *Database) runUserCmd(cmdName string, user *User) error {
 	cmd := make(bson.D, 0, 16)
-	cmd = append(cmd, bson.DocElem{cmdName, user.Username})
+	cmd = append(cmd, bson.DocElem{Name: cmdName, Value: user.Username})
 	if user.Password != "" {
-		cmd = append(cmd, bson.DocElem{"pwd", user.Password})
+		cmd = append(cmd, bson.DocElem{Name: "pwd", Value: user.Password})
 	}
 	var roles []interface{}
 	for _, role := range user.Roles {
@@ -1031,11 +1105,11 @@ func (db *Database) runUserCmd(cmdName string, user *User) error {
 	}
 	for db, dbroles := range user.OtherDBRoles {
 		for _, role := range dbroles {
-			roles = append(roles, bson.D{{"role", role}, {"db", db}})
+			roles = append(roles, bson.D{{Name: "role", Value: role}, {Name: "db", Value: db}})
 		}
 	}
 	if roles != nil || user.Roles != nil || cmdName == "createUser" {
-		cmd = append(cmd, bson.DocElem{"roles", roles})
+		cmd = append(cmd, bson.DocElem{Name: "roles", Value: roles})
 	}
 	err := db.Run(cmd, nil)
 	if !isNoCmd(err) && user.UserSource != "" && (user.UserSource != "$external" || db.Name != "$external") {
@@ -1084,7 +1158,7 @@ func (db *Database) AddUser(username, password string, readOnly bool) error {
 
 // RemoveUser removes the authentication credentials of user from the database.
 func (db *Database) RemoveUser(user string) error {
-	err := db.Run(bson.D{{"dropUser", user}}, nil)
+	err := db.Run(bson.D{{Name: "dropUser", Value: user}}, nil)
 	if isNoCmd(err) {
 		users := db.C("system.users")
 		return users.Remove(bson.M{"user": user})
@@ -1098,23 +1172,28 @@ func (db *Database) RemoveUser(user string) error {
 type indexSpec struct {
 	Name, NS                string
 	Key                     bson.D
-	Unique                  bool    ",omitempty"
-	DropDups                bool    "dropDups,omitempty"
-	Background              bool    ",omitempty"
-	Sparse                  bool    ",omitempty"
-	Bits                    int     ",omitempty"
-	Min, Max                float64 ",omitempty"
-	BucketSize              float64 "bucketSize,omitempty"
-	ExpireAfter             int     "expireAfterSeconds,omitempty"
-	Weights                 bson.D  ",omitempty"
-	DefaultLanguage         string  "default_language,omitempty"
-	LanguageOverride        string  "language_override,omitempty"
-	TextIndexVersion        int     "textIndexVersion,omitempty"
-	PartialFilterExpression bson.M  "partialFilterExpression,omitempty"
+	Unique                  bool    `bson:",omitempty"`
+	DropDups                bool    `bson:"dropDups,omitempty"`
+	Background              bool    `bson:",omitempty"`
+	Sparse                  bool    `bson:",omitempty"`
+	Bits                    int     `bson:",omitempty"`
+	Min, Max                float64 `bson:",omitempty"`
+	BucketSize              float64 `bson:"bucketSize,omitempty"`
+	ExpireAfter             int     `bson:"expireAfterSeconds,omitempty"`
+	Weights                 bson.D  `bson:",omitempty"`
+	DefaultLanguage         string  `bson:"default_language,omitempty"`
+	LanguageOverride        string  `bson:"language_override,omitempty"`
+	TextIndexVersion        int     `bson:"textIndexVersion,omitempty"`
+	PartialFilterExpression bson.M  `bson:"partialFilterExpression,omitempty"`
 
-	Collation *Collation "collation,omitempty"
+	Collation *Collation `bson:"collation,omitempty"`
 }
 
+// Index are special data structures that store a small portion of the collection’s
+// data set in an easy to traverse form. The index stores the value of a specific
+// field or set of fields, ordered by the value of the field. The ordering of the
+// index entries supports efficient equality matches and range-based query operations.
+// In addition, MongoDB can return sorted results by using the ordering in the index.
 type Index struct {
 	Key           []string // Index key fields; prefix name with dash (-) for descending order
 	Unique        bool     // Prevent two documents from having the same index key
@@ -1157,6 +1236,8 @@ type Index struct {
 	Collation *Collation
 }
 
+// Collation allows users to specify language-specific rules for string comparison,
+// such as rules for lettercase and accent marks.
 type Collation struct {
 
 	// Locale defines the collation locale.
@@ -1271,12 +1352,12 @@ func parseIndexKey(key []string) (*indexKeyInfo, error) {
 		}
 		if kind == "text" {
 			if !isText {
-				keyInfo.key = append(keyInfo.key, bson.DocElem{"_fts", "text"}, bson.DocElem{"_ftsx", 1})
+				keyInfo.key = append(keyInfo.key, bson.DocElem{Name: "_fts", Value: "text"}, bson.DocElem{Name: "_ftsx", Value: 1})
 				isText = true
 			}
-			keyInfo.weights = append(keyInfo.weights, bson.DocElem{field, 1})
+			keyInfo.weights = append(keyInfo.weights, bson.DocElem{Name: field, Value: 1})
 		} else {
-			keyInfo.key = append(keyInfo.key, bson.DocElem{field, order})
+			keyInfo.key = append(keyInfo.key, bson.DocElem{Name: field, Value: order})
 		}
 	}
 	if keyInfo.name == "" {
@@ -1436,7 +1517,7 @@ NextField:
 	db := c.Database.With(cloned)
 
 	// Try with a command first.
-	err = db.Run(bson.D{{"createIndexes", c.Name}, {"indexes", []indexSpec{spec}}}, nil)
+	err = db.Run(bson.D{{Name: "createIndexes", Value: c.Name}, {Name: "indexes", Value: []indexSpec{spec}}}, nil)
 	if isNoCmd(err) {
 		// Command not yet supported. Insert into the indexes collection instead.
 		err = db.C("system.indexes").Insert(&spec)
@@ -1475,7 +1556,7 @@ func (c *Collection) DropIndex(key ...string) error {
 		ErrMsg string
 		Ok     bool
 	}{}
-	err = db.Run(bson.D{{"dropIndexes", c.Name}, {"index", keyInfo.name}}, &result)
+	err = db.Run(bson.D{{Name: "dropIndexes", Value: c.Name}, {Name: "index", Value: keyInfo.name}}, &result)
 	if err != nil {
 		return err
 	}
@@ -1527,7 +1608,7 @@ func (c *Collection) DropIndexName(name string) error {
 		ErrMsg string
 		Ok     bool
 	}{}
-	err = c.Database.Run(bson.D{{"dropIndexes", c.Name}, {"index", name}}, &result)
+	err = c.Database.Run(bson.D{{Name: "dropIndexes", Value: c.Name}, {Name: "index", Value: name}}, &result)
 	if err != nil {
 		return err
 	}
@@ -1550,7 +1631,7 @@ func (c *Collection) DropAllIndexes() error {
 		ErrMsg string
 		Ok     bool
 	}{}
-	err := db.Run(bson.D{{"dropIndexes", c.Name}, {"index", "*"}}, &result)
+	err := db.Run(bson.D{{Name: "dropIndexes", Value: c.Name}, {Name: "index", Value: "*"}}, &result)
 	if err != nil {
 		return err
 	}
@@ -1563,8 +1644,8 @@ func (c *Collection) DropAllIndexes() error {
 // nonEventual returns a clone of session and ensures it is not Eventual.
 // This guarantees that the server that is used for queries may be reused
 // afterwards when a cursor is received.
-func (session *Session) nonEventual() *Session {
-	cloned := session.Clone()
+func (s *Session) nonEventual() *Session {
+	cloned := s.Clone()
 	if cloned.consistency == Eventual {
 		cloned.SetMode(Monotonic, false)
 	}
@@ -1586,7 +1667,7 @@ func (c *Collection) Indexes() (indexes []Index, err error) {
 		Cursor  cursorData
 	}
 	var iter *Iter
-	err = c.Database.With(cloned).Run(bson.D{{"listIndexes", c.Name}, {"cursor", bson.D{{"batchSize", batchSize}}}}, &result)
+	err = c.Database.With(cloned).Run(bson.D{{Name: "listIndexes", Value: c.Name}, {Name: "cursor", Value: bson.D{{Name: "batchSize", Value: batchSize}}}}, &result)
 	if err == nil {
 		firstBatch := result.Indexes
 		if firstBatch == nil {
@@ -1691,7 +1772,7 @@ func simpleIndexKey(realKey bson.D) (key []string) {
 	return
 }
 
-// ResetIndexCache() clears the cache of previously ensured indexes.
+// ResetIndexCache clears the cache of previously ensured indexes.
 // Following requests to EnsureIndex will contact the server.
 func (s *Session) ResetIndexCache() {
 	s.cluster().ResetIndexCache()
@@ -1744,20 +1825,20 @@ func (s *Session) Clone() *Session {
 // after it has been closed.
 func (s *Session) Close() {
 	s.m.Lock()
-	if s.cluster_ != nil {
+	if s.mgoCluster != nil {
 		debugf("Closing session %p", s)
 		s.unsetSocket()
-		s.cluster_.Release()
-		s.cluster_ = nil
+		s.mgoCluster.Release()
+		s.mgoCluster = nil
 	}
 	s.m.Unlock()
 }
 
 func (s *Session) cluster() *mongoCluster {
-	if s.cluster_ == nil {
+	if s.mgoCluster == nil {
 		panic("Session already closed")
 	}
-	return s.cluster_
+	return s.mgoCluster
 }
 
 // Refresh puts back any reserved sockets in use and restarts the consistency
@@ -1942,7 +2023,7 @@ func (s *Session) SetPrefetch(p float64) {
 	s.m.Unlock()
 }
 
-// See SetSafe for details on the Safe type.
+// Safe session safety mode. See SetSafe for details on the Safe type.
 type Safe struct {
 	W        int    // Min # of servers to ack before success
 	WMode    string // Write mode for MongoDB 2.0+ (e.g. "majority")
@@ -2191,7 +2272,7 @@ func (s *Session) Ping() error {
 // is established with. If async is true, the call returns immediately,
 // otherwise it returns after the flush has been made.
 func (s *Session) Fsync(async bool) error {
-	return s.Run(bson.D{{"fsync", 1}, {"async", async}}, nil)
+	return s.Run(bson.D{{Name: "fsync", Value: 1}, {Name: "async", Value: async}}, nil)
 }
 
 // FsyncLock locks all writes in the specific server the session is
@@ -2220,12 +2301,12 @@ func (s *Session) Fsync(async bool) error {
 //     http://www.mongodb.org/display/DOCS/Backups
 //
 func (s *Session) FsyncLock() error {
-	return s.Run(bson.D{{"fsync", 1}, {"lock", true}}, nil)
+	return s.Run(bson.D{{Name: "fsync", Value: 1}, {Name: "lock", Value: true}}, nil)
 }
 
 // FsyncUnlock releases the server for writes. See FsyncLock for details.
 func (s *Session) FsyncUnlock() error {
-	err := s.Run(bson.D{{"fsyncUnlock", 1}}, nil)
+	err := s.Run(bson.D{{Name: "fsyncUnlock", Value: 1}}, nil)
 	if isNoCmd(err) {
 		err = s.DB("admin").C("$cmd.sys.unlock").Find(nil).One(nil) // WTF?
 	}
@@ -2266,7 +2347,7 @@ func (c *Collection) Find(query interface{}) *Query {
 
 type repairCmd struct {
 	RepairCursor string           `bson:"repairCursor"`
-	Cursor       *repairCmdCursor ",omitempty"
+	Cursor       *repairCmdCursor `bson:",omitempty"`
 }
 
 type repairCmdCursor struct {
@@ -2307,9 +2388,11 @@ func (c *Collection) Repair() *Iter {
 //
 // See the Find method for more details.
 func (c *Collection) FindId(id interface{}) *Query {
-	return c.Find(bson.D{{"_id", id}})
+	return c.Find(bson.D{{Name: "_id", Value: id}})
 }
 
+// Pipe is used to run aggregation queries against a
+// collection.
 type Pipe struct {
 	session    *Session
 	collection *Collection
@@ -2321,9 +2404,9 @@ type Pipe struct {
 type pipeCmd struct {
 	Aggregate string
 	Pipeline  interface{}
-	Cursor    *pipeCmdCursor ",omitempty"
-	Explain   bool           ",omitempty"
-	AllowDisk bool           "allowDiskUse,omitempty"
+	Cursor    *pipeCmdCursor `bson:",omitempty"`
+	Explain   bool           `bson:",omitempty"`
+	AllowDisk bool           `bson:"allowDiskUse,omitempty"`
 }
 
 type pipeCmdCursor struct {
@@ -2552,8 +2635,13 @@ func (p *Pipe) Batch(n int) *Pipe {
 	return p
 }
 
+// LastError the error status of the preceding write operation on the current connection.
+//
+// Relevant documentation:
+//
+//    https://docs.mongodb.com/manual/reference/command/getLastError/
+//
 // mgo.v3: Use a single user-visible error type.
-
 type LastError struct {
 	Err             string
 	Code, N, Waited int
@@ -2571,13 +2659,14 @@ func (err *LastError) Error() string {
 }
 
 type queryError struct {
-	Err           string "$err"
+	Err           string `bson:"$err"`
 	ErrMsg        string
 	Assertion     string
 	Code          int
-	AssertionCode int "assertionCode"
+	AssertionCode int `bson:"assertionCode"`
 }
 
+// QueryError is returned when a query fails
 type QueryError struct {
 	Code      int
 	Message   string
@@ -2652,7 +2741,7 @@ func (c *Collection) Update(selector interface{}, update interface{}) error {
 //
 // See the Update method for more details.
 func (c *Collection) UpdateId(id interface{}, update interface{}) error {
-	return c.Update(bson.D{{"_id", id}}, update)
+	return c.Update(bson.D{{Name: "_id", Value: id}}, update)
 }
 
 // ChangeInfo holds details about the outcome of an update operation.
@@ -2747,7 +2836,7 @@ func (c *Collection) Upsert(selector interface{}, update interface{}) (info *Cha
 //
 // See the Upsert method for more details.
 func (c *Collection) UpsertId(id interface{}, update interface{}) (info *ChangeInfo, err error) {
-	return c.Upsert(bson.D{{"_id", id}}, update)
+	return c.Upsert(bson.D{{Name: "_id", Value: id}}, update)
 }
 
 // Remove finds a single document matching the provided selector document
@@ -2777,7 +2866,7 @@ func (c *Collection) Remove(selector interface{}) error {
 //
 // See the Remove method for more details.
 func (c *Collection) RemoveId(id interface{}) error {
-	return c.Remove(bson.D{{"_id", id}})
+	return c.Remove(bson.D{{Name: "_id", Value: id}})
 }
 
 // RemoveAll finds all documents matching the provided selector document
@@ -2802,12 +2891,12 @@ func (c *Collection) RemoveAll(selector interface{}) (info *ChangeInfo, err erro
 
 // DropDatabase removes the entire database including all of its collections.
 func (db *Database) DropDatabase() error {
-	return db.Run(bson.D{{"dropDatabase", 1}}, nil)
+	return db.Run(bson.D{{Name: "dropDatabase", Value: 1}}, nil)
 }
 
 // DropCollection removes the entire collection including all of its documents.
 func (c *Collection) DropCollection() error {
-	return c.Database.Run(bson.D{{"drop", c.Name}}, nil)
+	return c.Database.Run(bson.D{{Name: "drop", Value: c.Name}}, nil)
 }
 
 // The CollectionInfo type holds metadata about a collection.
@@ -2875,37 +2964,37 @@ type CollectionInfo struct {
 //
 func (c *Collection) Create(info *CollectionInfo) error {
 	cmd := make(bson.D, 0, 4)
-	cmd = append(cmd, bson.DocElem{"create", c.Name})
+	cmd = append(cmd, bson.DocElem{Name: "create", Value: c.Name})
 	if info.Capped {
 		if info.MaxBytes < 1 {
 			return fmt.Errorf("Collection.Create: with Capped, MaxBytes must also be set")
 		}
-		cmd = append(cmd, bson.DocElem{"capped", true})
-		cmd = append(cmd, bson.DocElem{"size", info.MaxBytes})
+		cmd = append(cmd, bson.DocElem{Name: "capped", Value: true})
+		cmd = append(cmd, bson.DocElem{Name: "size", Value: info.MaxBytes})
 		if info.MaxDocs > 0 {
-			cmd = append(cmd, bson.DocElem{"max", info.MaxDocs})
+			cmd = append(cmd, bson.DocElem{Name: "max", Value: info.MaxDocs})
 		}
 	}
 	if info.DisableIdIndex {
-		cmd = append(cmd, bson.DocElem{"autoIndexId", false})
+		cmd = append(cmd, bson.DocElem{Name: "autoIndexId", Value: false})
 	}
 	if info.ForceIdIndex {
-		cmd = append(cmd, bson.DocElem{"autoIndexId", true})
+		cmd = append(cmd, bson.DocElem{Name: "autoIndexId", Value: true})
 	}
 	if info.Validator != nil {
-		cmd = append(cmd, bson.DocElem{"validator", info.Validator})
+		cmd = append(cmd, bson.DocElem{Name: "validator", Value: info.Validator})
 	}
 	if info.ValidationLevel != "" {
-		cmd = append(cmd, bson.DocElem{"validationLevel", info.ValidationLevel})
+		cmd = append(cmd, bson.DocElem{Name: "validationLevel", Value: info.ValidationLevel})
 	}
 	if info.ValidationAction != "" {
-		cmd = append(cmd, bson.DocElem{"validationAction", info.ValidationAction})
+		cmd = append(cmd, bson.DocElem{Name: "validationAction", Value: info.ValidationAction})
 	}
 	if info.StorageEngine != nil {
-		cmd = append(cmd, bson.DocElem{"storageEngine", info.StorageEngine})
+		cmd = append(cmd, bson.DocElem{Name: "storageEngine", Value: info.StorageEngine})
 	}
 	if info.Collation != nil {
-		cmd = append(cmd, bson.DocElem{"collation", info.Collation})
+		cmd = append(cmd, bson.DocElem{Name: "collation", Value: info.Collation})
 	}
 
 	return c.Database.Run(cmd, nil)
@@ -2914,7 +3003,7 @@ func (c *Collection) Create(info *CollectionInfo) error {
 // Batch sets the batch size used when fetching documents from the database.
 // It's possible to change this setting on a per-session basis as well, using
 // the Batch method of Session.
-
+//
 // The default batch size is defined by the database itself.  As of this
 // writing, MongoDB will use an initial size of min(100 docs, 4MB) on the
 // first batch, and 4MB on remaining ones.
@@ -3036,9 +3125,9 @@ func (q *Query) Sort(fields ...string) *Query {
 			panic("Sort: empty field name")
 		}
 		if kind == "textScore" {
-			order = append(order, bson.DocElem{field, bson.M{"$meta": kind}})
+			order = append(order, bson.DocElem{Name: field, Value: bson.M{"$meta": kind}})
 		} else {
-			order = append(order, bson.DocElem{field, n})
+			order = append(order, bson.DocElem{Name: field, Value: n})
 		}
 	}
 	q.op.options.OrderBy = order
@@ -3406,15 +3495,15 @@ func prepareFindOp(socket *mongoSocket, op *queryOp, limit int32) bool {
 	op.hasOptions = false
 
 	if explain {
-		op.query = bson.D{{"explain", op.query}}
+		op.query = bson.D{{Name: "explain", Value: op.query}}
 		return false
 	}
 	return true
 }
 
 type cursorData struct {
-	FirstBatch []bson.Raw "firstBatch"
-	NextBatch  []bson.Raw "nextBatch"
+	FirstBatch []bson.Raw `bson:"firstBatch"`
+	NextBatch  []bson.Raw `bson:"nextBatch"`
 	NS         string
 	Id         int64
 }
@@ -3477,7 +3566,7 @@ type getMoreCmd struct {
 func (db *Database) run(socket *mongoSocket, cmd, result interface{}) (err error) {
 	// Database.Run:
 	if name, ok := cmd.(string); ok {
-		cmd = bson.D{{name, 1}}
+		cmd = bson.D{{Name: name, Value: 1}}
 	}
 
 	// Collection.Find:
@@ -3566,7 +3655,7 @@ func (db *Database) FindRef(ref *DBRef) *Query {
 //
 func (s *Session) FindRef(ref *DBRef) *Query {
 	if ref.Database == "" {
-		panic(errors.New(fmt.Sprintf("Can't resolve database for %#v", ref)))
+		panic(fmt.Errorf("Can't resolve database for %#v", ref))
 	}
 	c := s.DB(ref.Database).C(ref.Collection)
 	return c.FindId(ref.Id)
@@ -3587,7 +3676,7 @@ func (db *Database) CollectionNames() (names []string, err error) {
 		Collections []bson.Raw
 		Cursor      cursorData
 	}
-	err = db.With(cloned).Run(bson.D{{"listCollections", 1}, {"cursor", bson.D{{"batchSize", batchSize}}}}, &result)
+	err = db.With(cloned).Run(bson.D{{Name: "listCollections", Value: 1}, {Name: "cursor", Value: bson.D{{Name: "batchSize", Value: batchSize}}}}, &result)
 	if err == nil {
 		firstBatch := result.Collections
 		if firstBatch == nil {
@@ -4052,13 +4141,13 @@ func (q *Query) All(result interface{}) error {
 	return q.Iter().All(result)
 }
 
-// The For method is obsolete and will be removed in a future release.
+// For method is obsolete and will be removed in a future release.
 // See Iter as an elegant replacement.
 func (q *Query) For(result interface{}, f func() error) error {
 	return q.Iter().For(result, f)
 }
 
-// The For method is obsolete and will be removed in a future release.
+// For method is obsolete and will be removed in a future release.
 // See Iter as an elegant replacement.
 func (iter *Iter) For(result interface{}, f func() error) (err error) {
 	valid := false
@@ -4177,8 +4266,8 @@ func (iter *Iter) getMoreCmd() *queryOp {
 type countCmd struct {
 	Count     string
 	Query     interface{}
-	Limit     int32  ",omitempty"
-	Skip      int32  ",omitempty"
+	Limit     int32  `bson:",omitempty"`
+	Skip      int32  `bson:",omitempty"`
 	Hint      bson.D `bson:"hint,omitempty"`
 	MaxTimeMS int    `bson:"maxTimeMS,omitempty"`
 }
@@ -4217,9 +4306,9 @@ func (c *Collection) Count() (n int, err error) {
 }
 
 type distinctCmd struct {
-	Collection string "distinct"
+	Collection string `bson:"distinct"`
 	Key        string
-	Query      interface{} ",omitempty"
+	Query      interface{} `bson:",omitempty"`
 }
 
 // Distinct unmarshals into result the list of distinct values for the given key.
@@ -4256,28 +4345,34 @@ func (q *Query) Distinct(key string, result interface{}) error {
 }
 
 type mapReduceCmd struct {
-	Collection string "mapreduce"
-	Map        string ",omitempty"
-	Reduce     string ",omitempty"
-	Finalize   string ",omitempty"
+	Collection string `bson:"mapreduce"`
+	Map        string `bson:",omitempty"`
+	Reduce     string `bson:",omitempty"`
+	Finalize   string `bson:",omitempty"`
 	Out        interface{}
-	Query      interface{} ",omitempty"
-	Sort       interface{} ",omitempty"
-	Scope      interface{} ",omitempty"
-	Limit      int32       ",omitempty"
-	Verbose    bool        ",omitempty"
+	Query      interface{} `bson:",omitempty"`
+	Sort       interface{} `bson:",omitempty"`
+	Scope      interface{} `bson:",omitempty"`
+	Limit      int32       `bson:",omitempty"`
+	Verbose    bool        `bson:",omitempty"`
 }
 
 type mapReduceResult struct {
 	Results    bson.Raw
 	Result     bson.Raw
-	TimeMillis int64 "timeMillis"
+	TimeMillis int64 `bson:"timeMillis"`
 	Counts     struct{ Input, Emit, Output int }
 	Ok         bool
 	Err        string
 	Timing     *MapReduceTime
 }
 
+// MapReduce used to perform Map Reduce operations
+//
+// Relevant documentation:
+//
+//    https://docs.mongodb.com/manual/core/map-reduce/
+//
 type MapReduce struct {
 	Map      string      // Map Javascript function code (required)
 	Reduce   string      // Reduce Javascript function code (required)
@@ -4287,6 +4382,7 @@ type MapReduce struct {
 	Verbose  bool
 }
 
+// MapReduceInfo stores informations on a MapReduce operation
 type MapReduceInfo struct {
 	InputCount  int            // Number of documents mapped
 	EmitCount   int            // Number of times reduce called emit
@@ -4297,10 +4393,11 @@ type MapReduceInfo struct {
 	VerboseTime *MapReduceTime // Only defined if Verbose was true
 }
 
+// MapReduceTime stores execution time of a MapReduce operation
 type MapReduceTime struct {
 	Total    int64 // Total time, in nanoseconds
-	Map      int64 "mapTime"  // Time within map function, in nanoseconds
-	EmitLoop int64 "emitLoop" // Time within the emit/map loop, in nanoseconds
+	Map      int64 `bson:"mapTime"`  // Time within map function, in nanoseconds
+	EmitLoop int64 `bson:"emitLoop"` // Time within the emit/map loop, in nanoseconds
 }
 
 // MapReduce executes a map/reduce job for documents covered by the query.
@@ -4391,7 +4488,7 @@ func (q *Query) MapReduce(job *MapReduce, result interface{}) (info *MapReduceIn
 	}
 
 	if cmd.Out == nil {
-		cmd.Out = bson.D{{"inline", 1}}
+		cmd.Out = bson.D{{Name: "inline", Value: 1}}
 	}
 
 	var doc mapReduceResult
@@ -4476,14 +4573,14 @@ type Change struct {
 }
 
 type findModifyCmd struct {
-	Collection                  string      "findAndModify"
-	Query, Update, Sort, Fields interface{} ",omitempty"
-	Upsert, Remove, New         bool        ",omitempty"
+	Collection                  string      `bson:"findAndModify"`
+	Query, Update, Sort, Fields interface{} `bson:",omitempty"`
+	Upsert, Remove, New         bool        `bson:",omitempty"`
 }
 
 type valueResult struct {
 	Value     bson.Raw
-	LastError LastError "lastErrorObject"
+	LastError LastError `bson:"lastErrorObject"`
 }
 
 // Apply runs the findAndModify MongoDB command, which allows updating, upserting
@@ -4615,7 +4712,7 @@ func (bi *BuildInfo) VersionAtLeast(version ...int) bool {
 // BuildInfo retrieves the version and other details about the
 // running MongoDB server.
 func (s *Session) BuildInfo() (info BuildInfo, err error) {
-	err = s.Run(bson.D{{"buildInfo", "1"}}, &info)
+	err = s.Run(bson.D{{Name: "buildInfo", Value: "1"}}, &info)
 	if len(info.VersionArray) == 0 {
 		for _, a := range strings.Split(info.Version, ".") {
 			i, err := strconv.Atoi(a)
@@ -4809,7 +4906,7 @@ type writeCmdResult struct {
 	NModified int `bson:"nModified"`
 	Upserted  []struct {
 		Index int
-		Id    interface{} `_id`
+		Id    interface{} `bson:"_id"`
 	}
 	ConcernError writeConcernError `bson:"writeConcernError"`
 	Errors       []writeCmdError   `bson:"writeErrors"`
@@ -5022,7 +5119,7 @@ func (c *Collection) writeOpQuery(socket *mongoSocket, safeOp *queryOp, op inter
 func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op interface{}, ordered, bypassValidation bool) (lerr *LastError, err error) {
 	var writeConcern interface{}
 	if safeOp == nil {
-		writeConcern = bson.D{{"w", 0}}
+		writeConcern = bson.D{{Name: "w", Value: 0}}
 	} else {
 		writeConcern = safeOp.query.(*getLastError)
 	}
@@ -5032,46 +5129,46 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 	case *insertOp:
 		// http://docs.mongodb.org/manual/reference/command/insert
 		cmd = bson.D{
-			{"insert", c.Name},
-			{"documents", op.documents},
-			{"writeConcern", writeConcern},
-			{"ordered", op.flags&1 == 0},
+			{Name: "insert", Value: c.Name},
+			{Name: "documents", Value: op.documents},
+			{Name: "writeConcern", Value: writeConcern},
+			{Name: "ordered", Value: op.flags&1 == 0},
 		}
 	case *updateOp:
 		// http://docs.mongodb.org/manual/reference/command/update
 		cmd = bson.D{
-			{"update", c.Name},
-			{"updates", []interface{}{op}},
-			{"writeConcern", writeConcern},
-			{"ordered", ordered},
+			{Name: "update", Value: c.Name},
+			{Name: "updates", Value: []interface{}{op}},
+			{Name: "writeConcern", Value: writeConcern},
+			{Name: "ordered", Value: ordered},
 		}
 	case bulkUpdateOp:
 		// http://docs.mongodb.org/manual/reference/command/update
 		cmd = bson.D{
-			{"update", c.Name},
-			{"updates", op},
-			{"writeConcern", writeConcern},
-			{"ordered", ordered},
+			{Name: "update", Value: c.Name},
+			{Name: "updates", Value: op},
+			{Name: "writeConcern", Value: writeConcern},
+			{Name: "ordered", Value: ordered},
 		}
 	case *deleteOp:
 		// http://docs.mongodb.org/manual/reference/command/delete
 		cmd = bson.D{
-			{"delete", c.Name},
-			{"deletes", []interface{}{op}},
-			{"writeConcern", writeConcern},
-			{"ordered", ordered},
+			{Name: "delete", Value: c.Name},
+			{Name: "deletes", Value: []interface{}{op}},
+			{Name: "writeConcern", Value: writeConcern},
+			{Name: "ordered", Value: ordered},
 		}
 	case bulkDeleteOp:
 		// http://docs.mongodb.org/manual/reference/command/delete
 		cmd = bson.D{
-			{"delete", c.Name},
-			{"deletes", op},
-			{"writeConcern", writeConcern},
-			{"ordered", ordered},
+			{Name: "delete", Value: c.Name},
+			{Name: "deletes", Value: op},
+			{Name: "writeConcern", Value: writeConcern},
+			{Name: "ordered", Value: ordered},
 		}
 	}
 	if bypassValidation {
-		cmd = append(cmd, bson.DocElem{"bypassDocumentValidation", true})
+		cmd = append(cmd, bson.DocElem{Name: "bypassDocumentValidation", Value: true})
 	}
 
 	var result writeCmdResult
