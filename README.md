@@ -29,6 +29,7 @@ Further PR's (with tests) are welcome, but please maintain backwards compatibili
 * Provide BSON constants for convenience/sanity ([details](https://github.com/globalsign/mgo/pull/41))
 * Consistently unmarshal time.Time values as UTC ([details](https://github.com/globalsign/mgo/pull/42))
 * Enforces best practise coding guidelines ([details](https://github.com/globalsign/mgo/pull/44))
+* GetBSON correctly handles structs with both fields and pointers ([details](https://github.com/globalsign/mgo/pull/40))
 
 ---
 
