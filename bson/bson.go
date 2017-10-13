@@ -130,6 +130,11 @@ type Setter interface {
 	SetBSON(raw Raw) error
 }
 
+// Implement this interface to enable struct type to be omitted by `omitempty`.
+type OmitEmptyAware interface {
+	ShouldOmitAsEmpty() bool
+}
+
 // ErrSetZero may be returned from a SetBSON method to have the value set to
 // its respective zero value. When used in pointer values, this will set the
 // field to nil rather than to the pre-allocated value.
@@ -181,6 +186,10 @@ func (d D) Map() (m M) {
 type Raw struct {
 	Kind byte
 	Data []byte
+}
+
+func (raw Raw) ShouldOmitAsEmpty() bool {
+	return raw.Kind == 0 && len(raw.Data) == 0
 }
 
 // RawD represents a BSON document containing raw unprocessed elements.
