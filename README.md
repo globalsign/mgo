@@ -44,6 +44,7 @@ Further PR's (with tests) are welcome, but please maintain backwards compatibili
 * @eaglerayp
 * @feliixx
 * @fmpwizard
+* @idy
 * @jameinel
 * @gazoon
 * @mapete94
