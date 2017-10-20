@@ -130,7 +130,8 @@ type Setter interface {
 	SetBSON(raw Raw) error
 }
 
-// Implement this interface to enable struct type to be omitted by `omitempty`.
+// OmitEmptyAware allows you to control when a field of this type should be
+// serialized in the presence of an annotation `omitempty`.
 type OmitEmptyAware interface {
 	ShouldOmitAsEmpty() bool
 }
@@ -188,6 +189,7 @@ type Raw struct {
 	Data []byte
 }
 
+// ShouldOmitAsEmpty omit empty Raw field serialization.
 func (raw Raw) ShouldOmitAsEmpty() bool {
 	return raw.Kind == 0 && len(raw.Data) == 0
 }
