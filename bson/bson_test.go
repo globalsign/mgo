@@ -82,6 +82,19 @@ func testUnmarshal(c *C, data string, obj interface{}) {
 	err := bson.Unmarshal([]byte(data), zero)
 	c.Assert(err, IsNil)
 	c.Assert(zero, DeepEquals, obj)
+
+	testUnmarshalRawElements(c, []byte(data))
+}
+
+func testUnmarshalRawElements(c *C, data []byte) {
+	elems := []bson.RawDocElem{}
+	err := bson.Unmarshal(data, &elems)
+	c.Assert(err, IsNil)
+	for _, elem := range elems {
+		if elem.Value.Kind == bson.ElementDocument || elem.Value.Kind == bson.ElementArray {
+			testUnmarshalRawElements(c, elem.Value.Data)
+		}
+	}
 }
 
 type testItemType struct {

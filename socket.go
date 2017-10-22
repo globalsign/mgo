@@ -549,16 +549,15 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 		socket.replyFuncs[requestId] = request.replyFunc
 		requestId++
 	}
-
+	socket.Unlock()
 	debugf("Socket %p to %s: sending %d op(s) (%d bytes)", socket, socket.addr, len(ops), len(buf))
-	stats.sentOps(len(ops))
 
+	stats.sentOps(len(ops))
 	socket.updateDeadline(writeDeadline)
 	_, err = socket.conn.Write(buf)
 	if !wasWaiting && requestCount > 0 {
 		socket.updateDeadline(readDeadline)
 	}
-	socket.Unlock()
 	return err
 }
 

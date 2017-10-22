@@ -30,6 +30,8 @@ Further PR's (with tests) are welcome, but please maintain backwards compatibili
 * Consistently unmarshal time.Time values as UTC ([details](https://github.com/globalsign/mgo/pull/42))
 * Enforces best practise coding guidelines ([details](https://github.com/globalsign/mgo/pull/44))
 * GetBSON correctly handles structs with both fields and pointers ([details](https://github.com/globalsign/mgo/pull/40))
+* Improved bson.Raw unmarshalling performance ([details](https://github.com/globalsign/mgo/pull/49))
+* Minimise socket connection timeouts due to excessive locking ([details](https://github.com/globalsign/mgo/pull/52))
 
 ---
 
@@ -42,6 +44,7 @@ Further PR's (with tests) are welcome, but please maintain backwards compatibili
 * @eaglerayp
 * @feliixx
 * @fmpwizard
+* @idy
 * @jameinel
 * @gazoon
 * @mapete94

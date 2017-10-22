@@ -52,6 +52,7 @@ var (
 	typeDocElem        = reflect.TypeOf(DocElem{})
 	typeRawDocElem     = reflect.TypeOf(RawDocElem{})
 	typeRaw            = reflect.TypeOf(Raw{})
+	typeRawPtr         = reflect.PtrTo(reflect.TypeOf(Raw{}))
 	typeURL            = reflect.TypeOf(url.URL{})
 	typeTime           = reflect.TypeOf(time.Time{})
 	typeString         = reflect.TypeOf("")
