@@ -28,6 +28,9 @@ package mgo
 
 import (
 	"crypto/md5"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -825,6 +828,9 @@ type Credential struct {
 	// Mechanism defines the protocol for credential negotiation.
 	// Defaults to "MONGODB-CR".
 	Mechanism string
+
+	// Certificate defines an x509 certificate for authentication at login.
+	Certificate *x509.Certificate
 }
 
 // Login authenticates with MongoDB using the provided credential.  The
@@ -847,6 +853,14 @@ func (s *Session) Login(cred *Credential) error {
 	defer socket.Release()
 
 	credCopy := *cred
+	if cred.Certificate != nil && cred.Username != "" {
+		return fmt.Errorf("Failed to login, both certifcate and credentials are given.")
+	}
+
+	if cred.Certificate != nil {
+		credCopy.Username = getRFC2253NameString(cred.Certificate)
+	}
+
 	if cred.Source == "" {
 		if cred.Mechanism == "GSSAPI" {
 			credCopy.Source = "$external"
@@ -5211,4 +5225,68 @@ func hasErrMsg(d []byte) bool {
 		}
 	}
 	return false
+}
+
+// getRFC2253NameString converts from an ASN.1 structured representation of the certificate
+// to a UTF-8 string representation(RDN) and returns it.
+func getRFC2253NameString(certificate *x509.Certificate) string {
+	var RDNElementsASN1 = pkix.RDNSequence{}
+	asn1.Unmarshal(certificate.RawSubject, &RDNElementsASN1)
+
+	var RDNElementsString = []string{}
+	for i := len(RDNElementsASN1) - 1; i >= 0; i-- {
+		var nameAndValueList = []string{}
+		for _, attribute := range RDNElementsASN1[i] {
+			var shortAttributeName = rdnOIDToShortName(attribute.Type)
+			if len(shortAttributeName) > 0 {
+				var attributeValueString = attribute.Value.(string)
+				// escape leading space or #
+				if strings.IndexAny(attributeValueString, " #") == 0 {
+					attributeValueString = "\\" + attributeValueString
+				}
+				// escape trailing space (unless the trailing space is also the first (unescaped) character)
+				if len(attributeValueString) > 2 && attributeValueString[len(attributeValueString)-1] == ' ' {
+					attributeValueString = attributeValueString[:len(attributeValueString)-1] + "\\ "
+				}
+
+				// escape , = + < > # ;
+				var replacer = strings.NewReplacer(",", "\\,", "=", "\\=", "+", "\\+", "<", "\\<", ">", "\\>", "#", "\\#", ";", "\\;")
+				attributeValueString = replacer.Replace(attributeValueString)
+				nameAndValueList = append(nameAndValueList, fmt.Sprintf("%s=%s", shortAttributeName, attributeValueString))
+			} else {
+				nameAndValueList = append(nameAndValueList, fmt.Sprintf("%s=%X", attribute.Type.String(), attribute.Value.([]byte)))
+			}
+		}
+
+		RDNElementsString = append(RDNElementsString, strings.Join(nameAndValueList, "+"))
+	}
+
+	return strings.Join(RDNElementsString, ",")
+}
+
+var oidsToShortNames = []struct {
+	oid       asn1.ObjectIdentifier
+	shortName string
+}{
+	{asn1.ObjectIdentifier{2, 5, 4, 3}, "CN"},
+	{asn1.ObjectIdentifier{2, 5, 4, 6}, "C"},
+	{asn1.ObjectIdentifier{2, 5, 4, 7}, "L"},
+	{asn1.ObjectIdentifier{2, 5, 4, 8}, "ST"},
+	{asn1.ObjectIdentifier{2, 5, 4, 10}, "O"},
+	{asn1.ObjectIdentifier{2, 5, 4, 11}, "OU"},
+	{asn1.ObjectIdentifier{2, 5, 4, 9}, "STREET"},
+	{asn1.ObjectIdentifier{0, 9, 2342, 19200300, 100, 1, 25}, "DC"},
+	{asn1.ObjectIdentifier{0, 9, 2342, 19200300, 100, 1, 1}, "UID"},
+}
+
+// rdnOIDToShortName returns an short name of the given RDN OID. If the OID does not have a short
+// name, the function returns an empty string
+func rdnOIDToShortName(oid asn1.ObjectIdentifier) string {
+	for i := range oidsToShortNames {
+		if oidsToShortNames[i].oid.Equal(oid) {
+			return oidsToShortNames[i].shortName
+		}
+	}
+
+	return ""
 }
