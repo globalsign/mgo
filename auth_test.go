@@ -965,6 +965,15 @@ func (s *S) TestAuthX509Cred(c *C) {
 }
 
 func (s *S) TestAuthX509CredRDNConstruction(c *C) {
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+	binfo, err := session.BuildInfo()
+	c.Assert(err, IsNil)
+	if binfo.OpenSSLVersion == "" {
+		c.Skip("server does not support SSL")
+	}
+
 	clientCertPEM, err := ioutil.ReadFile("harness/certs/client.pem")
 	c.Assert(err, IsNil)
 
@@ -981,7 +990,7 @@ func (s *S) TestAuthX509CredRDNConstruction(c *C) {
 
 	var host = "localhost:40003"
 	c.Logf("Connecting to %s...", host)
-	session, err := mgo.DialWithInfo(&mgo.DialInfo{
+	session, err = mgo.DialWithInfo(&mgo.DialInfo{
 		Addrs: []string{host},
 		DialServer: func(addr *mgo.ServerAddr) (net.Conn, error) {
 			return tls.Dial("tcp", addr.String(), tlsConfig)
