@@ -5257,7 +5257,7 @@ func getRFC2253NameString(RDNElements *pkix.RDNSequence) string {
 				continue
 			}
 			var attributeValueString = attribute.Value.(string)
-			// escape leading space or #
+			// escape leading space
 			if strings.HasPrefix(attributeValueString, " ") {
 				attributeValueString = "\\" + attributeValueString
 			}
