@@ -1,10 +1,16 @@
 package mgo
 
 import (
-	"testing"
-
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"github.com/globalsign/mgo/bson"
+	. "gopkg.in/check.v1"
+	"testing"
 )
+
+type S struct{}
+
+var _ = Suite(&S{})
 
 // This file is for testing functions that are not exported outside the mgo
 // package - avoid doing so if at all possible.
@@ -21,4 +27,37 @@ func TestIndexedInt64FieldsBug(t *testing.T) {
 	}
 
 	_ = simpleIndexKey(input)
+}
+
+func (s *S) TestGetRFC2253NameStringSingleValued(c *C) {
+	var RDNElements = pkix.RDNSequence{
+		{{asn1.ObjectIdentifier{2, 5, 4, 6}, "GO"}},
+		{{asn1.ObjectIdentifier{2, 5, 4, 8}, "MGO"}},
+		{{asn1.ObjectIdentifier{2, 5, 4, 7}, "MGO"}},
+		{{asn1.ObjectIdentifier{2, 5, 4, 10}, "MGO"}},
+		{{asn1.ObjectIdentifier{2, 5, 4, 11}, "Client"}},
+		{{asn1.ObjectIdentifier{2, 5, 4, 3}, "localhost"}},
+	}
+
+	c.Assert(getRFC2253NameString(&RDNElements), Equals, "CN=localhost,OU=Client,O=MGO,L=MGO,ST=MGO,C=GO")
+}
+
+func (s *S) TestGetRFC2253NameStringEscapeChars(c *C) {
+	var RDNElements = pkix.RDNSequence{
+		{{asn1.ObjectIdentifier{2, 5, 4, 6}, "GB"}},
+		{{asn1.ObjectIdentifier{2, 5, 4, 10}, "Sue, Grabbit and Runn < > ;"}},
+		{{asn1.ObjectIdentifier{2, 5, 4, 3}, "L. Eagle"}},
+	}
+
+	c.Assert(getRFC2253NameString(&RDNElements), Equals, "CN=L. Eagle,O=Sue\\, Grabbit and Runn \\< \\> \\;,C=GB")
+}
+
+func (s *S) TestGetRFC2253NameStringMultiValued(c *C) {
+	var RDNElements = pkix.RDNSequence{
+		{{asn1.ObjectIdentifier{2, 5, 4, 6}, "US"}},
+		{{asn1.ObjectIdentifier{2, 5, 4, 10}, "Widget Inc."}},
+		{{asn1.ObjectIdentifier{2, 5, 4, 11}, "Sales"}, {asn1.ObjectIdentifier{2, 5, 4, 3}, "J. Smith"}},
+	}
+
+	c.Assert(getRFC2253NameString(&RDNElements), Equals, "OU=Sales+CN=J. Smith,O=Widget Inc.,C=US")
 }

@@ -830,6 +830,10 @@ type Credential struct {
 	Mechanism string
 
 	// Certificate defines an x509 certificate for authentication at login.
+	// If providing a certificate:
+	// The Username field is populated from the cert and should not be set
+	// The Mechanism field should be MONGODB-X509 or not set.
+	// The Source field should be $external or not set.
 	Certificate *x509.Certificate
 }
 
@@ -854,11 +858,14 @@ func (s *Session) Login(cred *Credential) error {
 
 	credCopy := *cred
 	if cred.Certificate != nil && cred.Username != "" {
-		return fmt.Errorf("Failed to login, both certifcate and credentials are given.")
+		return errors.New("failed to login, both certifcate and credentials are given")
 	}
 
 	if cred.Certificate != nil {
-		credCopy.Username = getRFC2253NameString(cred.Certificate)
+		credCopy.Username, err = getRFC2253NameStringFromCert(cred.Certificate)
+		if err != nil {
+			return err
+		}
 	}
 
 	if cred.Source == "" {
@@ -5227,35 +5234,42 @@ func hasErrMsg(d []byte) bool {
 	return false
 }
 
-// getRFC2253NameString converts from an ASN.1 structured representation of the certificate
+// getRFC2253NameStringFromCert converts from an ASN.1 structured representation of the certificate
 // to a UTF-8 string representation(RDN) and returns it.
-func getRFC2253NameString(certificate *x509.Certificate) string {
-	var RDNElementsASN1 = pkix.RDNSequence{}
-	asn1.Unmarshal(certificate.RawSubject, &RDNElementsASN1)
+func getRFC2253NameStringFromCert(certificate *x509.Certificate) (string, error) {
+	var RDNElements = pkix.RDNSequence{}
+	_, err := asn1.Unmarshal(certificate.RawSubject, &RDNElements)
+	return getRFC2253NameString(&RDNElements), err
+}
 
+// getRFC2253NameString converts from an ASN.1 structured representation of the RDNSequence
+// from the certificate to a UTF-8 string representation(RDN) and returns it.
+func getRFC2253NameString(RDNElements *pkix.RDNSequence) string {
 	var RDNElementsString = []string{}
-	for i := len(RDNElementsASN1) - 1; i >= 0; i-- {
-		var nameAndValueList = []string{}
-		for _, attribute := range RDNElementsASN1[i] {
+	//The elements in the sequence needs to be reversed when converting them
+	for i := len(*RDNElements) - 1; i >= 0; i-- {
+		var nameAndValueList = make([]string,len((*RDNElements)[i]))
+		var replacer *strings.Replacer
+		for j, attribute := range (*RDNElements)[i] {
 			var shortAttributeName = rdnOIDToShortName(attribute.Type)
-			if len(shortAttributeName) > 0 {
-				var attributeValueString = attribute.Value.(string)
-				// escape leading space or #
-				if strings.IndexAny(attributeValueString, " #") == 0 {
-					attributeValueString = "\\" + attributeValueString
-				}
-				// escape trailing space (unless the trailing space is also the first (unescaped) character)
-				if len(attributeValueString) > 2 && attributeValueString[len(attributeValueString)-1] == ' ' {
-					attributeValueString = attributeValueString[:len(attributeValueString)-1] + "\\ "
-				}
-
-				// escape , = + < > # ;
-				var replacer = strings.NewReplacer(",", "\\,", "=", "\\=", "+", "\\+", "<", "\\<", ">", "\\>", "#", "\\#", ";", "\\;")
-				attributeValueString = replacer.Replace(attributeValueString)
-				nameAndValueList = append(nameAndValueList, fmt.Sprintf("%s=%s", shortAttributeName, attributeValueString))
-			} else {
-				nameAndValueList = append(nameAndValueList, fmt.Sprintf("%s=%X", attribute.Type.String(), attribute.Value.([]byte)))
+			if len(shortAttributeName) <= 0 {
+				nameAndValueList[j] = fmt.Sprintf("%s=%X", attribute.Type.String(), attribute.Value.([]byte))
+				continue
 			}
+			var attributeValueString = attribute.Value.(string)
+			// escape leading space or #
+			if strings.HasPrefix(attributeValueString, " #") == true {
+				attributeValueString = "\\" + attributeValueString
+			}
+			// escape trailing space (unless the trailing space is also the first (unescaped) character)
+			if len(attributeValueString) > 2 && attributeValueString[len(attributeValueString)-1] == ' ' {
+				attributeValueString = attributeValueString[:len(attributeValueString)-1] + "\\ "
+			}
+
+			// escape , = + < > # ;
+			replacer = strings.NewReplacer(",", "\\,", "=", "\\=", "+", "\\+", "<", "\\<", ">", "\\>", "#", "\\#", ";", "\\;")
+			attributeValueString = replacer.Replace(attributeValueString)
+			nameAndValueList[j] = fmt.Sprintf("%s=%s", shortAttributeName, attributeValueString)
 		}
 
 		RDNElementsString = append(RDNElementsString, strings.Join(nameAndValueList, "+"))
