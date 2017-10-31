@@ -31,12 +31,12 @@ func TestIndexedInt64FieldsBug(t *testing.T) {
 
 func (s *S) TestGetRFC2253NameStringSingleValued(c *C) {
 	var RDNElements = pkix.RDNSequence{
-		{{asn1.ObjectIdentifier{2, 5, 4, 6}, "GO"}},
-		{{asn1.ObjectIdentifier{2, 5, 4, 8}, "MGO"}},
-		{{asn1.ObjectIdentifier{2, 5, 4, 7}, "MGO"}},
-		{{asn1.ObjectIdentifier{2, 5, 4, 10}, "MGO"}},
-		{{asn1.ObjectIdentifier{2, 5, 4, 11}, "Client"}},
-		{{asn1.ObjectIdentifier{2, 5, 4, 3}, "localhost"}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 6}, Value: "GO"}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 8}, Value: "MGO"}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 7}, Value: "MGO"}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 10}, Value: "MGO"}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 11}, Value: "Client"}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 3}, Value: "localhost"}},
 	}
 
 	c.Assert(getRFC2253NameString(&RDNElements), Equals, "CN=localhost,OU=Client,O=MGO,L=MGO,ST=MGO,C=GO")
@@ -44,10 +44,10 @@ func (s *S) TestGetRFC2253NameStringSingleValued(c *C) {
 
 func (s *S) TestGetRFC2253NameStringEscapeChars(c *C) {
 	var RDNElements = pkix.RDNSequence{
-		{{asn1.ObjectIdentifier{2, 5, 4, 6}, "GB"}},
-		{{asn1.ObjectIdentifier{2, 5, 4, 8}, "MGO "}},
-		{{asn1.ObjectIdentifier{2, 5, 4, 10}, "Sue, Grabbit and Runn < > ;"}},
-		{{asn1.ObjectIdentifier{2, 5, 4, 3}, "L. Eagle"}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 6}, Value: "GB"}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 8}, Value: "MGO "}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 10}, Value: "Sue, Grabbit and Runn < > ;"}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 3}, Value: "L. Eagle"}},
 	}
 
 	c.Assert(getRFC2253NameString(&RDNElements), Equals, "CN=L. Eagle,O=Sue\\, Grabbit and Runn \\< \\> \\;,ST=MGO\\ ,C=GB")
@@ -55,9 +55,9 @@ func (s *S) TestGetRFC2253NameStringEscapeChars(c *C) {
 
 func (s *S) TestGetRFC2253NameStringMultiValued(c *C) {
 	var RDNElements = pkix.RDNSequence{
-		{{asn1.ObjectIdentifier{2, 5, 4, 6}, "US"}},
-		{{asn1.ObjectIdentifier{2, 5, 4, 10}, "Widget Inc."}},
-		{{asn1.ObjectIdentifier{2, 5, 4, 11}, "Sales"}, {asn1.ObjectIdentifier{2, 5, 4, 3}, "J. Smith"}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 6}, Value: "US"}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 10}, Value: "Widget Inc."}},
+		{{Type: asn1.ObjectIdentifier{2, 5, 4, 11}, Value: "Sales"}, {Type: asn1.ObjectIdentifier{2, 5, 4, 3}, Value: "J. Smith"}},
 	}
 
 	c.Assert(getRFC2253NameString(&RDNElements), Equals, "OU=Sales+CN=J. Smith,O=Widget Inc.,C=US")
