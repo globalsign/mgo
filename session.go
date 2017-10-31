@@ -5246,10 +5246,10 @@ func getRFC2253NameStringFromCert(certificate *x509.Certificate) (string, error)
 // from the certificate to a UTF-8 string representation(RDN) and returns it.
 func getRFC2253NameString(RDNElements *pkix.RDNSequence) string {
 	var RDNElementsString = []string{}
+	var replacer = strings.NewReplacer(",", "\\,", "=", "\\=", "+", "\\+", "<", "\\<", ">", "\\>", "#", "\\#", ";", "\\;")
 	//The elements in the sequence needs to be reversed when converting them
 	for i := len(*RDNElements) - 1; i >= 0; i-- {
 		var nameAndValueList = make([]string,len((*RDNElements)[i]))
-		var replacer = strings.NewReplacer(",", "\\,", "=", "\\=", "+", "\\+", "<", "\\<", ">", "\\>", "#", "\\#", ";", "\\;")
 		for j, attribute := range (*RDNElements)[i] {
 			var shortAttributeName = rdnOIDToShortName(attribute.Type)
 			if len(shortAttributeName) <= 0 {
@@ -5258,7 +5258,7 @@ func getRFC2253NameString(RDNElements *pkix.RDNSequence) string {
 			}
 			var attributeValueString = attribute.Value.(string)
 			// escape leading space or #
-			if strings.HasPrefix(attributeValueString, " ") || strings.HasPrefix(attributeValueString, "#") {
+			if strings.HasPrefix(attributeValueString, " ") {
 				attributeValueString = "\\" + attributeValueString
 			}
 			// escape trailing space (unless the trailing space is also the first (unescaped) character)
