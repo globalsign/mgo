@@ -45,11 +45,12 @@ func (s *S) TestGetRFC2253NameStringSingleValued(c *C) {
 func (s *S) TestGetRFC2253NameStringEscapeChars(c *C) {
 	var RDNElements = pkix.RDNSequence{
 		{{asn1.ObjectIdentifier{2, 5, 4, 6}, "GB"}},
+		{{asn1.ObjectIdentifier{2, 5, 4, 8}, "MGO "}},
 		{{asn1.ObjectIdentifier{2, 5, 4, 10}, "Sue, Grabbit and Runn < > ;"}},
 		{{asn1.ObjectIdentifier{2, 5, 4, 3}, "L. Eagle"}},
 	}
 
-	c.Assert(getRFC2253NameString(&RDNElements), Equals, "CN=L. Eagle,O=Sue\\, Grabbit and Runn \\< \\> \\;,C=GB")
+	c.Assert(getRFC2253NameString(&RDNElements), Equals, "CN=L. Eagle,O=Sue\\, Grabbit and Runn \\< \\> \\;,ST=MGO\\ ,C=GB")
 }
 
 func (s *S) TestGetRFC2253NameStringMultiValued(c *C) {
