@@ -5261,7 +5261,7 @@ func getRFC2253NameString(RDNElements *pkix.RDNSequence) string {
 			if strings.HasPrefix(attributeValueString, " ") {
 				attributeValueString = "\\" + attributeValueString
 			}
-			// escape trailing space (unless the trailing space is also the first (unescaped) character)
+			// escape trailing space, unless it's already escaped
 			if strings.HasSuffix(attributeValueString, " ") && !strings.HasSuffix(attributeValueString, "\\ ") {
 				attributeValueString = attributeValueString[:len(attributeValueString)-1] + "\\ "
 			}
