@@ -829,11 +829,13 @@ type Credential struct {
 	// Defaults to "MONGODB-CR".
 	Mechanism string
 
-	// Certificate defines an x509 certificate for authentication at login.
+	// Certificate defines an x509 certificate for authentication at login,
+	// for reference please see, https://docs.mongodb.com/manual/tutorial/configure-x509-client-authentication/
 	// If providing a certificate:
 	// The Username field is populated from the cert and should not be set
 	// The Mechanism field should be MONGODB-X509 or not set.
 	// The Source field should be $external or not set.
+	// If not specified, the username will have to be set manually.
 	Certificate *x509.Certificate
 }
 
@@ -858,7 +860,7 @@ func (s *Session) Login(cred *Credential) error {
 
 	credCopy := *cred
 	if cred.Certificate != nil && cred.Username != "" {
-		return errors.New("failed to login, both certifcate and credentials are given")
+		return errors.New("failed to login, both certificate and credentials are given")
 	}
 
 	if cred.Certificate != nil {
@@ -866,6 +868,8 @@ func (s *Session) Login(cred *Credential) error {
 		if err != nil {
 			return err
 		}
+		credCopy.Mechanism = "MONGODB-X509"
+		credCopy.Source = "$external"
 	}
 
 	if cred.Source == "" {
