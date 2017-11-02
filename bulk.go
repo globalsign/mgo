@@ -3,6 +3,7 @@ package mgo
 import (
 	"bytes"
 	"sort"
+	"sync"
 
 	"github.com/globalsign/mgo/bson"
 )
@@ -118,6 +119,15 @@ func (e *BulkError) Cases() []BulkErrorCase {
 	return e.ecases
 }
 
+var actionPool = sync.Pool{
+	New: func() interface{} {
+		return &bulkAction{
+			docs: make([]interface{}, 0),
+			idxs: make([]int, 0),
+		}
+	},
+}
+
 // Bulk returns a value to prepare the execution of a bulk operation.
 func (c *Collection) Bulk() *Bulk {
 	return &Bulk{c: c, ordered: true}
@@ -145,7 +155,9 @@ func (b *Bulk) action(op bulkOp, opcount int) *bulkAction {
 		}
 	}
 	if action == nil {
-		b.actions = append(b.actions, bulkAction{op: op})
+		a := actionPool.Get().(*bulkAction)
+		a.op = op
+		b.actions = append(b.actions, *a)
 		action = &b.actions[len(b.actions)-1]
 	}
 	for i := 0; i < opcount; i++ {
@@ -288,6 +300,9 @@ func (b *Bulk) Run() (*BulkResult, error) {
 		default:
 			panic("unknown bulk operation")
 		}
+		action.idxs = action.idxs[0:0]
+		action.docs = action.docs[0:0]
+		actionPool.Put(action)
 		if !ok {
 			failed = true
 			if b.ordered {
