@@ -130,6 +130,12 @@ type Setter interface {
 	SetBSON(raw Raw) error
 }
 
+// OmitEmptyAware allows you to control when a field of this type should be
+// serialized in the presence of an annotation `omitempty`.
+type OmitEmptyAware interface {
+	ShouldOmitAsEmpty() bool
+}
+
 // ErrSetZero may be returned from a SetBSON method to have the value set to
 // its respective zero value. When used in pointer values, this will set the
 // field to nil rather than to the pre-allocated value.
@@ -181,6 +187,11 @@ func (d D) Map() (m M) {
 type Raw struct {
 	Kind byte
 	Data []byte
+}
+
+// ShouldOmitAsEmpty omit empty Raw field serialization.
+func (raw Raw) ShouldOmitAsEmpty() bool {
+	return raw.Kind == 0 && len(raw.Data) == 0
 }
 
 // RawD represents a BSON document containing raw unprocessed elements.

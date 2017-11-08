@@ -1192,6 +1192,19 @@ func (s ifaceSlice) GetBSON() (interface{}, error) {
 	return []int{len(s)}, nil
 }
 
+type omitEmptyAware struct {
+	empty bool
+	A     int
+}
+
+func (e omitEmptyAware) ShouldOmitAsEmpty() bool {
+	return e.empty
+}
+
+type condAware struct {
+	V omitEmptyAware `bson:",omitempty"`
+}
+
 type (
 	MyString string
 	MyBytes  []byte
@@ -1451,6 +1464,14 @@ var oneWayCrossItems = []crossTypeItem{
 
 	// Attempt to marshal slice into RawD (issue #120).
 	{bson.M{"x": []int{1, 2, 3}}, &struct{ X bson.RawD }{}},
+
+	{&condStruct{struct{ A []int }{}}, bson.M{}},
+	{bson.M{"v": bson.M{"a": []interface{}{}}}, &condStruct{struct{ A []int }{[]int{}}}},
+
+	{condAware{omitEmptyAware{true, 0}}, bson.M{}},
+	{condAware{omitEmptyAware{false, 0}}, bson.M{"v": bson.M{"a": 0}}},
+	{condAware{omitEmptyAware{true, 1}}, bson.M{}},
+	{condAware{omitEmptyAware{false, 1}}, bson.M{"v": bson.M{"a": 1}}},
 }
 
 func testCrossPair(c *C, dump interface{}, load interface{}) {
