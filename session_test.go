@@ -854,7 +854,7 @@ func filterDBs(dbs []string) []string {
 	var i int
 	for _, name := range dbs {
 		switch name {
-		case "admin", "local":
+		case "admin", "local", "config":
 		default:
 			dbs[i] = name
 			i++
@@ -1263,19 +1263,13 @@ func (s *S) TestFindAndModifyBug997828(c *C) {
 	result := make(M)
 	_, err = coll.Find(M{"n": "not-a-number"}).Apply(mgo.Change{Update: M{"$inc": M{"n": 1}}}, result)
 	c.Assert(err, ErrorMatches, `(exception: )?Cannot apply \$inc .*`)
-	if s.versionAtLeast(2, 1) {
-		qerr, _ := err.(*mgo.QueryError)
-		c.Assert(qerr, NotNil, Commentf("err: %#v", err))
-		if s.versionAtLeast(2, 6) {
-			// Oh, the dance of error codes. :-(
-			c.Assert(qerr.Code, Equals, 16837)
-		} else {
-			c.Assert(qerr.Code, Equals, 10140)
-		}
+	qerr, _ := err.(*mgo.QueryError)
+	c.Assert(qerr, NotNil, Commentf("err: %#v", err))
+	if s.versionAtLeast(3, 6) {
+		// Oh, the dance of error codes. :-(
+		c.Assert(qerr.Code, Equals, 14)
 	} else {
-		lerr, _ := err.(*mgo.LastError)
-		c.Assert(lerr, NotNil, Commentf("err: %#v", err))
-		c.Assert(lerr.Code, Equals, 10140)
+		c.Assert(qerr.Code, Equals, 16837)
 	}
 }
 
@@ -1650,7 +1644,7 @@ func (s *S) TestQueryComment(c *C) {
 	db := session.DB("mydb")
 	coll := db.C("mycoll")
 
-	err = db.Run(bson.M{"profile": 2}, nil)
+	err = db.Run(bson.D{{Name: "profile", Value: 2}}, nil)
 	c.Assert(err, IsNil)
 
 	ns := []int{40, 41, 42}
@@ -1672,12 +1666,20 @@ func (s *S) TestQueryComment(c *C) {
 	commentField := "query.$comment"
 	nField := "query.$query.n"
 	if s.versionAtLeast(3, 2) {
-		commentField = "query.comment"
-		nField = "query.filter.n"
+		if s.versionAtLeast(3, 6) {
+			commentField = "command.comment"
+			nField = "command.filter.n"
+		} else {
+			commentField = "query.comment"
+			nField = "query.filter.n"
+		}
 	}
 	n, err := session.DB("mydb").C("system.profile").Find(bson.M{nField: 41, commentField: "some comment"}).Count()
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, 1)
+
+	err = db.Run(bson.D{{Name: "profile", Value: 0}}, nil)
+	c.Assert(err, IsNil)
 }
 
 func (s *S) TestFindOneNotFound(c *C) {
