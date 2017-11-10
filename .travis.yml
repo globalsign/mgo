@@ -6,23 +6,13 @@ env:
     global:
         - BUCKET=https://s3.eu-west-2.amazonaws.com/globalsign-mgo
     matrix:
-        - GO=1.7   MONGODB=x86_64-2.6.11
-        - GO=1.8.x MONGODB=x86_64-2.6.11
-        - GO=1.7   MONGODB=x86_64-3.0.9
-        - GO=1.8.x MONGODB=x86_64-3.0.9
-        - GO=1.7   MONGODB=x86_64-3.2.3-nojournal
-        - GO=1.8.x MONGODB=x86_64-3.2.3-nojournal
-        - GO=1.7   MONGODB=x86_64-3.2.12
-        - GO=1.8.x MONGODB=x86_64-3.2.12
-        - GO=1.7   MONGODB=x86_64-3.2.16
-        - GO=1.8.x MONGODB=x86_64-3.2.16
-        - GO=1.7   MONGODB=x86_64-3.4.8
-        - GO=1.8.x MONGODB=x86_64-3.4.8
+        - GO=1.8.x MONGODB=x86_64-ubuntu1404-3.6.0-rc3
+        - GO=1.9.x MONGODB=x86_64-ubuntu1404-3.6.0-rc3
 
 install:
     - eval "$(gimme $GO)"
 
-    - wget $BUCKET/mongodb-linux-$MONGODB.tgz
+    - wget https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1404-3.6.0-rc3.tgz
     - tar xzvf mongodb-linux-$MONGODB.tgz
     - export PATH=$PWD/mongodb-linux-$MONGODB/bin:$PATH
 
