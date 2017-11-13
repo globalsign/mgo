@@ -2083,8 +2083,8 @@ func (s *S) TestDoNotFallbackToMonotonic(c *C) {
 	if !s.versionAtLeast(3, 0) {
 		c.Skip("command-counting logic depends on 3.0+")
 	}
-	if s.versionAtLeast(3, 4) {
-		c.Skip("failing on 3.4+")
+	if s.versionAtLeast(3, 2, 17) {
+		c.Skip("failing on 3.2.17+")
 	}
 
 	session, err := mgo.Dial("localhost:40012")

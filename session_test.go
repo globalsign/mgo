@@ -413,19 +413,11 @@ func (s *S) TestDatabaseAndCollectionNames(c *C) {
 
 	names, err = db1.CollectionNames()
 	c.Assert(err, IsNil)
-	if s.versionAtLeast(3, 4) {
-		c.Assert(names, DeepEquals, []string{"col1", "col2"})
-	} else {
-		c.Assert(names, DeepEquals, []string{"col1", "col2", "system.indexes"})
-	}
+	c.Assert(filterDBs(names), DeepEquals, []string{"col1", "col2"})
 
 	names, err = db2.CollectionNames()
 	c.Assert(err, IsNil)
-	if s.versionAtLeast(3, 4) {
-		c.Assert(names, DeepEquals, []string{"col3"})
-	} else {
-		c.Assert(names, DeepEquals, []string{"col3", "system.indexes"})
-	}
+	c.Assert(filterDBs(names), DeepEquals, []string{"col3"})
 }
 
 func (s *S) TestSelect(c *C) {
@@ -854,7 +846,7 @@ func filterDBs(dbs []string) []string {
 	var i int
 	for _, name := range dbs {
 		switch name {
-		case "admin", "local", "config":
+		case "admin", "local", "config", "system.indexes":
 		default:
 			dbs[i] = name
 			i++
@@ -880,22 +872,14 @@ func (s *S) TestDropCollection(c *C) {
 
 	names, err := db.CollectionNames()
 	c.Assert(err, IsNil)
-	if s.versionAtLeast(3, 4) {
-		c.Assert(names, DeepEquals, []string{"col2"})
-	} else {
-		c.Assert(names, DeepEquals, []string{"col2", "system.indexes"})
-	}
+	c.Assert(filterDBs(names), DeepEquals, []string{"col2"})
 
 	err = db.C("col2").DropCollection()
 	c.Assert(err, IsNil)
 
 	names, err = db.CollectionNames()
 	c.Assert(err, IsNil)
-	if s.versionAtLeast(3, 4) {
-		c.Assert(len(names), Equals, 0)
-	} else {
-		c.Assert(names, DeepEquals, []string{"system.indexes"})
-	}
+	c.Assert(len(filterDBs(names)), Equals, 0)
 }
 
 func (s *S) TestCreateCollectionCapped(c *C) {
@@ -2847,9 +2831,6 @@ func (s *S) TestFindForResetsResult(c *C) {
 }
 
 func (s *S) TestFindIterSnapshot(c *C) {
-	if s.versionAtLeast(3, 2) {
-		c.Skip("Broken in 3.2: https://jira.mongodb.org/browse/SERVER-21403")
-	}
 
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
@@ -3530,7 +3511,7 @@ func (s *S) TestEnsureIndex(c *C) {
 		// 		db.runCommand({"listIndexes": <collectionName>})
 		//
 		// and iterate over the returned cursor.
-		if s.versionAtLeast(3, 4) {
+		if s.versionAtLeast(3, 2, 17) {
 			c.Assert(getIndex34(session, "mydb", "mycoll", test.expected["name"].(string)), DeepEquals, test.expected)
 		} else {
 			idxs := session.DB("mydb").C("system.indexes")
@@ -3640,7 +3621,7 @@ func (s *S) TestEnsureIndexKey(c *C) {
 	err = coll.EnsureIndexKey("a")
 	c.Assert(err, IsNil)
 
-	if s.versionAtLeast(3, 4) {
+	if s.versionAtLeast(3, 2, 17) {
 		expected := M{
 			"name": "a_1",
 			"key":  M{"a": 1},
@@ -3705,7 +3686,7 @@ func (s *S) TestEnsureIndexDropIndex(c *C) {
 	err = coll.DropIndex("-b")
 	c.Assert(err, IsNil)
 
-	if s.versionAtLeast(3, 4) {
+	if s.versionAtLeast(3, 2, 17) {
 		// system.indexes is deprecated since 3.0, use
 		// db.runCommand({"listIndexes": <collectionName>})
 		// instead
@@ -3760,7 +3741,7 @@ func (s *S) TestEnsureIndexDropIndexName(c *C) {
 
 	err = coll.DropIndexName("a")
 	c.Assert(err, IsNil)
-	if s.versionAtLeast(3, 4) {
+	if s.versionAtLeast(3, 2, 17) {
 		// system.indexes is deprecated since 3.0, use
 		// db.runCommand({"listIndexes": <collectionName>})
 		// instead
@@ -3816,7 +3797,7 @@ func (s *S) TestEnsureIndexDropAllIndexes(c *C) {
 	err = coll.DropAllIndexes()
 	c.Assert(err, IsNil)
 
-	if s.versionAtLeast(3, 4) {
+	if s.versionAtLeast(3, 2, 17) {
 		// system.indexes is deprecated since 3.0, use
 		// db.runCommand({"listIndexes": <collectionName>})
 		// instead
@@ -4397,8 +4378,8 @@ func (s *S) TestRepairCursor(c *C) {
 	if !s.versionAtLeast(2, 7) {
 		c.Skip("RepairCursor only works on 2.7+")
 	}
-	if s.versionAtLeast(3, 4) {
-		c.Skip("fail on 3.4+")
+	if s.versionAtLeast(3, 2, 17) {
+		c.Skip("fail on 3.2.17+")
 	}
 
 	session, err := mgo.Dial("localhost:40001")
