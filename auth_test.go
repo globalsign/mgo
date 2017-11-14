@@ -39,7 +39,7 @@ import (
 	"sync"
 	"time"
 
-	mgo "github.com/globalsign/mgo"
+	"github.com/globalsign/mgo"
 	. "gopkg.in/check.v1"
 )
 
@@ -1007,6 +1007,22 @@ func (s *S) TestAuthX509CredRDNConstruction(c *C) {
 	}
 	err = session.Login(cred)
 	c.Assert(err, NotNil)
+
+	err = session.Login(&mgo.Credential{Username: "root", Password: "rapadura"})
+	c.Assert(err, IsNil)
+
+	// This needs to be kept in sync with client.pem
+	x509Subject := "CN=localhost,OU=Client,O=MGO,L=MGO,ST=MGO,C=GO"
+
+	externalDB := session.DB("$external")
+	var x509User = mgo.User{
+		Username:     x509Subject,
+		OtherDBRoles: map[string][]mgo.Role{"admin": {mgo.RoleRoot}},
+	}
+	err = externalDB.UpsertUser(&x509User)
+	c.Assert(err, IsNil)
+
+	session.LogoutAll()
 
 	cred.Username = ""
 	c.Logf("Authenticating...")
