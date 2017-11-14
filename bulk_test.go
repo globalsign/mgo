@@ -32,7 +32,7 @@ import (
 )
 
 func (s *S) TestBulkInsert(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -52,7 +52,7 @@ func (s *S) TestBulkInsert(c *C) {
 }
 
 func (s *S) TestBulkInsertError(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -73,7 +73,7 @@ func (s *S) TestBulkInsertError(c *C) {
 }
 
 func (s *S) TestBulkInsertErrorUnordered(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -100,7 +100,7 @@ func (s *S) TestBulkInsertErrorUnorderedSplitBatch(c *C) {
 	// into the proper size and delivers them one by one. This test ensures that
 	// the behavior of unordered (that is, continue on error) remains correct
 	// when errors happen and there are batches left.
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -132,7 +132,7 @@ func (s *S) TestBulkInsertErrorUnorderedSplitBatch(c *C) {
 }
 
 func (s *S) TestBulkErrorString(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -180,7 +180,7 @@ func (s *S) TestBulkErrorCases_2_6(c *C) {
 	if !s.versionAtLeast(2, 6) {
 		c.Skip("2.4- has poor bulk reporting")
 	}
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -219,7 +219,7 @@ func (s *S) TestBulkErrorCases_2_4(c *C) {
 	if s.versionAtLeast(2, 6) {
 		c.Skip("2.6+ has better reporting")
 	}
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -255,7 +255,7 @@ func (s *S) TestBulkErrorCases_2_4(c *C) {
 }
 
 func (s *S) TestBulkErrorCasesOrdered(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -289,7 +289,7 @@ func (s *S) TestBulkErrorCasesOrdered(c *C) {
 }
 
 func (s *S) TestBulkUpdate(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -318,7 +318,7 @@ func (s *S) TestBulkUpdate(c *C) {
 }
 
 func (s *S) TestBulkUpdateOver1000(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -340,7 +340,7 @@ func (s *S) TestBulkUpdateOver1000(c *C) {
 }
 
 func (s *S) TestBulkUpdateError(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -367,7 +367,7 @@ func (s *S) TestBulkUpdateError(c *C) {
 }
 
 func (s *S) TestBulkUpdateErrorUnordered(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -395,7 +395,7 @@ func (s *S) TestBulkUpdateErrorUnordered(c *C) {
 }
 
 func (s *S) TestBulkUpdateAll(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -424,7 +424,7 @@ func (s *S) TestBulkUpdateAll(c *C) {
 }
 
 func (s *S) TestBulkMixedUnordered(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -454,7 +454,7 @@ func (s *S) TestBulkMixedUnordered(c *C) {
 }
 
 func (s *S) TestBulkUpsert(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -478,7 +478,7 @@ func (s *S) TestBulkUpsert(c *C) {
 }
 
 func (s *S) TestBulkRemove(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -502,7 +502,7 @@ func (s *S) TestBulkRemove(c *C) {
 }
 
 func (s *S) TestBulkRemoveAll(c *C) {
-	session, err := mgo.Dial("localhost:40001")
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 

@@ -184,7 +184,7 @@ func (s *S) TestGridFSFileDetails(c *C) {
 }
 
 func (s *S) TestGridFSSetUploadDate(c *C) {
-	session, err := mgo.Dial("localhost:40011")
+	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -212,7 +212,7 @@ func (s *S) TestGridFSSetUploadDate(c *C) {
 }
 
 func (s *S) TestGridFSCreateWithChunking(c *C) {
-	session, err := mgo.Dial("localhost:40011")
+	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -293,7 +293,7 @@ func (s *S) TestGridFSCreateWithChunking(c *C) {
 }
 
 func (s *S) TestGridFSAbort(c *C) {
-	session, err := mgo.Dial("localhost:40011")
+	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -330,7 +330,7 @@ func (s *S) TestGridFSAbort(c *C) {
 }
 
 func (s *S) TestGridFSCloseConflict(c *C) {
-	session, err := mgo.Dial("localhost:40011")
+	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -358,7 +358,7 @@ func (s *S) TestGridFSCloseConflict(c *C) {
 }
 
 func (s *S) TestGridFSOpenNotFound(c *C) {
-	session, err := mgo.Dial("localhost:40011")
+	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -375,7 +375,7 @@ func (s *S) TestGridFSOpenNotFound(c *C) {
 }
 
 func (s *S) TestGridFSReadAll(c *C) {
-	session, err := mgo.Dial("localhost:40011")
+	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -412,7 +412,7 @@ func (s *S) TestGridFSReadAll(c *C) {
 }
 
 func (s *S) TestGridFSReadChunking(c *C) {
-	session, err := mgo.Dial("localhost:40011")
+	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -472,7 +472,7 @@ func (s *S) TestGridFSReadChunking(c *C) {
 }
 
 func (s *S) TestGridFSOpen(c *C) {
-	session, err := mgo.Dial("localhost:40011")
+	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -502,7 +502,7 @@ func (s *S) TestGridFSOpen(c *C) {
 }
 
 func (s *S) TestGridFSSeek(c *C) {
-	session, err := mgo.Dial("localhost:40011")
+	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -581,7 +581,7 @@ func (s *S) TestGridFSSeek(c *C) {
 }
 
 func (s *S) TestGridFSRemoveId(c *C) {
-	session, err := mgo.Dial("localhost:40011")
+	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -619,7 +619,7 @@ func (s *S) TestGridFSRemoveId(c *C) {
 }
 
 func (s *S) TestGridFSRemove(c *C) {
-	session, err := mgo.Dial("localhost:40011")
+	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -649,7 +649,7 @@ func (s *S) TestGridFSRemove(c *C) {
 }
 
 func (s *S) TestGridFSOpenNext(c *C) {
-	session, err := mgo.Dial("localhost:40011")
+	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
 	c.Assert(err, IsNil)
 	defer session.Close()
 

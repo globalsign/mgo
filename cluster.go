@@ -132,15 +132,17 @@ func (cluster *mongoCluster) removeServer(server *mongoServer) {
 }
 
 type isMasterResult struct {
-	IsMaster       bool
-	Secondary      bool
-	Primary        string
-	Hosts          []string
-	Passives       []string
-	Tags           bson.D
-	Msg            string
-	SetName        string `bson:"setName"`
-	MaxWireVersion int    `bson:"maxWireVersion"`
+	IsMaster            bool
+	Secondary           bool
+	Primary             string
+	Hosts               []string
+	Passives            []string
+	Tags                bson.D
+	Msg                 string
+	SetName             string `bson:"setName"`
+	MaxWireVersion      int    `bson:"maxWireVersion"`
+	MaxWriteBatchSize   int    `bson:"maxWriteBatchSize"`
+	MaxMessageSizeBytes int    `bson:"maxMessageSizeBytes"`
 }
 
 func (cluster *mongoCluster) isMaster(socket *mongoSocket, result *isMasterResult) error {
@@ -240,11 +242,13 @@ func (cluster *mongoCluster) syncServer(server *mongoServer) (info *mongoServerI
 	}
 
 	info = &mongoServerInfo{
-		Master:         result.IsMaster,
-		Mongos:         result.Msg == "isdbgrid",
-		Tags:           result.Tags,
-		SetName:        result.SetName,
-		MaxWireVersion: result.MaxWireVersion,
+		Master:              result.IsMaster,
+		Mongos:              result.Msg == "isdbgrid",
+		Tags:                result.Tags,
+		SetName:             result.SetName,
+		MaxWireVersion:      result.MaxWireVersion,
+		MaxWriteBatchSize:   result.MaxWriteBatchSize,
+		MaxMessageSizeBytes: result.MaxMessageSizeBytes,
 	}
 
 	hosts = make([]string, 0, 1+len(result.Hosts)+len(result.Passives))

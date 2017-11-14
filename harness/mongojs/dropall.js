@@ -16,21 +16,24 @@ for (var i in ports) {
 
     for (var j in auth) {
         if (auth[j] == port) {
-            var ok = admin.auth("root", "rapadura")
-            if (!ok) {
-                print("failed to auth for port " + port)
-            } else {
-                admin.system.users.find().forEach(function (u) {
-                    if (u.user == "root" || u.user == "reader") {
-                        return;
-                    }
-                    if (typeof admin.dropUser == "function") {
-                        mongo.getDB(u.db).dropUser(u.user);
-                    } else {
-                        admin.removeUser(u.user);
-                    }
-                })
-                break
+            print("removing user for port " + auth[j])
+            for (var k = 0; k < 10; k++) {
+                var ok = admin.auth("root", "rapadura")
+                if (ok) {
+                    admin.system.users.find().forEach(function (u) {
+                        if (u.user == "root" || u.user == "reader") {
+                            return;
+                        }
+                        if (typeof admin.dropUser == "function") {
+                            mongo.getDB(u.db).dropUser(u.user);
+                        } else {
+                            admin.removeUser(u.user);
+                        }
+                    })
+                    break
+                }
+                print("failed to auth for port " + port + " retrying in 1s ")
+                sleep(1000)
             }
         }
     }
