@@ -19,8 +19,8 @@ var rs2cfg = {
 var rs3cfg = {
     _id: "rs3",
     members: [{ _id: 1, host: "127.0.0.1:40031", priority: 1, tags: { rs3: "a" } },
-    { _id: 2, host: "127.0.0.1:40032", priority: 1, tags: { rs3: "b" } },
-    { _id: 3, host: "127.0.0.1:40033", priority: 1, tags: { rs3: "c" } }],
+    { _id: 2, host: "127.0.0.1:40032", priority: 0, tags: { rs3: "b" } },
+    { _id: 3, host: "127.0.0.1:40033", priority: 0, tags: { rs3: "c" } }],
     settings: settings
 }
 
@@ -72,18 +72,6 @@ rs1a.runCommand({ replSetInitiate: rs1cfg })
 rs2a.runCommand({ replSetInitiate: rs2cfg })
 rs3a.runCommand({ replSetInitiate: rs3cfg })
 
-function configShards() {
-    s1 = new Mongo("127.0.0.1:40201").getDB("admin")
-    s1.runCommand({ addshard: "127.0.0.1:40001" })
-    s1.runCommand({ addshard: "rs1/127.0.0.1:40011" })
-
-    s2 = new Mongo("127.0.0.1:40202").getDB("admin")
-    s2.runCommand({ addshard: "rs2/127.0.0.1:40021" })
-
-    s3 = new Mongo("127.0.0.1:40203").getDB("admin")
-    s3.runCommand({ addshard: "rs3/127.0.0.1:40031" })
-}
-
 function configAuth() {
     var addrs = ["127.0.0.1:40002", "127.0.0.1:40203", "127.0.0.1:40031"]
     if (hasSSL()) {
@@ -125,6 +113,39 @@ function configAuth() {
     }
 }
 
+function addShard(adminDb, shardList) {
+    for (var index = 0; index < shardList.length; index++) {
+        for (var i = 0; i < 10; i++) {
+            var result = adminDb.runCommand({ addshard: shardList[index] })
+            if (result.ok == 1) {
+                print("shard " + shardList[index] + " sucessfully added")
+                break
+            } else {
+                print("fail to add shard: " + shardList[index] + " error: " + JSON.stringify(result) + ", retrying in 1s")
+                sleep(1000)
+            }
+        }
+    }
+}
+
+function configShards() {
+    s1 = new Mongo("127.0.0.1:40201").getDB("admin")
+    addShard(s1, ["127.0.0.1:40001", "rs1/127.0.0.1:40011"])
+
+    s2 = new Mongo("127.0.0.1:40202").getDB("admin")
+    addShard(s2, ["rs2/127.0.0.1:40021"])
+
+    s3 = new Mongo("127.0.0.1:40203").getDB("admin")
+    for (var i = 0; i < 10; i++) {
+        var ok = s3.auth("root", "rapadura")
+        if (ok) {
+            break
+        }
+        sleep(1000)
+    }
+    addShard(s3, ["rs3/127.0.0.1:40031"])
+}
+
 function countHealthy(rs) {
     var status = rs.runCommand({ replSetGetStatus: 1 })
     var count = 0
@@ -152,9 +173,9 @@ for (var i = 0; i != 60; i++) {
     var count = countHealthy(rs1a) + countHealthy(rs2a) + countHealthy(rs3a)
     print("Replica sets have", count, "healthy nodes.")
     if (count == totalRSMembers) {
-        configShards()
-        sleep(2000)
         configAuth()
+        sleep(2000)
+        configShards()
         quit(0)
     }
     sleep(1000)
