@@ -1680,6 +1680,111 @@ func (s *S) TestQueryComment(c *C) {
 	c.Assert(n, Equals, 1)
 }
 
+func setupMinMaxEnv(c *C) (*mgo.Session, *mgo.Database, *mgo.Collection) {
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+
+	db := session.DB("mydb")
+	coll := db.C("mycoll")
+
+	index := mgo.Index{
+		Name: "minMaxQueryIndex",
+		Key:  []string{"field"},
+	}
+	err = coll.EnsureIndex(index)
+	c.Assert(err, IsNil)
+
+	err = db.Run(bson.M{"profile": 2}, nil)
+	c.Assert(err, IsNil)
+
+	return session, db, coll
+}
+
+func (s *S) TestQueryMin(c *C) {
+	session, db, coll := setupMinMaxEnv(c)
+	defer session.Close()
+
+	minValue := 42
+	comment := "min-test"
+	filter := bson.M{
+		"field": bson.M{"$gte": minValue},
+	}
+	minOp := bson.D{{"field", minValue}}
+	err := coll.Find(filter).Comment(comment).Min(minOp).One(nil)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+
+	filterField, commentField, minField := "query.$query", "query.$comment", "query.$min"
+	if s.versionAtLeast(3, 2) {
+		filterField, commentField, minField = "query.filter", "query.comment", "query.min"
+	}
+
+	n, err := db.C("system.profile").Find(bson.M{
+		filterField:  filter,
+		minField:     minOp,
+		commentField: comment,
+	}).Count()
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 1)
+}
+
+func (s *S) TestQueryMax(c *C) {
+	session, db, coll := setupMinMaxEnv(c)
+	defer session.Close()
+
+	maxValue := 98
+	comment := "max-test"
+	filter := bson.M{
+		"field": bson.M{"$lt": maxValue},
+	}
+	maxOp := bson.D{{"field", maxValue}}
+	err := coll.Find(filter).Comment(comment).Max(maxOp).One(nil)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+
+	filterField, commentField, maxField := "query.$query", "query.$comment", "query.$max"
+	if s.versionAtLeast(3, 2) {
+		filterField, commentField, maxField = "query.filter", "query.comment", "query.max"
+	}
+
+	n, err := db.C("system.profile").Find(bson.M{
+		filterField:  filter,
+		maxField:     maxOp,
+		commentField: comment,
+	}).Count()
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 1)
+}
+
+func (s *S) TestQueryMinMax(c *C) {
+	session, db, coll := setupMinMaxEnv(c)
+	defer session.Close()
+
+	minValue, maxValue := 42, 101
+	comment := "min-max-test"
+	filter := bson.M{
+		"field": bson.M{"$gte": minValue, "$lt": maxValue},
+	}
+	minOp := bson.D{{"field", minValue}}
+	maxOp := bson.D{{"field", maxValue}}
+	err := coll.Find(filter).Comment(comment).Min(minOp).Max(maxOp).One(nil)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+
+	filterField, commentField := "query.$query", "query.$comment"
+	minField, maxField := "query.$min", "query.$max"
+	if s.versionAtLeast(3, 2) {
+		filterField, commentField = "query.filter", "query.comment"
+		minField, maxField = "query.min", "query.max"
+	}
+
+	n, err := db.C("system.profile").Find(bson.M{
+		filterField:  filter,
+		minField:     minOp,
+		maxField:     maxOp,
+		commentField: comment,
+	}).Count()
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 1)
+}
+
 func (s *S) TestFindOneNotFound(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
