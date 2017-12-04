@@ -3161,6 +3161,46 @@ func (q *Query) Sort(fields ...string) *Query {
 	return q
 }
 
+// Min sets the lower inclusive bound for a specific index.
+// Min is a way to specify the lower bound on compound indexes.
+//
+// This method exposes the meta query modifier $min, which is different than
+// the aggregate $min operator.
+//
+// Relevant documentation:
+//
+//     https://docs.mongodb.com/manual/reference/operator/meta/min/
+//
+func (q *Query) Min(min bson.D) *Query {
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	q.op.options.Min = min
+	q.op.hasOptions = true
+
+	return q
+}
+
+// Max sets the upper exclusive bound for a specific index.
+// Max is a way to specify the upper bound on compound indexes.
+//
+// This method exposes the meta query modifier $max, which is different than
+// the aggregate $max operator.
+//
+// Relevant documentation:
+//
+//     https://docs.mongodb.com/manual/reference/operator/meta/max/
+//
+func (q *Query) Max(max bson.D) *Query {
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	q.op.options.Max = max
+	q.op.hasOptions = true
+
+	return q
+}
+
 // Collation allows to specify language-specific rules for string comparison,
 // such as rules for lettercase and accent marks.
 // When specifying collation, the locale field is mandatory; all other collation
@@ -3496,6 +3536,8 @@ func prepareFindOp(socket *mongoSocket, op *queryOp, limit int32) bool {
 		Comment:         op.options.Comment,
 		Snapshot:        op.options.Snapshot,
 		Collation:       op.options.Collation,
+		Min:             op.options.Min,
+		Max:             op.options.Max,
 		Tailable:        op.flags&flagTailable != 0,
 		AwaitData:       op.flags&flagAwaitData != 0,
 		OplogReplay:     op.flags&flagLogReplay != 0,
