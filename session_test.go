@@ -1382,12 +1382,8 @@ func (s *S) TestView(c *C) {
 }
 
 func (s *S) TestViewWithCollation(c *C) {
-	// This test is currently failing because of a bug in mongodb. A ticket describing
-	// the issue is available here: https://jira.mongodb.org/browse/SERVER-31049
-	// TODO remove this line when SERVER-31049 is fixed
-	c.Skip("Fails because of a MongoDB bug as of version 3.4.9, cf https://jira.mongodb.org/browse/SERVER-31049")
-
-	if !s.versionAtLeast(3, 4) {
+	// SERVER-31049 is fixed in 3.4.10
+	if !s.versionAtLeast(3, 4, 10) {
 		c.Skip("depends on mongodb 3.4+")
 	}
 	// CreateView has to be run against mongos
