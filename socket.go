@@ -459,10 +459,8 @@ var bytesBufferPool = sync.Pool{
 
 func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 
-	buf := bytesBufferPool.Get().([]byte)
-	defer func() {
-		bytesBufferPool.Put(buf[:0])
-	}()
+	buf := getSizedBuffer(0)
+	defer bytesBufferPool.Put(buf)
 
 	// Serialize operations synchronously to avoid interrupting
 	// other goroutines while we can't really be sending data.
@@ -619,7 +617,8 @@ func (socket *mongoSocket) sendMessage(op *msgOp) (writeCmdResult, error) {
 	var wr writeCmdResult
 	var err error
 
-	buf := bytesBufferPool.Get().([]byte)
+	buf := getSizedBuffer(0)
+	defer bytesBufferPool.Put(buf)
 
 	buf = addHeader(buf, dbMessage)
 	buf = addInt32(buf, int32(op.flags))
@@ -678,13 +677,6 @@ func (socket *mongoSocket) sendMessage(op *msgOp) (writeCmdResult, error) {
 	socket.updateDeadline(writeDeadline)
 	_, err = socket.conn.Write(buf)
 
-	// TODO optimize this
-	// buf[0:8] are always rewritten with setInt32,
-	// buf[8:12] never change (only used in db response)
-	// might be interesting to only set byte buf[12] and buf[13]
-	// to avoid some useless 'append' operations
-	bytesBufferPool.Put(buf[:0])
-
 	if expectReply {
 		socket.updateDeadline(readDeadline)
 		wait.Lock()
@@ -706,15 +698,9 @@ func (socket *mongoSocket) sendMessage(op *msgOp) (writeCmdResult, error) {
 	return wcr, err
 }
 
-var responsePool = sync.Pool{
-	New: func() interface{} {
-		return make([]byte, 20)
-	},
-}
-
-// get a slice of byte of `size` length
-func getEmptyBody(size int) []byte {
-	b := responsePool.Get().([]byte)
+// get a slice of byte of `size` length from the pool
+func getSizedBuffer(size int) []byte {
+	b := bytesBufferPool.Get().([]byte)
 	if len(b) < size {
 		for i := len(b); i < size; i++ {
 			b = append(b, byte(0))
@@ -781,7 +767,9 @@ func (socket *mongoSocket) readLoop() {
 						socket.kill(err, true)
 						return
 					}
-					b := make([]byte, int(getInt32(s, 0)))
+					b := getSizedBuffer(int(getInt32(s, 0)))
+					defer bytesBufferPool.Put(b)
+
 					copy(b[0:4], s)
 
 					_, err = io.ReadFull(r, b[4:])
@@ -817,7 +805,8 @@ func (socket *mongoSocket) readLoop() {
 			socket.Unlock()
 
 		case dbMessage:
-			body := getEmptyBody(int(totalLen) - 16)
+			body := getSizedBuffer(int(totalLen) - 16)
+			defer bytesBufferPool.Put(body)
 			_, err := io.ReadFull(r, body)
 			if err != nil {
 				socket.kill(err, true)
@@ -850,7 +839,6 @@ func (socket *mongoSocket) readLoop() {
 				socket.kill(fmt.Errorf("couldn't handle response properly"), true)
 				return
 			}
-			responsePool.Put(body)
 			socket.conn.SetReadDeadline(time.Time{})
 		default:
 			socket.kill(errors.New("opcode != 1 && opcode != 2013, corrupted data?"), true)
