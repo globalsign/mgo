@@ -14,7 +14,7 @@ env:
         - MONGODB=x86_64-ubuntu1404-3.0.15
         - MONGODB=x86_64-ubuntu1404-3.2.17
         - MONGODB=x86_64-ubuntu1404-3.4.10
-        - MONGODB=x86_64-ubuntu1404-3.6.0-rc3
+        - MONGODB=x86_64-ubuntu1404-3.6.0
 
 install:
 
