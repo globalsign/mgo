@@ -40,12 +40,12 @@ const (
 
 type bulkAction struct {
 	op   bulkOp
-	docs []interface{}
+	docs []bson.Raw
 	idxs []int
 }
 
-type bulkUpdateOp []interface{}
-type bulkDeleteOp []interface{}
+type bulkUpdateOp []bson.Raw
+type bulkDeleteOp []bson.Raw
 
 // BulkResult holds the results for a bulk operation.
 type BulkResult struct {
@@ -122,7 +122,7 @@ func (e *BulkError) Cases() []BulkErrorCase {
 var actionPool = sync.Pool{
 	New: func() interface{} {
 		return &bulkAction{
-			docs: make([]interface{}, 0),
+			docs: make([]bson.Raw, 0),
 			idxs: make([]int, 0),
 		}
 	},
@@ -170,7 +170,13 @@ func (b *Bulk) action(op bulkOp, opcount int) *bulkAction {
 // Insert queues up the provided documents for insertion.
 func (b *Bulk) Insert(docs ...interface{}) {
 	action := b.action(bulkInsert, len(docs))
-	action.docs = append(action.docs, docs...)
+	for _, doc := range docs {
+		b, _ := bson.Marshal(doc)
+		action.docs = append(action.docs, bson.Raw{
+			Kind: bson.ElementDocument,
+			Data: b,
+		})
+	}
 }
 
 // Remove queues up the provided selectors for removing matching documents.
@@ -181,11 +187,15 @@ func (b *Bulk) Remove(selectors ...interface{}) {
 		if selector == nil {
 			selector = bson.D{}
 		}
-		action.docs = append(action.docs, &deleteOp{
+		b, _ := bson.Marshal(deleteOp{
 			Collection: b.c.FullName,
 			Selector:   selector,
 			Flags:      1,
 			Limit:      1,
+		})
+		action.docs = append(action.docs, bson.Raw{
+			Kind: bson.ElementDocument,
+			Data: b,
 		})
 	}
 }
@@ -198,11 +208,15 @@ func (b *Bulk) RemoveAll(selectors ...interface{}) {
 		if selector == nil {
 			selector = bson.D{}
 		}
-		action.docs = append(action.docs, &deleteOp{
+		b, _ := bson.Marshal(deleteOp{
 			Collection: b.c.FullName,
 			Selector:   selector,
 			Flags:      0,
 			Limit:      0,
+		})
+		action.docs = append(action.docs, bson.Raw{
+			Kind: bson.ElementDocument,
+			Data: b,
 		})
 	}
 }
@@ -221,10 +235,14 @@ func (b *Bulk) Update(pairs ...interface{}) {
 		if selector == nil {
 			selector = bson.D{}
 		}
-		action.docs = append(action.docs, &updateOp{
+		b, _ := bson.Marshal(updateOp{
 			Collection: b.c.FullName,
 			Selector:   selector,
 			Update:     pairs[i+1],
+		})
+		action.docs = append(action.docs, bson.Raw{
+			Kind: bson.ElementDocument,
+			Data: b,
 		})
 	}
 }
@@ -243,12 +261,16 @@ func (b *Bulk) UpdateAll(pairs ...interface{}) {
 		if selector == nil {
 			selector = bson.D{}
 		}
-		action.docs = append(action.docs, &updateOp{
+		b, _ := bson.Marshal(updateOp{
 			Collection: b.c.FullName,
 			Selector:   selector,
 			Update:     pairs[i+1],
 			Flags:      2,
 			Multi:      true,
+		})
+		action.docs = append(action.docs, bson.Raw{
+			Kind: bson.ElementDocument,
+			Data: b,
 		})
 	}
 }
@@ -267,12 +289,16 @@ func (b *Bulk) Upsert(pairs ...interface{}) {
 		if selector == nil {
 			selector = bson.D{}
 		}
-		action.docs = append(action.docs, &updateOp{
+		b, _ := bson.Marshal(updateOp{
 			Collection: b.c.FullName,
 			Selector:   selector,
 			Update:     pairs[i+1],
 			Flags:      1,
 			Upsert:     true,
+		})
+		action.docs = append(action.docs, bson.Raw{
+			Kind: bson.ElementDocument,
+			Data: b,
 		})
 	}
 }

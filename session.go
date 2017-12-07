@@ -2759,7 +2759,18 @@ func IsDup(err error) bool {
 // happens while inserting the provided documents, the returned error will
 // be of type *LastError.
 func (c *Collection) Insert(docs ...interface{}) error {
-	_, err := c.writeOp(&insertOp{c.FullName, docs, 0}, true)
+	var d []bson.Raw
+	for _, doc := range docs {
+		b, err := bson.Marshal(doc)
+		if err != nil {
+			return err
+		}
+		d = append(d, bson.Raw{
+			Kind: bson.ElementDocument,
+			Data: b,
+		})
+	}
+	_, err := c.writeOp(&insertOp{c.FullName, d, 0}, true)
 	return err
 }
 
@@ -4980,6 +4991,57 @@ type writeCmdError struct {
 	ErrMsg string
 }
 
+type bulkResult struct {
+	N        int
+	Modified int
+	Errs     []BulkErrorCase
+	Docs     []bson.Raw
+}
+
+func (b *bulkResult) writeBatch(socket *mongoSocket, docSeqID string, flags uint32, body msgSection) error {
+	docs := msgSection{
+		payloadType: msgPayload1,
+		data: payloadType1{
+			identifier: docSeqID,
+			docs:       b.Docs,
+		},
+	}
+	newOp := &msgOp{
+		flags:    flags,
+		sections: []msgSection{body, docs},
+		checksum: 0,
+	}
+	result, err := socket.sendMessage(newOp)
+	if err != nil {
+		return err
+	}
+	// for some reason, command result format has changed and
+	// code|errmsg are sometimes top level fields in writeCommandResult
+	// TODO need to investigate further
+	if result.Code != 0 {
+		return errors.New(result.Errmsg)
+	}
+	if result.ConcernError.Code != 0 {
+		return errors.New(result.ConcernError.ErrMsg)
+	}
+
+	b.N += result.N
+	b.Modified += result.NModified
+
+	if len(result.Errors) > 0 {
+		for _, e := range result.Errors {
+			b.Errs = append(b.Errs, BulkErrorCase{
+				e.Index,
+				&QueryError{
+					Code:    e.Code,
+					Message: e.ErrMsg,
+				},
+			})
+		}
+	}
+	return nil
+}
+
 func (r *writeCmdResult) BulkErrorCases() []BulkErrorCase {
 	ecases := make([]BulkErrorCase, len(r.Errors))
 	for i, err := range r.Errors {
@@ -4990,7 +5052,7 @@ func (r *writeCmdResult) BulkErrorCases() []BulkErrorCase {
 
 func (c *Collection) writeOpWithOpMsg(socket *mongoSocket, serverInfo *mongoServerInfo, op interface{}, ordered, bypassValidation bool, safeOp *queryOp) (*LastError, error) {
 	var cmd bson.D
-	var documents []interface{}
+	var documents []bson.Raw
 	var docSeqID string
 	canUseOpMsg := true
 	switch msgOp := op.(type) {
@@ -5044,80 +5106,48 @@ func (c *Collection) writeOpWithOpMsg(socket *mongoSocket, serverInfo *mongoServ
 			data:        cmd,
 		}
 
-		n := 0
-		modified := 0
-		var errs []BulkErrorCase
-		var lerr LastError
-
-		l := len(documents)
-		batchNb := (l / serverInfo.MaxWriteBatchSize) + 1
-		if l != 0 && (l%serverInfo.MaxWriteBatchSize) == 0 {
-			batchNb--
+		size := len(documents)
+		if size > serverInfo.MaxMessageSizeBytes {
+			size = serverInfo.MaxMessageSizeBytes
 		}
-		count := 0
 
-		for count < batchNb {
-			start := count * serverInfo.MaxWriteBatchSize
-			length := l - start
-			if length > serverInfo.MaxWriteBatchSize {
-				length = serverInfo.MaxWriteBatchSize
-			}
+		br := &bulkResult{
+			Errs: make([]BulkErrorCase, 0),
+			Docs: make([]bson.Raw, size),
+		}
+		msgSize := 0
 
-			docs := msgSection{
-				payloadType: msgPayload1,
-				data: payloadType1{
-					identifier: docSeqID,
-					docs:       documents[start : start+length],
-				},
-			}
-			count++
+		for i, doc := range documents {
+			// keep a margin of 10000 bytes
+			if msgSize > serverInfo.MaxMessageSizeBytes-10000 || i != 0 && i%serverInfo.MaxWriteBatchSize == 0 {
 
-			// CRC-32 checksum is not implemented in Mongodb 3.6 but
-			// will be in future release. It's optional, so no need
-			// to set it for the moment
-			newOp := &msgOp{
-				flags:    flags,
-				sections: []msgSection{body, docs},
-				checksum: 0,
-			}
-			result, err := socket.sendMessage(newOp)
-			if err != nil {
-				return &lerr, err
-			}
-			// for some reason, command result format has changed and
-			// code|errmsg are sometimes top level fields in writeCommandResult
-			// TODO need to investigate further
-			if result.Code != 0 {
-				return &lerr, errors.New(result.Errmsg)
-			}
-			if result.ConcernError.Code != 0 {
-				return &lerr, errors.New(result.ConcernError.ErrMsg)
-			}
-
-			n += result.N
-			modified += result.NModified
-
-			if len(result.Errors) > 0 {
-				for _, e := range result.Errors {
-					errs = append(errs, BulkErrorCase{
-						e.Index,
-						&QueryError{
-							Code:    e.Code,
-							Message: e.ErrMsg,
-						},
-					})
+				err := br.writeBatch(socket, docSeqID, flags, body)
+				if err != nil {
+					return nil, err
 				}
+				br.Docs = br.Docs[0:0]
+				msgSize = 0
+			}
+			br.Docs = append(br.Docs, doc)
+			msgSize += len(doc.Data)
+		}
+
+		if len(br.Docs) > 0 {
+			err := br.writeBatch(socket, docSeqID, flags, body)
+			if err != nil {
+				return nil, err
 			}
 		}
-		lerr = LastError{
-			N:        n,
-			modified: modified,
-			ecases:   errs,
+
+		lerr := &LastError{
+			N:        br.N,
+			modified: br.Modified,
+			ecases:   br.Errs,
 		}
 		if len(lerr.ecases) > 0 {
-			return &lerr, lerr.ecases[0].Err
+			return lerr, lerr.ecases[0].Err
 		}
-		return &lerr, nil
+		return lerr, nil
 	}
 	return nil, nil
 }
