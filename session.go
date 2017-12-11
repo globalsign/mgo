@@ -3455,6 +3455,34 @@ func (q *Query) Sort(fields ...string) *Query {
 	return q
 }
 
+// Specify a $min value to specify the inclusive lower bound for a specific index in order to constrain the results of
+// Find(). The $min specifies the lower bound for all keys of a specific index in order.
+//
+// Relevant documentation:
+//
+//     https://docs.mongodb.com/manual/reference/operator/meta/min/
+//
+func (q *Query) Min(min interface{}) *Query {
+	q.m.Lock()
+	q.op.options.Min = min
+	q.m.Unlock()
+	return q
+}
+
+// Specify a $max value to specify the exclusive upper bound for a specific index in order to constrain the results of
+// Find(). The $max specifies the upper bound for all keys of a specific index in order.
+//
+// Relevant documentation:
+//
+//     https://docs.mongodb.com/manual/reference/operator/meta/max/
+//
+func (q *Query) Max(max interface{}) *Query {
+	q.m.Lock()
+	q.op.options.Max = max
+	q.m.Unlock()
+	return q
+}
+
 // Collation allows to specify language-specific rules for string comparison,
 // such as rules for lettercase and accent marks.
 // When specifying collation, the locale field is mandatory; all other collation
@@ -3787,6 +3815,8 @@ func prepareFindOp(socket *mongoSocket, op *queryOp, limit int32) bool {
 		MaxTimeMS:       op.options.MaxTimeMS,
 		MaxScan:         op.options.MaxScan,
 		Hint:            op.options.Hint,
+		Min:             op.options.Min,
+		Max:             op.options.Max,
 		Comment:         op.options.Comment,
 		Snapshot:        op.options.Snapshot,
 		Collation:       op.options.Collation,
