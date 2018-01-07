@@ -32,10 +32,13 @@ Further PR's (with tests) are welcome, but please maintain backwards compatibili
 * GetBSON correctly handles structs with both fields and pointers ([details](https://github.com/globalsign/mgo/pull/40))
 * Improved bson.Raw unmarshalling performance ([details](https://github.com/globalsign/mgo/pull/49))
 * Minimise socket connection timeouts due to excessive locking ([details](https://github.com/globalsign/mgo/pull/52))
+* Natively support X509 client authentication ([details](https://github.com/globalsign/mgo/pull/55))
+* Gracefully recover from a temporarily unreachable server ([details](https://github.com/globalsign/mgo/pull/69))
 
 ---
 
 ### Thanks to
+* @bachue
 * @bozaro
 * @BenLubar
 * @carter2000
