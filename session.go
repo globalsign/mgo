@@ -859,13 +859,12 @@ type Credential struct {
 	// Defaults to "MONGODB-CR".
 	Mechanism string
 
-	// Certificate defines an x509 certificate for authentication at login,
-	// for reference please see, https://docs.mongodb.com/manual/tutorial/configure-x509-client-authentication/
-	// If providing a certificate:
-	// The Username field is populated from the cert and should not be set
-	// The Mechanism field should be MONGODB-X509 or not set.
-	// The Source field should be $external or not set.
-	// If not specified, the username will have to be set manually.
+	// Certificate sets the x509 certificate for authentication, see:
+	//
+	//      https://docs.mongodb.com/manual/tutorial/configure-x509-client-authentication/
+	//
+	// If using certificate authentication the Username, Mechanism and Source
+	// fields should not be set.
 	Certificate *x509.Certificate
 }
 
