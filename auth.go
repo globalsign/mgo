@@ -170,6 +170,12 @@ func (socket *mongoSocket) Login(cred Credential) error {
 			return nil
 		}
 	}
+	if socket.dropLogout(cred) {
+		debugf("Socket %p to %s: login: db=%q user=%q (cached)", socket, socket.addr, cred.Source, cred.Username)
+		socket.creds = append(socket.creds, cred)
+		socket.Unlock()
+		return nil
+	}
 	socket.Unlock()
 
 	debugf("Socket %p to %s: login: db=%q user=%q", socket, socket.addr, cred.Source, cred.Username)
@@ -406,50 +412,36 @@ func (socket *mongoSocket) Logout(db string) {
 	cred, found := socket.dropAuth(db)
 	if found {
 		debugf("Socket %p to %s: logout: db=%q (flagged)", socket, socket.addr, db)
-		socket.Unlock()
-		err := socket.flushLogout(cred)
-		if err != nil {
-			debugf("fail to logout for cred %v; error: %v", cred, err)
-		}
-	} else {
-		socket.Unlock()
+		socket.logout = append(socket.logout, cred)
 	}
+	socket.Unlock()
 }
 
 func (socket *mongoSocket) LogoutAll() {
 	socket.Lock()
 	if l := len(socket.creds); l > 0 {
-		credCopy := make([]Credential, l)
-		copy(credCopy, socket.creds)
-		socket.creds = socket.creds[0:0]
-		socket.Unlock()
 		debugf("Socket %p to %s: logout all (flagged %d)", socket, socket.addr, l)
-		err := socket.flushLogout(credCopy...)
-		if err != nil {
-			debugf("fail to logout for cred %v, error: %v", credCopy, err)
-		}
-	} else {
-		socket.Unlock()
+		socket.logout = append(socket.logout, socket.creds...)
+		socket.creds = socket.creds[0:0]
 	}
+	socket.Unlock()
 }
 
-func (socket *mongoSocket) flushLogout(cred ...Credential) error {
-	if l := len(cred); l > 0 {
+func (socket *mongoSocket) flushLogout() (ops []interface{}) {
+	socket.Lock()
+	if l := len(socket.logout); l > 0 {
 		debugf("Socket %p to %s: logout all (flushing %d)", socket, socket.addr, l)
-		ops := make([]interface{}, l)
 		for i := 0; i != l; i++ {
 			op := queryOp{}
 			op.query = &logoutCmd{1}
-			op.collection = cred[i].Source + ".$cmd"
+			op.collection = socket.logout[i].Source + ".$cmd"
 			op.limit = -1
-			ops[i] = &op
+			ops = append(ops, &op)
 		}
-		err := socket.Query(ops...)
-		if err != nil {
-			return fmt.Errorf("fail to logout: %v", err)
-		}
+		socket.logout = socket.logout[0:0]
 	}
-	return nil
+	socket.Unlock()
+	return
 }
 
 func (socket *mongoSocket) dropAuth(db string) (cred Credential, found bool) {
@@ -461,4 +453,15 @@ func (socket *mongoSocket) dropAuth(db string) (cred Credential, found bool) {
 		}
 	}
 	return cred, false
+}
+
+func (socket *mongoSocket) dropLogout(cred Credential) (found bool) {
+	for i, sockCred := range socket.logout {
+		if sockCred == cred {
+			copy(socket.logout[i:], socket.logout[i+1:])
+			socket.logout = socket.logout[:len(socket.logout)-1]
+			return true
+		}
+	}
+	return false
 }

@@ -36,12 +36,6 @@ import (
 	"github.com/globalsign/mgo/bson"
 )
 
-const (
-	// default value for MongoDB 3.6
-	defaultWriteBatchSize      = 100000
-	defaultMaxMessageSizeBytes = 48000000
-)
-
 // ---------------------------------------------------------------------------
 // Mongo server encapsulation.
 
@@ -73,14 +67,14 @@ func (dial dialer) isSet() bool {
 }
 
 type mongoServerInfo struct {
-	Master              bool
-	Mongos              bool
-	Tags                bson.D
-	MaxWireVersion      int
-	SetName             string
-	MaxWriteBatchSize   int
-	MaxMessageSizeBytes int
+	Master         bool
+	Mongos         bool
+	Tags           bson.D
+	MaxWireVersion int
+	SetName        string
 }
+
+var defaultServerInfo mongoServerInfo
 
 func newServer(addr string, tcpaddr *net.TCPAddr, sync chan bool, dial dialer) *mongoServer {
 	server := &mongoServer{
@@ -89,11 +83,8 @@ func newServer(addr string, tcpaddr *net.TCPAddr, sync chan bool, dial dialer) *
 		tcpaddr:      tcpaddr,
 		sync:         sync,
 		dial:         dial,
-		info: &mongoServerInfo{
-			MaxWriteBatchSize:   defaultWriteBatchSize,
-			MaxMessageSizeBytes: defaultMaxMessageSizeBytes,
-		},
-		pingValue: time.Hour, // Push it back before an actual ping.
+		info:         &defaultServerInfo,
+		pingValue:    time.Hour, // Push it back before an actual ping.
 	}
 	go server.pinger(true)
 	return server

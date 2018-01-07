@@ -3,6 +3,7 @@
 . ../.env
 
 exec mongod $COMMONDOPTS \
+	--shardsvr \
 	--port 40003 \
 	--auth \
 	--sslMode preferSSL \

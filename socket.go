@@ -29,7 +29,6 @@ package mgo
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"sync"
 	"time"
@@ -39,24 +38,22 @@ import (
 
 type replyFunc func(err error, reply *replyOp, docNum int, docData []byte)
 
-type opMsgReplyFunc func(reply *msgOp, err error)
-
 type mongoSocket struct {
 	sync.Mutex
-	server          *mongoServer // nil when cached
-	conn            net.Conn
-	timeout         time.Duration
-	addr            string // For debugging only.
-	nextRequestId   uint32
-	replyFuncs      map[uint32]replyFunc
-	opMsgReplyFuncs map[uint32]opMsgReplyFunc
-	references      int
-	creds           []Credential
-	cachedNonce     string
-	gotNonce        sync.Cond
-	dead            error
-	serverInfo      *mongoServerInfo
-	closeAfterIdle  bool
+	server         *mongoServer // nil when cached
+	conn           net.Conn
+	timeout        time.Duration
+	addr           string // For debugging only.
+	nextRequestId  uint32
+	replyFuncs     map[uint32]replyFunc
+	references     int
+	creds          []Credential
+	logout         []Credential
+	cachedNonce    string
+	gotNonce       sync.Cond
+	dead           error
+	serverInfo     *mongoServerInfo
+	closeAfterIdle bool
 }
 
 type queryOpFlags uint32
@@ -68,29 +65,6 @@ const (
 	flagLogReplay
 	flagNoCursorTimeout
 	flagAwaitData
-	// section type, as defined here:
-	// https://docs.mongodb.com/master/reference/mongodb-wire-protocol/#sections
-	msgPayload0 = uint8(0)
-	msgPayload1 = uint8(1)
-	// all possible opCodes, as defined here:
-	// https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#request-opcodes
-	opInvalid      = 0
-	opReply        = 1
-	dbMsg          = 1000
-	dbUpdate       = 2001
-	dbInsert       = 2002
-	dbQuery        = 2004
-	dbGetMore      = 2005
-	dbDelete       = 2006
-	dbKillCursors  = 2007
-	dbCommand      = 2010
-	dbCommandReply = 2011
-	dbCompressed   = 2012
-	dbMessage      = 2013
-	// opMsg flags
-	opMsgFlagChecksumPresent = 1
-	opMsgFlagMoreToCome      = (1 << 1)
-	opMsgFlagExhaustAllowed  = (1 << 16)
 )
 
 type queryOp struct {
@@ -200,29 +174,6 @@ type killCursorsOp struct {
 	cursorIds []int64
 }
 
-type msgSection struct {
-	payloadType uint8
-	data        interface{}
-}
-
-// op_msg is introduced in mongodb 3.6, see
-// https://docs.mongodb.com/master/reference/mongodb-wire-protocol/#op-msg
-// for details
-type msgOp struct {
-	flags    uint32
-	sections []msgSection
-	checksum uint32
-}
-
-// PayloadType1 is a container for the OP_MSG payload data of type 1.
-// There is no definition of the type 0 payload because that is simply a
-// bson document.
-type payloadType1 struct {
-	size       int32
-	identifier string
-	docs       []interface{}
-}
-
 type requestInfo struct {
 	bufferPos int
 	replyFunc replyFunc
@@ -230,11 +181,10 @@ type requestInfo struct {
 
 func newSocket(server *mongoServer, conn net.Conn, timeout time.Duration) *mongoSocket {
 	socket := &mongoSocket{
-		conn:            conn,
-		addr:            server.Addr,
-		server:          server,
-		replyFuncs:      make(map[uint32]replyFunc),
-		opMsgReplyFuncs: make(map[uint32]opMsgReplyFunc),
+		conn:       conn,
+		addr:       server.Addr,
+		server:     server,
+		replyFuncs: make(map[uint32]replyFunc),
 	}
 	socket.gotNonce.L = &socket.Mutex
 	if err := socket.InitialAcquire(server.Info(), timeout); err != nil {
@@ -402,8 +352,6 @@ func (socket *mongoSocket) kill(err error, abend bool) {
 	stats.socketsAlive(-1)
 	replyFuncs := socket.replyFuncs
 	socket.replyFuncs = make(map[uint32]replyFunc)
-	opMsgReplyFuncs := socket.opMsgReplyFuncs
-	socket.opMsgReplyFuncs = make(map[uint32]opMsgReplyFunc)
 	server := socket.server
 	socket.server = nil
 	socket.gotNonce.Broadcast()
@@ -411,10 +359,6 @@ func (socket *mongoSocket) kill(err error, abend bool) {
 	for _, replyFunc := range replyFuncs {
 		logf("Socket %p to %s: notifying replyFunc of closed socket: %s", socket, socket.addr, err.Error())
 		replyFunc(err, nil, -1, nil)
-	}
-	for _, opMsgReplyFunc := range opMsgReplyFuncs {
-		logf("Socket %p to %s: notifying replyFunc of closed socket: %s", socket, socket.addr, err.Error())
-		opMsgReplyFunc(nil, err)
 	}
 	if abend {
 		server.AbendSocket(socket)
@@ -459,8 +403,14 @@ var bytesBufferPool = sync.Pool{
 
 func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 
-	buf := getSizedBuffer(0)
-	defer bytesBufferPool.Put(buf)
+	if lops := socket.flushLogout(); len(lops) > 0 {
+		ops = append(lops, ops...)
+	}
+
+	buf := bytesBufferPool.Get().([]byte)
+	defer func() {
+		bytesBufferPool.Put(buf[:0])
+	}()
 
 	// Serialize operations synchronously to avoid interrupting
 	// other goroutines while we can't really be sending data.
@@ -481,7 +431,7 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 		switch op := op.(type) {
 
 		case *updateOp:
-			buf = addHeader(buf, dbUpdate)
+			buf = addHeader(buf, 2001)
 			buf = addInt32(buf, 0) // Reserved
 			buf = addCString(buf, op.Collection)
 			buf = addInt32(buf, int32(op.Flags))
@@ -497,7 +447,7 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 			}
 
 		case *insertOp:
-			buf = addHeader(buf, dbInsert)
+			buf = addHeader(buf, 2002)
 			buf = addInt32(buf, int32(op.flags))
 			buf = addCString(buf, op.collection)
 			for _, doc := range op.documents {
@@ -509,7 +459,7 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 			}
 
 		case *queryOp:
-			buf = addHeader(buf, dbQuery)
+			buf = addHeader(buf, 2004)
 			buf = addInt32(buf, int32(op.flags))
 			buf = addCString(buf, op.collection)
 			buf = addInt32(buf, op.skip)
@@ -527,7 +477,7 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 			replyFunc = op.replyFunc
 
 		case *getMoreOp:
-			buf = addHeader(buf, dbGetMore)
+			buf = addHeader(buf, 2005)
 			buf = addInt32(buf, 0) // Reserved
 			buf = addCString(buf, op.collection)
 			buf = addInt32(buf, op.limit)
@@ -535,7 +485,7 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 			replyFunc = op.replyFunc
 
 		case *deleteOp:
-			buf = addHeader(buf, dbDelete)
+			buf = addHeader(buf, 2006)
 			buf = addInt32(buf, 0) // Reserved
 			buf = addCString(buf, op.Collection)
 			buf = addInt32(buf, int32(op.Flags))
@@ -546,7 +496,7 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 			}
 
 		case *killCursorsOp:
-			buf = addHeader(buf, dbKillCursors)
+			buf = addHeader(buf, 2007)
 			buf = addInt32(buf, 0) // Reserved
 			buf = addInt32(buf, int32(len(op.cursorIds)))
 			for _, cursorId := range op.cursorIds {
@@ -611,245 +561,123 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 	return err
 }
 
-// sendMessage send data to the database using the OP_MSG wire protocol
-// introduced in MongoDB 3.6 (require maxWireVersion >= 6)
-func (socket *mongoSocket) sendMessage(op *msgOp) (writeCmdResult, error) {
-	var wr writeCmdResult
-	var err error
-
-	buf := getSizedBuffer(0)
-	defer bytesBufferPool.Put(buf)
-
-	buf = addHeader(buf, dbMessage)
-	buf = addInt32(buf, int32(op.flags))
-
-	for _, section := range op.sections {
-		buf, err = addSection(buf, section)
-		if err != nil {
-			return wr, err
-		}
+func fill(r net.Conn, b []byte) error {
+	l := len(b)
+	n, err := r.Read(b)
+	for n != l && err == nil {
+		var ni int
+		ni, err = r.Read(b[n:])
+		n += ni
 	}
-
-	if len(buf) > socket.ServerInfo().MaxMessageSizeBytes {
-		return wr, fmt.Errorf("message length to long, should be < %v, but was %v", socket.ServerInfo().MaxMessageSizeBytes, len(buf))
-	}
-	// set the total message size
-	setInt32(buf, 0, int32(len(buf)))
-
-	var wait sync.Mutex
-	var reply msgOp
-	var responseError error
-	var wcr writeCmdResult
-	// if no response expected, ie op.flags&opMsgFlagMoreToCome == 1,
-	// request should have id 0
-	var requestID uint32
-	// if moreToCome flag is set, we don't want to know the outcome of the message.
-	// There is no response to a request where moreToCome has been set.
-	expectReply := (op.flags & opMsgFlagMoreToCome) == 0
-
-	socket.Lock()
-	if socket.dead != nil {
-		dead := socket.dead
-		socket.Unlock()
-		debugf("Socket %p to %s: failing query, already closed: %s", socket, socket.addr, socket.dead.Error())
-		return wr, dead
-	}
-	if expectReply {
-		// Reserve id 0 for requests which should have no responses.
-	again:
-		requestID = socket.nextRequestId + 1
-		socket.nextRequestId++
-		if requestID == 0 {
-			goto again
-		}
-		wait.Lock()
-		socket.opMsgReplyFuncs[requestID] = func(msg *msgOp, err error) {
-			reply = *msg
-			responseError = err
-			wait.Unlock()
-		}
-	}
-	socket.Unlock()
-
-	setInt32(buf, 4, int32(requestID))
-	stats.sentOps(1)
-
-	socket.updateDeadline(writeDeadline)
-	_, err = socket.conn.Write(buf)
-
-	if expectReply {
-		socket.updateDeadline(readDeadline)
-		wait.Lock()
-
-		if responseError != nil {
-			return wcr, responseError
-		}
-		// for the moment, OP_MSG responses return a body section only,
-		// cf https://github.com/mongodb/specifications/blob/master/source/message/OP_MSG.rst :
-		//
-		// "Similarly, certain commands will reply to messages using this technique when possible
-		// to avoid the overhead of BSON Arrays. Drivers will be required to allow all command
-		// replies to use this technique. Drivers will be required to handle Payload Type 1."
-		//
-		// so we only return the first section of the response (ie the body)
-		wcr = reply.sections[0].data.(writeCmdResult)
-	}
-
-	return wcr, err
-}
-
-// get a slice of byte of `size` length from the pool
-func getSizedBuffer(size int) []byte {
-	b := bytesBufferPool.Get().([]byte)
-	if len(b) < size {
-		for i := len(b); i < size; i++ {
-			b = append(b, byte(0))
-		}
-		return b
-	}
-	return b[0:size]
+	return err
 }
 
 // Estimated minimum cost per socket: 1 goroutine + memory for the largest
 // document ever seen.
 func (socket *mongoSocket) readLoop() {
-	header := make([]byte, 16) // 16 bytes for header
-	p := make([]byte, 20)      // 20 bytes for fixed fields of OP_REPLY
+	p := make([]byte, 36) // 16 from header + 20 from OP_REPLY fixed fields
 	s := make([]byte, 4)
-	var r io.Reader = socket.conn // No locking, conn never changes.
+	conn := socket.conn // No locking, conn never changes.
 	for {
-		_, err := io.ReadFull(r, header)
+		err := fill(conn, p)
 		if err != nil {
 			socket.kill(err, true)
 			return
 		}
 
-		totalLen := getInt32(header, 0)
-		responseTo := getInt32(header, 8)
-		opCode := getInt32(header, 12)
+		totalLen := getInt32(p, 0)
+		responseTo := getInt32(p, 8)
+		opCode := getInt32(p, 12)
 
 		// Don't use socket.server.Addr here.  socket is not
 		// locked and socket.server may go away.
 		debugf("Socket %p to %s: got reply (%d bytes)", socket, socket.addr, totalLen)
-		stats.receivedOps(1)
 
-		switch opCode {
-		case opReply:
-			_, err := io.ReadFull(r, p)
-			if err != nil {
-				socket.kill(err, true)
-				return
-			}
-			reply := replyOp{
-				flags:     uint32(getInt32(p, 0)),
-				cursorId:  getInt64(p, 4),
-				firstDoc:  getInt32(p, 12),
-				replyDocs: getInt32(p, 16),
-			}
-			stats.receivedDocs(int(reply.replyDocs))
+		_ = totalLen
 
-			socket.Lock()
-			replyFunc, ok := socket.replyFuncs[uint32(responseTo)]
-			if ok {
-				delete(socket.replyFuncs, uint32(responseTo))
-			}
-			socket.Unlock()
-
-			if replyFunc != nil && reply.replyDocs == 0 {
-				replyFunc(nil, &reply, -1, nil)
-			} else {
-				for i := 0; i != int(reply.replyDocs); i++ {
-					_, err := io.ReadFull(r, s)
-					if err != nil {
-						if replyFunc != nil {
-							replyFunc(err, nil, -1, nil)
-						}
-						socket.kill(err, true)
-						return
-					}
-					b := getSizedBuffer(int(getInt32(s, 0)))
-					defer bytesBufferPool.Put(b)
-
-					copy(b[0:4], s)
-
-					_, err = io.ReadFull(r, b[4:])
-					if err != nil {
-						if replyFunc != nil {
-							replyFunc(err, nil, -1, nil)
-						}
-						socket.kill(err, true)
-						return
-					}
-
-					if globalDebug && globalLogger != nil {
-						m := bson.M{}
-						if err := bson.Unmarshal(b, m); err == nil {
-							debugf("Socket %p to %s: received document: %#v", socket, socket.addr, m)
-						}
-					}
-
-					if replyFunc != nil {
-						replyFunc(nil, &reply, i, b)
-					}
-					// XXX Do bound checking against totalLen.
-				}
-			}
-
-			socket.Lock()
-			if len(socket.replyFuncs) == 0 {
-				// Nothing else to read for now. Disable deadline.
-				socket.conn.SetReadDeadline(time.Time{})
-			} else {
-				socket.updateDeadline(readDeadline)
-			}
-			socket.Unlock()
-
-		case dbMessage:
-			body := getSizedBuffer(int(totalLen) - 16)
-			defer bytesBufferPool.Put(body)
-			_, err := io.ReadFull(r, body)
-			if err != nil {
-				socket.kill(err, true)
-				return
-			}
-
-			sections, err := getSections(body[4:])
-			if err != nil {
-				socket.kill(err, true)
-				return
-			}
-			// TODO check CRC-32 checksum if checksum byte is set
-			reply := &msgOp{
-				flags:    uint32(getInt32(body, 0)),
-				sections: sections,
-			}
-
-			// TODO update this when msgPayload1 section is implemented in MongoDB
-			stats.receivedDocs(1)
-			socket.Lock()
-			opMsgReplyFunc, ok := socket.opMsgReplyFuncs[uint32(responseTo)]
-			if ok {
-				delete(socket.opMsgReplyFuncs, uint32(responseTo))
-			}
-			socket.Unlock()
-
-			if opMsgReplyFunc != nil {
-				opMsgReplyFunc(reply, err)
-			} else {
-				socket.kill(fmt.Errorf("couldn't handle response properly"), true)
-				return
-			}
-			socket.conn.SetReadDeadline(time.Time{})
-		default:
-			socket.kill(errors.New("opcode != 1 && opcode != 2013, corrupted data?"), true)
+		if opCode != 1 {
+			socket.kill(errors.New("opcode != 1, corrupted data?"), true)
 			return
 		}
+
+		reply := replyOp{
+			flags:     uint32(getInt32(p, 16)),
+			cursorId:  getInt64(p, 20),
+			firstDoc:  getInt32(p, 28),
+			replyDocs: getInt32(p, 32),
+		}
+
+		stats.receivedOps(+1)
+		stats.receivedDocs(int(reply.replyDocs))
+
+		socket.Lock()
+		replyFunc, ok := socket.replyFuncs[uint32(responseTo)]
+		if ok {
+			delete(socket.replyFuncs, uint32(responseTo))
+		}
+		socket.Unlock()
+
+		if replyFunc != nil && reply.replyDocs == 0 {
+			replyFunc(nil, &reply, -1, nil)
+		} else {
+			for i := 0; i != int(reply.replyDocs); i++ {
+				err := fill(conn, s)
+				if err != nil {
+					if replyFunc != nil {
+						replyFunc(err, nil, -1, nil)
+					}
+					socket.kill(err, true)
+					return
+				}
+
+				b := make([]byte, int(getInt32(s, 0)))
+
+				// copy(b, s) in an efficient way.
+				b[0] = s[0]
+				b[1] = s[1]
+				b[2] = s[2]
+				b[3] = s[3]
+
+				err = fill(conn, b[4:])
+				if err != nil {
+					if replyFunc != nil {
+						replyFunc(err, nil, -1, nil)
+					}
+					socket.kill(err, true)
+					return
+				}
+
+				if globalDebug && globalLogger != nil {
+					m := bson.M{}
+					if err := bson.Unmarshal(b, m); err == nil {
+						debugf("Socket %p to %s: received document: %#v", socket, socket.addr, m)
+					}
+				}
+
+				if replyFunc != nil {
+					replyFunc(nil, &reply, i, b)
+				}
+
+				// XXX Do bound checking against totalLen.
+			}
+		}
+
+		socket.Lock()
+		if len(socket.replyFuncs) == 0 {
+			// Nothing else to read for now. Disable deadline.
+			socket.conn.SetReadDeadline(time.Time{})
+		} else {
+			socket.updateDeadline(readDeadline)
+		}
+		socket.Unlock()
+
+		// XXX Do bound checking against totalLen.
 	}
 }
 
 var emptyHeader = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
-func addHeader(b []byte, opcode int32) []byte {
+func addHeader(b []byte, opcode int) []byte {
 	i := len(b)
 	b = append(b, emptyHeader...)
 	// Enough for current opcodes.
@@ -871,35 +699,6 @@ func addCString(b []byte, s string) []byte {
 	b = append(b, []byte(s)...)
 	b = append(b, 0)
 	return b
-}
-
-// Marshal a section and add it to the provided buffer
-// https://docs.mongodb.com/master/reference/mongodb-wire-protocol/#sections
-func addSection(b []byte, s msgSection) ([]byte, error) {
-	var err error
-	b = append(b, s.payloadType)
-	switch s.payloadType {
-	case msgPayload0:
-		b, err = addBSON(b, s.data)
-		if err != nil {
-			return b, err
-		}
-	case msgPayload1:
-		pos := len(b)
-		b = addInt32(b, 0)
-		s1 := s.data.(payloadType1)
-		b = addCString(b, s1.identifier)
-		for _, doc := range s1.docs {
-			b, err = bson.MarshalBuffer(doc, b)
-			if err != nil {
-				return b, err
-			}
-		}
-		setInt32(b, pos, int32(len(b)-pos))
-	default:
-		return b, fmt.Errorf("invalid section kind in op_msg: %v", s.payloadType)
-	}
-	return b, nil
 }
 
 func addBSON(b []byte, doc interface{}) ([]byte, error) {
@@ -936,37 +735,4 @@ func getInt64(b []byte, pos int) int64 {
 		(int64(b[pos+5]) << 40) |
 		(int64(b[pos+6]) << 48) |
 		(int64(b[pos+7]) << 56)
-}
-
-// UnMarshal an array of bytes into a section
-// https://docs.mongodb.com/master/reference/mongodb-wire-protocol/#sections
-func getSections(b []byte) ([]msgSection, error) {
-	var sections []msgSection
-	pos := 0
-	for pos != len(b) {
-		sectionLength := int(getInt32(b, pos+1))
-		// first byte is section type
-		switch b[pos] {
-		case msgPayload0:
-			var result writeCmdResult
-			err := bson.Unmarshal(b[pos+1:pos+sectionLength+1], &result)
-			if err != nil {
-				return nil, err
-			}
-			sections = append(sections, msgSection{
-				payloadType: b[pos],
-				data:        result,
-			})
-		case msgPayload1:
-			// not implemented yet
-			//
-			// b[0:4] size
-			// b[4:?] docSeqID
-			// b[?:len(b)] documentSequence
-		default:
-			return nil, fmt.Errorf("invalid section type: %v", b[0])
-		}
-		pos += sectionLength + 1
-	}
-	return sections, nil
 }

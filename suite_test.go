@@ -45,8 +45,6 @@ import (
 
 var fast = flag.Bool("fast", false, "Skip slow tests")
 
-var expFeaturesString = "?experimental=opmsg"
-
 type M bson.M
 
 type cLogger C

@@ -2,23 +2,27 @@ language: go
 
 go_import_path: github.com/globalsign/mgo
 
-go:
-    - 1.8.x
-    - 1.9.x
-
 env:
     global:
         - BUCKET=https://s3.eu-west-2.amazonaws.com/globalsign-mgo
-        - FASTDL=https://fastdl.mongodb.org/linux
     matrix:
-        - MONGODB=x86_64-ubuntu1404-3.0.15
-        - MONGODB=x86_64-ubuntu1404-3.2.17
-        - MONGODB=x86_64-ubuntu1404-3.4.10
-        - MONGODB=x86_64-ubuntu1404-3.6.0
+        - GO=1.7   MONGODB=x86_64-2.6.11
+        - GO=1.8.x MONGODB=x86_64-2.6.11
+        - GO=1.7   MONGODB=x86_64-3.0.9
+        - GO=1.8.x MONGODB=x86_64-3.0.9
+        - GO=1.7   MONGODB=x86_64-3.2.3-nojournal
+        - GO=1.8.x MONGODB=x86_64-3.2.3-nojournal
+        - GO=1.7   MONGODB=x86_64-3.2.12
+        - GO=1.8.x MONGODB=x86_64-3.2.12
+        - GO=1.7   MONGODB=x86_64-3.2.16
+        - GO=1.8.x MONGODB=x86_64-3.2.16
+        - GO=1.7   MONGODB=x86_64-3.4.8
+        - GO=1.8.x MONGODB=x86_64-3.4.8
 
 install:
+    - eval "$(gimme $GO)"
 
-    - wget $FASTDL/mongodb-linux-$MONGODB.tgz
+    - wget $BUCKET/mongodb-linux-$MONGODB.tgz
     - tar xzvf mongodb-linux-$MONGODB.tgz
     - export PATH=$PWD/mongodb-linux-$MONGODB/bin:$PATH
 

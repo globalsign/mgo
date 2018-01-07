@@ -42,8 +42,7 @@ import (
 )
 
 func (s *S) TestNewSession(c *C) {
-
-	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -97,8 +96,7 @@ func (s *S) TestNewSession(c *C) {
 }
 
 func (s *S) TestCloneSession(c *C) {
-
-	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -163,7 +161,7 @@ func (s *S) TestCloneSession(c *C) {
 }
 
 func (s *S) TestModeStrong(c *C) {
-	session, err := mgo.Dial("localhost:40012" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40012")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -202,7 +200,7 @@ func (s *S) TestModeStrong(c *C) {
 func (s *S) TestModeMonotonic(c *C) {
 	// Must necessarily connect to a slave, otherwise the
 	// master connection will be available first.
-	session, err := mgo.Dial("localhost:40012" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40012")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -245,7 +243,7 @@ func (s *S) TestModeMonotonicAfterStrong(c *C) {
 	// Test that a strong session shifting to a monotonic
 	// one preserves the socket untouched.
 
-	session, err := mgo.Dial("localhost:40012" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40012")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -282,7 +280,7 @@ func (s *S) TestModeStrongAfterMonotonic(c *C) {
 
 	// Must necessarily connect to a slave, otherwise the
 	// master connection will be available first.
-	session, err := mgo.Dial("localhost:40012" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40012")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -317,7 +315,7 @@ func (s *S) TestModeStrongAfterMonotonic(c *C) {
 func (s *S) TestModeMonotonicWriteOnIteration(c *C) {
 	// Must necessarily connect to a slave, otherwise the
 	// master connection will be available first.
-	session, err := mgo.Dial("localhost:40012" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40012")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -362,7 +360,7 @@ func (s *S) TestModeMonotonicWriteOnIteration(c *C) {
 func (s *S) TestModeEventual(c *C) {
 	// Must necessarily connect to a slave, otherwise the
 	// master connection will be available first.
-	session, err := mgo.Dial("localhost:40012" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40012")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -400,7 +398,7 @@ func (s *S) TestModeEventualAfterStrong(c *C) {
 	// Test that a strong session shifting to an eventual
 	// one preserves the socket untouched.
 
-	session, err := mgo.Dial("localhost:40012" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40012")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -439,7 +437,7 @@ func (s *S) TestModeStrongFallover(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40021" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40021")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -480,7 +478,7 @@ func (s *S) TestModePrimaryHiccup(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40021" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40021")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -531,7 +529,7 @@ func (s *S) TestModeMonotonicFallover(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40021" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40021")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -574,7 +572,7 @@ func (s *S) TestModeMonotonicWithSlaveFallover(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40021" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40021")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -604,7 +602,7 @@ func (s *S) TestModeMonotonicWithSlaveFallover(c *C) {
 		c.Fatal("Unknown host: ", ssresult.Host)
 	}
 
-	session, err = mgo.Dial(addr + expFeaturesString)
+	session, err = mgo.Dial(addr)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -653,7 +651,7 @@ func (s *S) TestModeEventualFallover(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40021" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40021")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -690,7 +688,7 @@ func (s *S) TestModeSecondaryJustPrimary(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -705,7 +703,7 @@ func (s *S) TestModeSecondaryPreferredJustPrimary(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -721,7 +719,7 @@ func (s *S) TestModeSecondaryPreferredFallover(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -780,7 +778,7 @@ func (s *S) TestModePrimaryPreferredFallover(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -823,7 +821,7 @@ func (s *S) TestModePrimaryFallover(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -850,7 +848,7 @@ func (s *S) TestModeSecondary(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -876,7 +874,7 @@ func (s *S) TestPreserveSocketCountOnSync(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -933,7 +931,7 @@ func (s *S) TestPreserveSocketCountOnSync(c *C) {
 // single connection was established.
 func (s *S) TestTopologySyncWithSingleMaster(c *C) {
 	// Use hostname here rather than IP, to make things trickier.
-	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -957,7 +955,7 @@ func (s *S) TestTopologySyncWithSingleMaster(c *C) {
 func (s *S) TestTopologySyncWithSlaveSeed(c *C) {
 	// That's supposed to be a slave. Must run discovery
 	// and find out master to insert successfully.
-	session, err := mgo.Dial("localhost:40012" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40012")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -990,7 +988,7 @@ func (s *S) TestSyncTimeout(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -1017,7 +1015,7 @@ func (s *S) TestDialWithTimeout(c *C) {
 	started := time.Now()
 
 	// 40009 isn't used by the test servers.
-	session, err := mgo.DialWithTimeout("localhost:40009"+expFeaturesString, timeout)
+	session, err := mgo.DialWithTimeout("localhost:40009", timeout)
 	if session != nil {
 		session.Close()
 	}
@@ -1032,7 +1030,7 @@ func (s *S) TestSocketTimeout(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -1063,7 +1061,7 @@ func (s *S) TestSocketTimeoutOnDial(c *C) {
 
 	started := time.Now()
 
-	session, err := mgo.DialWithTimeout("localhost:40001"+expFeaturesString, timeout)
+	session, err := mgo.DialWithTimeout("localhost:40001", timeout)
 	c.Assert(err, ErrorMatches, "no reachable servers")
 	c.Assert(session, IsNil)
 
@@ -1076,7 +1074,7 @@ func (s *S) TestSocketTimeoutOnInactiveSocket(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -1131,9 +1129,6 @@ func (s *S) TestDialWithReplicaSetName(c *C) {
 			Addrs:          seedList,
 			Timeout:        5 * time.Second,
 			ReplicaSetName: "rs1",
-			ExperimentalFeatures: map[string]bool{
-				"opmsg": true,
-			},
 		}
 
 		session, err := mgo.DialWithInfo(&info)
@@ -1163,7 +1158,7 @@ func (s *S) TestDialWithReplicaSetName(c *C) {
 }
 
 func (s *S) TestDirect(c *C) {
-	session, err := mgo.Dial("localhost:40012?connect=direct" + "&" + string(expFeaturesString[1:]))
+	session, err := mgo.Dial("localhost:40012?connect=direct")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -1207,7 +1202,7 @@ func (s *S) TestDirect(c *C) {
 }
 
 func (s *S) TestDirectToUnknownStateMember(c *C) {
-	session, err := mgo.Dial("localhost:40041?connect=direct" + "&" + string(expFeaturesString[1:]))
+	session, err := mgo.Dial("localhost:40041?connect=direct")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -1234,11 +1229,8 @@ func (s *S) TestDirectToUnknownStateMember(c *C) {
 
 func (s *S) TestFailFast(c *C) {
 	info := mgo.DialInfo{
-		Addrs:   []string{"localhost:99999"},
-		Timeout: 5 * time.Second,
-		ExperimentalFeatures: map[string]bool{
-			"opmsg": true,
-		},
+		Addrs:    []string{"localhost:99999"},
+		Timeout:  5 * time.Second,
 		FailFast: true,
 	}
 
@@ -1252,7 +1244,7 @@ func (s *S) TestFailFast(c *C) {
 
 func (s *S) countQueries(c *C, server string) (n int) {
 	defer func() { c.Logf("Queries for %q: %d", server, n) }()
-	session, err := mgo.Dial(server + "?connect=direct" + "&" + string(expFeaturesString[1:]))
+	session, err := mgo.Dial(server + "?connect=direct")
 	c.Assert(err, IsNil)
 	defer session.Close()
 	session.SetMode(mgo.Monotonic, true)
@@ -1274,7 +1266,7 @@ func (s *S) countQueries(c *C, server string) (n int) {
 
 func (s *S) countCommands(c *C, server, commandName string) (n int) {
 	defer func() { c.Logf("Queries for %q: %d", server, n) }()
-	session, err := mgo.Dial(server + "?connect=direct" + "&" + string(expFeaturesString[1:]))
+	session, err := mgo.Dial(server + "?connect=direct")
 	c.Assert(err, IsNil)
 	defer session.Close()
 	session.SetMode(mgo.Monotonic, true)
@@ -1292,7 +1284,7 @@ func (s *S) TestMonotonicSlaveOkFlagWithMongos(c *C) {
 	if s.versionAtLeast(3, 4) {
 		c.Skip("fail on 3.4+ ? ")
 	}
-	session, err := mgo.Dial("localhost:40021" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40021")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -1311,7 +1303,7 @@ func (s *S) TestMonotonicSlaveOkFlagWithMongos(c *C) {
 	s.Stop(":40201")
 	s.StartAll()
 
-	mongos, err := mgo.Dial("localhost:40202" + expFeaturesString)
+	mongos, err := mgo.Dial("localhost:40202")
 	c.Assert(err, IsNil)
 	defer mongos.Close()
 
@@ -1386,7 +1378,7 @@ func (s *S) TestSecondaryModeWithMongos(c *C) {
 	if s.versionAtLeast(3, 4) {
 		c.Skip("fail on 3.4+ ?")
 	}
-	session, err := mgo.Dial("localhost:40021" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40021")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -1405,7 +1397,7 @@ func (s *S) TestSecondaryModeWithMongos(c *C) {
 	s.Stop(":40201")
 	s.StartAll()
 
-	mongos, err := mgo.Dial("localhost:40202" + expFeaturesString)
+	mongos, err := mgo.Dial("localhost:40202")
 	c.Assert(err, IsNil)
 	defer mongos.Close()
 
@@ -1480,7 +1472,7 @@ func (s *S) TestSecondaryModeWithMongosInsert(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40202" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40202")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -1501,7 +1493,7 @@ func (s *S) TestRemovalOfClusterMember(c *C) {
 		c.Skip("-fast")
 	}
 
-	master, err := mgo.Dial("localhost:40021" + expFeaturesString)
+	master, err := mgo.Dial("localhost:40021")
 	c.Assert(err, IsNil)
 	defer master.Close()
 
@@ -1582,11 +1574,11 @@ func (s *S) TestPoolLimitSimple(c *C) {
 		var session *mgo.Session
 		var err error
 		if test == 0 {
-			session, err = mgo.Dial("localhost:40001" + expFeaturesString)
+			session, err = mgo.Dial("localhost:40001")
 			c.Assert(err, IsNil)
 			session.SetPoolLimit(1)
 		} else {
-			session, err = mgo.Dial("localhost:40001?maxPoolSize=1" + "&" + string(expFeaturesString[1:]))
+			session, err = mgo.Dial("localhost:40001?maxPoolSize=1")
 			c.Assert(err, IsNil)
 		}
 		defer session.Close()
@@ -1619,7 +1611,7 @@ func (s *S) TestPoolLimitMany(c *C) {
 		c.Skip("-fast")
 	}
 
-	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -1658,7 +1650,7 @@ func (s *S) TestPoolLimitMany(c *C) {
 }
 
 func (s *S) TestSetModeEventualIterBug(c *C) {
-	session1, err := mgo.Dial("localhost:40011" + expFeaturesString)
+	session1, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session1.Close()
 
@@ -1682,7 +1674,7 @@ func (s *S) TestSetModeEventualIterBug(c *C) {
 		}
 	}
 
-	session2, err := mgo.Dial("localhost:40011" + expFeaturesString)
+	session2, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session2.Close()
 
@@ -1775,7 +1767,7 @@ func (s *S) TestPrimaryShutdownOnAuthShard(c *C) {
 	}
 
 	// Dial the shard.
-	session, err := mgo.Dial("localhost:40203" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40203")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -1786,7 +1778,7 @@ func (s *S) TestPrimaryShutdownOnAuthShard(c *C) {
 	c.Assert(err, IsNil)
 
 	// Dial the replica set to figure the master out.
-	rs, err := mgo.Dial("root:rapadura@localhost:40031" + expFeaturesString)
+	rs, err := mgo.Dial("root:rapadura@localhost:40031")
 	c.Assert(err, IsNil)
 	defer rs.Close()
 
@@ -1832,7 +1824,7 @@ func (s *S) TestNearestSecondary(c *C) {
 	rs1c := "127.0.0.1:40013"
 	s.Freeze(rs1b)
 
-	session, err := mgo.Dial(rs1a + expFeaturesString)
+	session, err := mgo.Dial(rs1a)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -1897,7 +1889,7 @@ func (s *S) TestNearestServer(c *C) {
 	rs1b := "127.0.0.1:40012"
 	rs1c := "127.0.0.1:40013"
 
-	session, err := mgo.Dial(rs1a + expFeaturesString)
+	session, err := mgo.Dial(rs1a)
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -1961,7 +1953,7 @@ func (s *S) TestConnectCloseConcurrency(c *C) {
 	for i := 0; i < n; i++ {
 		go func() {
 			defer wg.Done()
-			session, err := mgo.Dial("localhost:40001" + expFeaturesString)
+			session, err := mgo.Dial("localhost:40001")
 			if err != nil {
 				c.Fatal(err)
 			}
@@ -1977,7 +1969,7 @@ func (s *S) TestSelectServers(c *C) {
 		c.Skip("read preferences introduced in 2.2")
 	}
 
-	session, err := mgo.Dial("localhost:40011" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -2006,7 +1998,7 @@ func (s *S) TestSelectServersWithMongos(c *C) {
 		c.Skip("fail on 3.4+")
 	}
 
-	session, err := mgo.Dial("localhost:40021" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40021")
 	c.Assert(err, IsNil)
 	defer session.Close()
 
@@ -2037,7 +2029,7 @@ func (s *S) TestSelectServersWithMongos(c *C) {
 	q23a := s.countQueries(c, "localhost:40023")
 
 	// Do a SlaveOk query through MongoS
-	mongos, err := mgo.Dial("localhost:40202" + expFeaturesString)
+	mongos, err := mgo.Dial("localhost:40202")
 	c.Assert(err, IsNil)
 	defer mongos.Close()
 
@@ -2091,11 +2083,11 @@ func (s *S) TestDoNotFallbackToMonotonic(c *C) {
 	if !s.versionAtLeast(3, 0) {
 		c.Skip("command-counting logic depends on 3.0+")
 	}
-	if s.versionAtLeast(3, 2, 17) {
-		c.Skip("failing on 3.2.17+")
+	if s.versionAtLeast(3, 4) {
+		c.Skip("failing on 3.4+")
 	}
 
-	session, err := mgo.Dial("localhost:40012" + expFeaturesString)
+	session, err := mgo.Dial("localhost:40012")
 	c.Assert(err, IsNil)
 	defer session.Close()
 

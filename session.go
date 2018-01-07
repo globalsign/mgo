@@ -103,7 +103,6 @@ type Session struct {
 	queryConfig      query
 	bypassValidation bool
 	slaveOk          bool
-	experimental     map[string]bool
 }
 
 // Database holds collections of documents
@@ -320,7 +319,6 @@ func ParseURL(url string) (*DialInfo, error) {
 	poolLimit := 0
 	appName := ""
 	readPreferenceMode := Primary
-	experimental := map[string]bool{}
 	var readPreferenceTagSets []bson.D
 	for _, opt := range uinfo.options {
 		switch opt.key {
@@ -342,13 +340,6 @@ func ParseURL(url string) (*DialInfo, error) {
 				return nil, errors.New("appName too long, must be < 128 bytes: " + opt.value)
 			}
 			appName = opt.value
-		case "experimental":
-			switch opt.value {
-			case "opmsg":
-				experimental[opt.value] = true
-			default:
-				return nil, errors.New("unknow experimental feature: " + opt.value)
-			}
 		case "readPreference":
 			switch opt.value {
 			case "nearest":
@@ -408,8 +399,7 @@ func ParseURL(url string) (*DialInfo, error) {
 			Mode:    readPreferenceMode,
 			TagSets: readPreferenceTagSets,
 		},
-		ReplicaSetName:       setName,
-		ExperimentalFeatures: experimental,
+		ReplicaSetName: setName,
 	}
 	return &info, nil
 }
@@ -489,12 +479,6 @@ type DialInfo struct {
 
 	// WARNING: This field is obsolete. See DialServer above.
 	Dial func(addr net.Addr) (net.Conn, error)
-
-	// List of experimental feature to enable. Set the value to 'true'
-	// to enable a feature.
-	// Currently, experimental features are:
-	// - opmsg
-	ExperimentalFeatures map[string]bool
 }
 
 // ReadPreference defines the manner in which servers are chosen.
@@ -585,12 +569,7 @@ func DialWithInfo(info *DialInfo) (*Session, error) {
 	} else {
 		session.SetMode(Strong, true)
 	}
-	if len(info.ExperimentalFeatures) > 0 {
-		session.experimental = make(map[string]bool, 0)
-		for k, v := range info.ExperimentalFeatures {
-			session.experimental[k] = v
-		}
-	}
+
 	return session, nil
 }
 
@@ -682,14 +661,6 @@ func copySession(session *Session, keepCreds bool) (s *Session) {
 	} else if session.dialCred != nil {
 		creds = []Credential{*session.dialCred}
 	}
-
-	var experimental map[string]bool
-	if len(session.experimental) > 0 {
-		experimental = make(map[string]bool, len(session.experimental))
-		for k, v := range session.experimental {
-			experimental[k] = v
-		}
-	}
 	scopy := Session{
 		defaultdb:        session.defaultdb,
 		sourcedb:         session.sourcedb,
@@ -707,7 +678,6 @@ func copySession(session *Session, keepCreds bool) (s *Session) {
 		queryConfig:      session.queryConfig,
 		bypassValidation: session.bypassValidation,
 		slaveOk:          session.slaveOk,
-		experimental:     experimental,
 	}
 	s = &scopy
 	debugf("New session %p on cluster %p (copy from %p)", s, cluster, session)
@@ -4966,15 +4936,13 @@ func (iter *Iter) replyFunc() replyFunc {
 }
 
 type writeCmdResult struct {
-	Ok        bool `bson:"ok"`
-	N         int  `bson:"n"`
-	NModified int  `bson:"nModified"`
+	Ok        bool
+	N         int
+	NModified int `bson:"nModified"`
 	Upserted  []struct {
 		Index int
 		Id    interface{} `bson:"_id"`
 	}
-	Code         int               `bson:"code"`
-	Errmsg       string            `bson:"errmsg"`
 	ConcernError writeConcernError `bson:"writeConcernError"`
 	Errors       []writeCmdError   `bson:"writeErrors"`
 }
@@ -4998,140 +4966,6 @@ func (r *writeCmdResult) BulkErrorCases() []BulkErrorCase {
 	return ecases
 }
 
-func (c *Collection) writeOpWithOpMsg(socket *mongoSocket, serverInfo *mongoServerInfo, op interface{}, ordered, bypassValidation bool, safeOp *queryOp) (*LastError, error) {
-	var cmd bson.D
-	var documents []interface{}
-	var docSeqID string
-	canUseOpMsg := true
-	switch msgOp := op.(type) {
-	case *insertOp:
-		cmd = bson.D{
-			{Name: "insert", Value: c.Name},
-		}
-		docSeqID = "documents"
-		documents = msgOp.documents
-	case bulkUpdateOp:
-		cmd = bson.D{
-			{Name: "update", Value: c.Name},
-		}
-		docSeqID = "updates"
-		documents = msgOp
-	case bulkDeleteOp:
-		cmd = bson.D{
-			{Name: "delete", Value: c.Name},
-		}
-		docSeqID = "deletes"
-		documents = msgOp
-	default:
-		canUseOpMsg = false
-	}
-
-	if canUseOpMsg {
-		//msg flags, see https://docs.mongodb.com/master/reference/mongodb-wire-protocol/#flag-bits
-		flags := uint32(0)
-
-		var writeConcern interface{}
-		if safeOp == nil {
-			// unacknowledged writes
-			flags |= opMsgFlagMoreToCome
-			writeConcern = bson.D{{Name: "w", Value: 0}}
-		} else {
-			writeConcern = safeOp.query.(*getLastError)
-		}
-
-		cmd = append(cmd, bson.DocElem{
-			Name: "$db", Value: c.Database.Name,
-		}, bson.DocElem{
-			Name: "ordered", Value: ordered,
-		}, bson.DocElem{
-			Name: "writeConcern", Value: writeConcern,
-		}, bson.DocElem{
-			Name: "bypassDocumentValidation", Value: bypassValidation,
-		})
-
-		body := msgSection{
-			payloadType: msgPayload0,
-			data:        cmd,
-		}
-
-		n := 0
-		modified := 0
-		var errs []BulkErrorCase
-		var lerr LastError
-
-		l := len(documents)
-		batchNb := (l / serverInfo.MaxWriteBatchSize) + 1
-		if l != 0 && (l%serverInfo.MaxWriteBatchSize) == 0 {
-			batchNb--
-		}
-		count := 0
-
-		for count < batchNb {
-			start := count * serverInfo.MaxWriteBatchSize
-			length := l - start
-			if length > serverInfo.MaxWriteBatchSize {
-				length = serverInfo.MaxWriteBatchSize
-			}
-
-			docs := msgSection{
-				payloadType: msgPayload1,
-				data: payloadType1{
-					identifier: docSeqID,
-					docs:       documents[start : start+length],
-				},
-			}
-			count++
-
-			// CRC-32 checksum is not implemented in Mongodb 3.6 but
-			// will be in future release. It's optional, so no need
-			// to set it for the moment
-			newOp := &msgOp{
-				flags:    flags,
-				sections: []msgSection{body, docs},
-				checksum: 0,
-			}
-			result, err := socket.sendMessage(newOp)
-			if err != nil {
-				return &lerr, err
-			}
-			// for some reason, command result format has changed and
-			// code|errmsg are sometimes top level fields in writeCommandResult
-			// TODO need to investigate further
-			if result.Code != 0 {
-				return &lerr, errors.New(result.Errmsg)
-			}
-			if result.ConcernError.Code != 0 {
-				return &lerr, errors.New(result.ConcernError.ErrMsg)
-			}
-
-			n += result.N
-			modified += result.NModified
-
-			if len(result.Errors) > 0 {
-				for _, e := range result.Errors {
-					errs = append(errs, BulkErrorCase{
-						e.Index,
-						&QueryError{
-							Code:    e.Code,
-							Message: e.ErrMsg,
-						},
-					})
-				}
-			}
-		}
-		lerr = LastError{
-			N:        n,
-			modified: modified,
-			ecases:   errs,
-		}
-		if len(lerr.ecases) > 0 {
-			return &lerr, lerr.ecases[0].Err
-		}
-		return &lerr, nil
-	}
-	return nil, nil
-}
-
 // writeOp runs the given modifying operation, potentially followed up
 // by a getLastError command in case the session is in safe mode.  The
 // LastError result is made available in lerr, and if lerr.Err is set it
@@ -5147,20 +4981,9 @@ func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err
 	s.m.RLock()
 	safeOp := s.safeOp
 	bypassValidation := s.bypassValidation
-	enableOpMsg := s.experimental["opmsg"]
 	s.m.RUnlock()
 
-	serverInfo := socket.ServerInfo()
-
-	if enableOpMsg && serverInfo.MaxWireVersion >= 6 {
-		// we can use OP_MSG introduced in Mongodb 3.6
-		oPlerr, oPerr := c.writeOpWithOpMsg(socket, serverInfo, op, ordered, bypassValidation, safeOp)
-		if oPlerr != nil || oPerr != nil {
-			return oPlerr, oPerr
-		}
-	}
-
-	if serverInfo.MaxWireVersion >= 2 {
+	if socket.ServerInfo().MaxWireVersion >= 2 {
 		// Servers with a more recent write protocol benefit from write commands.
 		if op, ok := op.(*insertOp); ok && len(op.documents) > 1000 {
 			var lerr LastError
@@ -5440,7 +5263,7 @@ func getRFC2253NameString(RDNElements *pkix.RDNSequence) string {
 	var replacer = strings.NewReplacer(",", "\\,", "=", "\\=", "+", "\\+", "<", "\\<", ">", "\\>", ";", "\\;")
 	//The elements in the sequence needs to be reversed when converting them
 	for i := len(*RDNElements) - 1; i >= 0; i-- {
-		var nameAndValueList = make([]string, len((*RDNElements)[i]))
+		var nameAndValueList = make([]string,len((*RDNElements)[i]))
 		for j, attribute := range (*RDNElements)[i] {
 			var shortAttributeName = rdnOIDToShortName(attribute.Type)
 			if len(shortAttributeName) <= 0 {
