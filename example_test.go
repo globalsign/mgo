@@ -51,23 +51,27 @@ func ExampleCredential_x509Authentication() {
 	// Parse the actual certificate data
 	clientCert.Leaf, err = x509.ParseCertificate(clientCert.Certificate[0])
 
+	// Use the cert to set up a TLS connection to Mongo
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{clientCert},
+
+		// This is set to true so the example works within the test
+		// environment.
+		//
+		// DO NOT set InsecureSkipVerify to true in a production
+		// environment - if you use an untrusted CA/have your own, load
+		// its certificate into the RootCAs value instead.
+		//
+		// RootCAs: myCAChain,
+		InsecureSkipVerify: true,
+	}
+
 	// Connect to Mongo using TLS
+	host := "localhost:40003"
 	session, err := DialWithInfo(&DialInfo{
 		Addrs: []string{host},
 		DialServer: func(addr *ServerAddr) (net.Conn, error) {
-			return tls.Dial("tcp", "localhost:40003", &tls.Config{
-				Certificates: []tls.Certificate{clientCert},
-
-				// This is set to true so the example works within the test
-				// environment.
-				//
-				// DO NOT set InsecureSkipVerify to true in a production
-				// environment - if you use an untrusted CA/have your own, load
-				// its certificate into the RootCAs value instead.
-				//
-				// RootCAs: myCAChain,
-				InsecureSkipVerify: true,
-			})
+			return tls.Dial("tcp", host, tlsConfig)
 		},
 	})
 
