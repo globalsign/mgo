@@ -15,7 +15,7 @@ func ExampleCredential_x509Authentication() {
 	// The best way to generate the DN with the correct ordering is with
 	// openssl:
 	//
-	// 		dom:mgo % openssl x509 -in client.crt -inform PEM -noout -subject -nameopt RFC2253
+	// 		openssl x509 -in client.crt -inform PEM -noout -subject -nameopt RFC2253
 	// 		subject= CN=Example App,OU=MongoDB Client Authentication,O=GlobalSign,C=GB
 	//
 	//
