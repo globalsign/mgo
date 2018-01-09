@@ -175,8 +175,8 @@ type replyOp struct {
 }
 
 type insertOp struct {
-	collection string        // "database.collection"
-	documents  []interface{} // One or more documents to insert
+	collection string     // "database.collection"
+	documents  []bson.Raw // One or more documents to insert
 	flags      uint32
 }
 
@@ -220,7 +220,7 @@ type msgOp struct {
 type payloadType1 struct {
 	size       int32
 	identifier string
-	docs       []interface{}
+	docs       []bson.Raw
 }
 
 type requestInfo struct {
@@ -480,34 +480,6 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 		var replyFunc replyFunc
 		switch op := op.(type) {
 
-		case *updateOp:
-			buf = addHeader(buf, dbUpdate)
-			buf = addInt32(buf, 0) // Reserved
-			buf = addCString(buf, op.Collection)
-			buf = addInt32(buf, int32(op.Flags))
-			debugf("Socket %p to %s: serializing selector document: %#v", socket, socket.addr, op.Selector)
-			buf, err = addBSON(buf, op.Selector)
-			if err != nil {
-				return err
-			}
-			debugf("Socket %p to %s: serializing update document: %#v", socket, socket.addr, op.Update)
-			buf, err = addBSON(buf, op.Update)
-			if err != nil {
-				return err
-			}
-
-		case *insertOp:
-			buf = addHeader(buf, dbInsert)
-			buf = addInt32(buf, int32(op.flags))
-			buf = addCString(buf, op.collection)
-			for _, doc := range op.documents {
-				debugf("Socket %p to %s: serializing document for insertion: %#v", socket, socket.addr, doc)
-				buf, err = addBSON(buf, doc)
-				if err != nil {
-					return err
-				}
-			}
-
 		case *queryOp:
 			buf = addHeader(buf, dbQuery)
 			buf = addInt32(buf, int32(op.flags))
@@ -533,17 +505,6 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 			buf = addInt32(buf, op.limit)
 			buf = addInt64(buf, op.cursorId)
 			replyFunc = op.replyFunc
-
-		case *deleteOp:
-			buf = addHeader(buf, dbDelete)
-			buf = addInt32(buf, 0) // Reserved
-			buf = addCString(buf, op.Collection)
-			buf = addInt32(buf, int32(op.Flags))
-			debugf("Socket %p to %s: serializing selector document: %#v", socket, socket.addr, op.Selector)
-			buf, err = addBSON(buf, op.Selector)
-			if err != nil {
-				return err
-			}
 
 		case *killCursorsOp:
 			buf = addHeader(buf, dbKillCursors)
@@ -890,10 +851,7 @@ func addSection(b []byte, s msgSection) ([]byte, error) {
 		s1 := s.data.(payloadType1)
 		b = addCString(b, s1.identifier)
 		for _, doc := range s1.docs {
-			b, err = bson.MarshalBuffer(doc, b)
-			if err != nil {
-				return b, err
-			}
+			b = append(b, doc.Data...)
 		}
 		setInt32(b, pos, int32(len(b)-pos))
 	default:

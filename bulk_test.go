@@ -524,3 +524,22 @@ func (s *S) TestBulkRemoveAll(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(res, DeepEquals, []doc{{3}})
 }
+
+func (s *S) TestBulkInsertMaxMessageSize(c *C) {
+	session, err := mgo.Dial("localhost:40001" + expFeaturesString)
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+	defer coll.DropCollection()
+
+	bulk := coll.Bulk()
+	bulk.Unordered()
+	binaryData := make([]byte, 600)
+
+	for i := 0; i < 100000; i++ {
+		bulk.Insert(M{"binaryData": binaryData})
+	}
+	_, err = bulk.Run()
+	c.Assert(err, IsNil)
+}
