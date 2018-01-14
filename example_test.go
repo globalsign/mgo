@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"io/ioutil"
 	"net"
+	"sync"
 )
 
 func ExampleCredential_x509Authentication() {
@@ -85,4 +86,51 @@ func ExampleCredential_x509Authentication() {
 	//
 	// You should actually check the error code at each step.
 	_ = err
+}
+
+func ExampleSession_concurrency() {
+	// This example shows the best practise for concurrent use of a mgo session.
+	// 
+	// Internally mgo maintains a connection pool, dialling new connections as
+	// required. 
+	// 
+	// Some general suggestions:
+	// 		- Define a struct holding the original session, database name and 
+	// 			collection name instead of passing them explicitly.
+	// 		- Define an interface abstracting your data access instead of exposing
+	// 			mgo to your application code directly.
+	// 		- Limit concurrency at the application level, not with SetPoolLimit().
+
+	// This will be our concurrent worker
+	var doStuff = func(wg *sync.WaitGroup, session *Session) {
+		defer wg.Done()
+
+		// Copy the session - if needed this will dial a new connection which
+		// can later be reused.
+		// 
+		// Calling close returns the connection to the pool.
+		conn := session.Copy()
+		defer conn.Close()
+
+		// Do something(s) with the connection
+		_, _ = conn.DB("").C("my_data").Count()
+	}
+
+	///////////////////////////////////////////////
+
+	// Dial a connection to Mongo - this creates the connection pool
+	session, err := Dial("localhost:40003/my_database")
+	if err != nil {
+		panic(err)
+	}
+
+	// Concurrently do things, passing the session to the worker
+	wg := &sync.WaitGroup{}
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go doStuff(wg, session)
+	}
+	wg.Wait()
+
+	session.Close()
 }
