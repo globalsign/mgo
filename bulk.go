@@ -182,7 +182,7 @@ func (b *Bulk) Remove(selectors ...interface{}) {
 			selector = bson.D{}
 		}
 		action.docs = append(action.docs, &deleteOp{
-			Collection: b.c.FullName,
+			Collection: b.c.fullName(),
 			Selector:   selector,
 			Flags:      1,
 			Limit:      1,
@@ -199,7 +199,7 @@ func (b *Bulk) RemoveAll(selectors ...interface{}) {
 			selector = bson.D{}
 		}
 		action.docs = append(action.docs, &deleteOp{
-			Collection: b.c.FullName,
+			Collection: b.c.fullName(),
 			Selector:   selector,
 			Flags:      0,
 			Limit:      0,
@@ -222,7 +222,7 @@ func (b *Bulk) Update(pairs ...interface{}) {
 			selector = bson.D{}
 		}
 		action.docs = append(action.docs, &updateOp{
-			Collection: b.c.FullName,
+			Collection: b.c.fullName(),
 			Selector:   selector,
 			Update:     pairs[i+1],
 		})
@@ -244,7 +244,7 @@ func (b *Bulk) UpdateAll(pairs ...interface{}) {
 			selector = bson.D{}
 		}
 		action.docs = append(action.docs, &updateOp{
-			Collection: b.c.FullName,
+			Collection: b.c.fullName(),
 			Selector:   selector,
 			Update:     pairs[i+1],
 			Flags:      2,
@@ -268,7 +268,7 @@ func (b *Bulk) Upsert(pairs ...interface{}) {
 			selector = bson.D{}
 		}
 		action.docs = append(action.docs, &updateOp{
-			Collection: b.c.FullName,
+			Collection: b.c.fullName(),
 			Selector:   selector,
 			Update:     pairs[i+1],
 			Flags:      1,
@@ -318,7 +318,7 @@ func (b *Bulk) Run() (*BulkResult, error) {
 }
 
 func (b *Bulk) runInsert(action *bulkAction, result *BulkResult, berr *BulkError) bool {
-	op := &insertOp{b.c.FullName, action.docs, 0}
+	op := &insertOp{b.c.fullName(), action.docs, 0}
 	if !b.ordered {
 		op.flags = 1 // ContinueOnError
 	}

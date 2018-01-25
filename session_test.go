@@ -65,6 +65,64 @@ func (s *S) TestRunValue(c *C) {
 	c.Assert(result.Ok, Equals, 1)
 }
 
+func (s *S) TestWithDBPrefix(c *C) {
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	insertDoc := func(coll *mgo.Collection) *mgo.Collection {
+		err := coll.Insert(bson.M{"_id": "x"})
+		c.Assert(err, Equals, nil)
+		return coll
+	}
+	verifyDoc := func(coll *mgo.Collection) {
+		var docs []map[string]string
+		err = coll.Find(nil).All(&docs)
+		c.Assert(err, Equals, nil)
+		c.Assert(docs, DeepEquals, []map[string]string{{"_id": "x"}})
+	}
+
+	session1 := session.CloneWithDBPrefix("x1")
+	defer session1.Close()
+	verifyDoc(insertDoc(session1.DB("db").C("c")))
+	verifyDoc(insertDoc(session1.DB("otherdb").C("c")))
+
+	session2 := session.CloneWithDBPrefix("x2")
+	defer session2.Close()
+	verifyDoc(insertDoc(session2.DB("db").C("c")))
+
+	names, err := session1.DatabaseNames()
+	c.Assert(err, Equals, nil)
+	c.Assert(filterDBs(names), DeepEquals, []string{"db", "otherdb"})
+
+	names, err = session2.DatabaseNames()
+	c.Assert(err, Equals, nil)
+	c.Assert(filterDBs(names), DeepEquals, []string{"db"})
+
+	verifyDoc(session.DB("x1db").C("c"))
+	verifyDoc(session.DB("x1otherdb").C("c"))
+	verifyDoc(session.DB("x2db").C("c"))
+
+	names, err = session.DatabaseNames()
+	c.Assert(err, Equals, nil)
+	c.Assert(filterDBs(names), DeepEquals, []string{"x1db", "x1otherdb", "x2db"})
+}
+
+func (s *S) TestDBPrefixIgnoredForAdmin(c *C) {
+	// This test uses "admin" as a proxy for all the names
+	// checked in isGlobalDBName.
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	session1 := session.CloneWithDBPrefix("x1")
+	defer session1.Close()
+
+	names, err := session1.DB("admin").CollectionNames()
+	c.Assert(err, Equals, nil)
+	c.Assert(names, Not(HasLen), 0)
+}
+
 func (s *S) TestPing(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)

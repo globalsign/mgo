@@ -89,6 +89,7 @@ const (
 type Session struct {
 	defaultdb        string
 	sourcedb         string
+	dbPrefix         string
 	syncTimeout      time.Duration
 	sockTimeout      time.Duration
 	poolLimit        int
@@ -126,6 +127,15 @@ type Collection struct {
 	Database *Database
 	Name     string // "collection"
 	FullName string // "db.collection"
+}
+
+// fullName returns the full name of the collection including
+// any database prefix.
+func (c *Collection) fullName() string {
+	if p := c.Database.Session.dbPrefix; p != "" && !isGlobalDBName(c.Database.Name) {
+		return p + c.FullName
+	}
+	return c.FullName
 }
 
 // Query keeps info on the query.
@@ -707,6 +717,13 @@ func (s *Session) DB(name string) *Database {
 	return &Database{s, name}
 }
 
+func (db *Database) fullName() string {
+	if p := db.Session.dbPrefix; p != "" && !isGlobalDBName(db.Name) {
+		return p + db.Name
+	}
+	return db.Name
+}
+
 // C returns a value representing the named collection.
 //
 // Creating this value is a very lightweight operation, and
@@ -785,7 +802,7 @@ func (db *Database) GridFS(prefix string) *GridFS {
 //
 //     db.Run(bson.D{{"create", "mycollection"}, {"size", 1024}})
 //
-// For privilleged commands typically run on the "admin" database, see
+// For privileged commands typically run on the "admin" database, see
 // the Run method in the Session type.
 //
 // Relevant documentation:
@@ -878,6 +895,9 @@ func (s *Session) Login(cred *Credential) error {
 			credCopy.Source = s.sourcedb
 		}
 	}
+	if s.dbPrefix != "" && !isGlobalDBName(credCopy.Source) {
+		credCopy.Source = s.dbPrefix + credCopy.Source
+	}
 	err = socket.Login(credCopy)
 	if err != nil {
 		return err
@@ -901,7 +921,7 @@ func (s *Session) socketLogin(socket *mongoSocket) error {
 // Logout removes any established authentication credentials for the database.
 func (db *Database) Logout() {
 	session := db.Session
-	dbname := db.Name
+	dbname := db.fullName()
 	session.m.Lock()
 	found := false
 	for i, cred := range session.creds {
@@ -1489,14 +1509,14 @@ func (c *Collection) EnsureIndex(index Index) error {
 	}
 
 	session := c.Database.Session
-	cacheKey := c.FullName + "\x00" + keyInfo.name
+	cacheKey := c.fullName() + "\x00" + keyInfo.name
 	if session.cluster().HasCachedIndex(cacheKey) {
 		return nil
 	}
 
 	spec := indexSpec{
 		Name:                    keyInfo.name,
-		NS:                      c.FullName,
+		NS:                      c.fullName(),
 		Key:                     keyInfo.key,
 		Unique:                  index.Unique,
 		DropDups:                index.DropDups,
@@ -1568,7 +1588,7 @@ func (c *Collection) DropIndex(key ...string) error {
 	}
 
 	session := c.Database.Session
-	cacheKey := c.FullName + "\x00" + keyInfo.name
+	cacheKey := c.fullName() + "\x00" + keyInfo.name
 	session.cluster().CacheIndex(cacheKey, false)
 
 	session = session.Clone()
@@ -1624,7 +1644,7 @@ func (c *Collection) DropIndexName(name string) error {
 			return err
 		}
 
-		cacheKey := c.FullName + "\x00" + keyInfo.name
+		cacheKey := c.fullName() + "\x00" + keyInfo.name
 		session.cluster().CacheIndex(cacheKey, false)
 	}
 
@@ -1705,7 +1725,7 @@ func (c *Collection) Indexes() (indexes []Index, err error) {
 		}
 	} else if isNoCmd(err) {
 		// Command not yet supported. Query the database instead.
-		iter = c.Database.C("system.indexes").Find(bson.M{"ns": c.FullName}).Iter()
+		iter = c.Database.C("system.indexes").Find(bson.M{"ns": c.fullName()}).Iter()
 	} else {
 		return nil, err
 	}
@@ -1842,6 +1862,25 @@ func (s *Session) Clone() *Session {
 	s.m.Lock()
 	scopy := copySession(s, true)
 	s.m.Unlock()
+	return scopy
+}
+
+// CloneWithDBPrefix works just like Clone, but all
+// the returned session will append all database
+// names to the given prefix before using them,
+// with the exception of the global database names
+// "admin", "local", "$external", "config" and "system.indexes".
+//
+// One use for this is to be able to share a Mongo
+// server between tests that create databases.
+//
+// The DatabaseNames method will omit any databases
+// that do not start with the given prefix.
+func (s *Session) CloneWithDBPrefix(prefix string) *Session {
+	s.m.Lock()
+	scopy := copySession(s, true)
+	s.m.Unlock()
+	scopy.dbPrefix = prefix
 	return scopy
 }
 
@@ -2365,7 +2404,7 @@ func (c *Collection) Find(query interface{}) *Query {
 	q := &Query{session: session, query: session.queryConfig}
 	session.m.RUnlock()
 	q.op.query = query
-	q.op.collection = c.FullName
+	q.op.collection = c.fullName()
 	return q
 }
 
@@ -2556,7 +2595,7 @@ func (c *Collection) NewIter(session *Session, firstBatch []bson.Raw, cursorId i
 		err:     err,
 	}
 
-	if socket.ServerInfo().MaxWireVersion >= 4 && c.FullName != "admin.$cmd" {
+	if socket.ServerInfo().MaxWireVersion >= 4 && c.fullName() != "admin.$cmd" {
 		iter.findCmd = true
 	}
 
@@ -2569,7 +2608,7 @@ func (c *Collection) NewIter(session *Session, firstBatch []bson.Raw, cursorId i
 			iter.docsBeforeMore = len(firstBatch)
 		}
 		iter.op.cursorId = cursorId
-		iter.op.collection = c.FullName
+		iter.op.collection = c.fullName()
 		iter.op.replyFunc = iter.replyFunc()
 	}
 	return iter
@@ -2728,7 +2767,7 @@ func IsDup(err error) bool {
 // happens while inserting the provided documents, the returned error will
 // be of type *LastError.
 func (c *Collection) Insert(docs ...interface{}) error {
-	_, err := c.writeOp(&insertOp{c.FullName, docs, 0}, true)
+	_, err := c.writeOp(&insertOp{c.fullName(), docs, 0}, true)
 	return err
 }
 
@@ -2748,7 +2787,7 @@ func (c *Collection) Update(selector interface{}, update interface{}) error {
 		selector = bson.D{}
 	}
 	op := updateOp{
-		Collection: c.FullName,
+		Collection: c.fullName(),
 		Selector:   selector,
 		Update:     update,
 	}
@@ -2796,7 +2835,7 @@ func (c *Collection) UpdateAll(selector interface{}, update interface{}) (info *
 		selector = bson.D{}
 	}
 	op := updateOp{
-		Collection: c.FullName,
+		Collection: c.fullName(),
 		Selector:   selector,
 		Update:     update,
 		Flags:      2,
@@ -2827,7 +2866,7 @@ func (c *Collection) Upsert(selector interface{}, update interface{}) (info *Cha
 		selector = bson.D{}
 	}
 	op := updateOp{
-		Collection: c.FullName,
+		Collection: c.fullName(),
 		Selector:   selector,
 		Update:     update,
 		Flags:      1,
@@ -2877,7 +2916,7 @@ func (c *Collection) Remove(selector interface{}) error {
 	if selector == nil {
 		selector = bson.D{}
 	}
-	lerr, err := c.writeOp(&deleteOp{c.FullName, selector, 1, 1}, true)
+	lerr, err := c.writeOp(&deleteOp{c.fullName(), selector, 1, 1}, true)
 	if err == nil && lerr != nil && lerr.N == 0 {
 		return ErrNotFound
 	}
@@ -2906,7 +2945,7 @@ func (c *Collection) RemoveAll(selector interface{}) (info *ChangeInfo, err erro
 	if selector == nil {
 		selector = bson.D{}
 	}
-	lerr, err := c.writeOp(&deleteOp{c.FullName, selector, 0, 0}, true)
+	lerr, err := c.writeOp(&deleteOp{c.fullName(), selector, 0, 0}, true)
 	if err == nil && lerr != nil {
 		info = &ChangeInfo{Removed: lerr.N, Matched: lerr.N}
 	}
@@ -3599,7 +3638,7 @@ func (db *Database) run(socket *mongoSocket, cmd, result interface{}) (err error
 	op := session.queryConfig.op // Copy.
 	session.m.RUnlock()
 	op.query = cmd
-	op.collection = db.Name + ".$cmd"
+	op.collection = db.fullName() + ".$cmd"
 
 	// Query.One:
 	session.prepareQuery(&op)
@@ -3728,7 +3767,7 @@ func (db *Database) CollectionNames() (names []string, err error) {
 	}
 
 	// Command not yet supported. Query the database instead.
-	nameIndex := len(db.Name) + 1
+	nameIndex := len(db.fullName()) + 1
 	iter := db.C("system.namespaces").Find(nil).Iter()
 	var coll struct{ Name string }
 	for iter.Next(&coll) {
@@ -3758,8 +3797,15 @@ func (s *Session) DatabaseNames() (names []string, err error) {
 		return nil, err
 	}
 	for _, db := range result.Databases {
-		if !db.Empty {
+		if db.Empty {
+			continue
+		}
+		if s.dbPrefix == "" || isGlobalDBName(db.Name) {
 			names = append(names, db.Name)
+			continue
+		}
+		if name := strings.TrimPrefix(db.Name, s.dbPrefix); len(name) != len(db.Name) {
+			names = append(names, name)
 		}
 	}
 	sort.Strings(names)
@@ -5114,7 +5160,7 @@ func (c *Collection) writeOpQuery(socket *mongoSocket, safeOp *queryOp, op inter
 	var replyErr error
 	mutex.Lock()
 	query := *safeOp // Copy the data.
-	query.collection = c.Database.Name + ".$cmd"
+	query.collection = c.Database.fullName() + ".$cmd"
 	query.replyFunc = func(err error, reply *replyOp, docNum int, docData []byte) {
 		replyData = docData
 		replyErr = err
@@ -5262,7 +5308,7 @@ func getRFC2253NameString(RDNElements *pkix.RDNSequence) string {
 	var replacer = strings.NewReplacer(",", "\\,", "=", "\\=", "+", "\\+", "<", "\\<", ">", "\\>", ";", "\\;")
 	//The elements in the sequence needs to be reversed when converting them
 	for i := len(*RDNElements) - 1; i >= 0; i-- {
-		var nameAndValueList = make([]string,len((*RDNElements)[i]))
+		var nameAndValueList = make([]string, len((*RDNElements)[i]))
 		for j, attribute := range (*RDNElements)[i] {
 			var shortAttributeName = rdnOIDToShortName(attribute.Type)
 			if len(shortAttributeName) <= 0 {
@@ -5315,4 +5361,12 @@ func rdnOIDToShortName(oid asn1.ObjectIdentifier) string {
 	}
 
 	return ""
+}
+
+func isGlobalDBName(db string) bool {
+	switch db {
+	case "admin", "local", "$external", "config", "system.indexes":
+		return true
+	}
+	return false
 }

@@ -90,12 +90,12 @@ func ExampleCredential_x509Authentication() {
 
 func ExampleSession_concurrency() {
 	// This example shows the best practise for concurrent use of a mgo session.
-	// 
+	//
 	// Internally mgo maintains a connection pool, dialling new connections as
-	// required. 
-	// 
+	// required.
+	//
 	// Some general suggestions:
-	// 		- Define a struct holding the original session, database name and 
+	// 		- Define a struct holding the original session, database name and
 	// 			collection name instead of passing them explicitly.
 	// 		- Define an interface abstracting your data access instead of exposing
 	// 			mgo to your application code directly.
@@ -107,7 +107,7 @@ func ExampleSession_concurrency() {
 
 		// Copy the session - if needed this will dial a new connection which
 		// can later be reused.
-		// 
+		//
 		// Calling close returns the connection to the pool.
 		conn := session.Copy()
 		defer conn.Close()
