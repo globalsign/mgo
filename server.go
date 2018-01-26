@@ -55,6 +55,8 @@ type mongoServer struct {
 	pingCount     uint32
 	closed        bool
 	abended       bool
+	minPoolSize   int
+	maxIdleTimeMS int
 }
 
 type dialer struct {
@@ -76,17 +78,22 @@ type mongoServerInfo struct {
 
 var defaultServerInfo mongoServerInfo
 
-func newServer(addr string, tcpaddr *net.TCPAddr, sync chan bool, dial dialer) *mongoServer {
+func newServer(addr string, tcpaddr *net.TCPAddr, sync chan bool, dial dialer, minPoolSize, maxIdleTimeMS int) *mongoServer {
 	server := &mongoServer{
-		Addr:         addr,
-		ResolvedAddr: tcpaddr.String(),
-		tcpaddr:      tcpaddr,
-		sync:         sync,
-		dial:         dial,
-		info:         &defaultServerInfo,
-		pingValue:    time.Hour, // Push it back before an actual ping.
+		Addr:          addr,
+		ResolvedAddr:  tcpaddr.String(),
+		tcpaddr:       tcpaddr,
+		sync:          sync,
+		dial:          dial,
+		info:          &defaultServerInfo,
+		pingValue:     time.Hour, // Push it back before an actual ping.
+		minPoolSize:   minPoolSize,
+		maxIdleTimeMS: maxIdleTimeMS,
 	}
 	go server.pinger(true)
+	if maxIdleTimeMS != 0 {
+		go server.poolShrinker()
+	}
 	return server
 }
 
@@ -221,6 +228,7 @@ func (server *mongoServer) close(waitForIdle bool) {
 func (server *mongoServer) RecycleSocket(socket *mongoSocket) {
 	server.Lock()
 	if !server.closed {
+		socket.lastTimeUsed = time.Now()
 		server.unusedSockets = append(server.unusedSockets, socket)
 	}
 	server.Unlock()
@@ -342,6 +350,53 @@ func (server *mongoServer) pinger(loop bool) {
 		}
 		if !loop {
 			return
+		}
+	}
+}
+
+func (server *mongoServer) poolShrinker() {
+	ticker := time.NewTicker(1 * time.Minute)
+	for _ = range ticker.C {
+		if server.closed {
+			ticker.Stop()
+			return
+		}
+		server.Lock()
+		unused := len(server.unusedSockets)
+		if unused < server.minPoolSize {
+			server.Unlock()
+			continue
+		}
+		now := time.Now()
+		end := 0
+		reclaimMap := map[*mongoSocket]bool{}
+		// Because the acquirision and recycle are done at the tail of array,
+		// the head is always the oldest unused socket.
+		for _, s := range server.unusedSockets[:unused-server.minPoolSize] {
+			if s.lastTimeUsed.Add(time.Duration(server.maxIdleTimeMS) * time.Millisecond).After(now) {
+				break
+			}
+			end++
+			reclaimMap[s] = true
+		}
+		tbr := server.unusedSockets[:end]
+		if end > 0 {
+			next := make([]*mongoSocket, unused-end)
+			copy(next, server.unusedSockets[end:])
+			server.unusedSockets = next
+			remainSockets := []*mongoSocket{}
+			for _, s := range server.liveSockets {
+				if !reclaimMap[s] {
+					remainSockets = append(remainSockets, s)
+				}
+			}
+			server.liveSockets = remainSockets
+			stats.conn(-1*end, server.info.Master)
+		}
+		server.Unlock()
+
+		for _, s := range tbr {
+			s.Close()
 		}
 	}
 }

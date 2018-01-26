@@ -48,21 +48,23 @@ import (
 
 type mongoCluster struct {
 	sync.RWMutex
-	serverSynced sync.Cond
-	userSeeds    []string
-	dynaSeeds    []string
-	servers      mongoServers
-	masters      mongoServers
-	references   int
-	syncing      bool
-	direct       bool
-	failFast     bool
-	syncCount    uint
-	setName      string
-	cachedIndex  map[string]bool
-	sync         chan bool
-	dial         dialer
-	appName      string
+	serverSynced  sync.Cond
+	userSeeds     []string
+	dynaSeeds     []string
+	servers       mongoServers
+	masters       mongoServers
+	references    int
+	syncing       bool
+	direct        bool
+	failFast      bool
+	syncCount     uint
+	setName       string
+	cachedIndex   map[string]bool
+	sync          chan bool
+	dial          dialer
+	appName       string
+	minPoolSize   int
+	maxIdleTimeMS int
 }
 
 func newCluster(userSeeds []string, direct, failFast bool, dial dialer, setName string, appName string) *mongoCluster {
@@ -419,7 +421,7 @@ func (cluster *mongoCluster) server(addr string, tcpaddr *net.TCPAddr) *mongoSer
 	if server != nil {
 		return server
 	}
-	return newServer(addr, tcpaddr, cluster.sync, cluster.dial)
+	return newServer(addr, tcpaddr, cluster.sync, cluster.dial, cluster.minPoolSize, cluster.maxIdleTimeMS)
 }
 
 func resolveAddr(addr string) (*net.TCPAddr, error) {
