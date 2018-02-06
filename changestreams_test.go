@@ -26,6 +26,9 @@ type changeEvent struct {
 }
 
 func (s *S) TestStreamsWatch(c *C) {
+	if !s.versionAtLeast(3, 6) {
+		c.Skip("ChangeStreams only work on 3.6+")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -42,6 +45,9 @@ func (s *S) TestStreamsWatch(c *C) {
 }
 
 func (s *S) TestStreamsInsert(c *C) {
+	if !s.versionAtLeast(3, 6) {
+		c.Skip("ChangeStreams only work on 3.6+")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -89,6 +95,9 @@ func (s *S) TestStreamsInsert(c *C) {
 }
 
 func (s *S) TestStreamsNextNoEventTimeout(c *C) {
+	if !s.versionAtLeast(3, 6) {
+		c.Skip("ChangeStreams only work on 3.6+")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -118,6 +127,9 @@ func (s *S) TestStreamsNextNoEventTimeout(c *C) {
 }
 
 func (s *S) TestStreamsNextTimeout(c *C) {
+	if !s.versionAtLeast(3, 6) {
+		c.Skip("ChangeStreams only work on 3.6+")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -167,6 +179,9 @@ func (s *S) TestStreamsNextTimeout(c *C) {
 }
 
 func (s *S) TestStreamsDelete(c *C) {
+	if !s.versionAtLeast(3, 6) {
+		c.Skip("ChangeStreams only work on 3.6+")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -205,6 +220,9 @@ func (s *S) TestStreamsDelete(c *C) {
 }
 
 func (s *S) TestStreamsUpdate(c *C) {
+	if !s.versionAtLeast(3, 6) {
+		c.Skip("ChangeStreams only work on 3.6+")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -247,6 +265,9 @@ func (s *S) TestStreamsUpdate(c *C) {
 }
 
 func (s *S) TestStreamsUpdateFullDocument(c *C) {
+	if !s.versionAtLeast(3, 6) {
+		c.Skip("ChangeStreams only work on 3.6+")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -300,6 +321,9 @@ func (s *S) TestStreamsUpdateFullDocument(c *C) {
 }
 
 func (s *S) TestStreamsUpdateWithPipeline(c *C) {
+	if !s.versionAtLeast(3, 6) {
+		c.Skip("ChangeStreams only work on 3.6+")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -363,6 +387,9 @@ func (s *S) TestStreamsUpdateWithPipeline(c *C) {
 }
 
 func (s *S) TestStreamsResumeTokenMissingError(c *C) {
+	if !s.versionAtLeast(3, 6) {
+		c.Skip("ChangeStreams only work on 3.6+")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -394,6 +421,9 @@ func (s *S) TestStreamsResumeTokenMissingError(c *C) {
 }
 
 func (s *S) TestStreamsClosedStreamError(c *C) {
+	if !s.versionAtLeast(3, 6) {
+		c.Skip("ChangeStreams only work on 3.6+")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
