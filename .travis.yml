@@ -2,34 +2,23 @@ language: go
 
 go_import_path: github.com/globalsign/mgo
 
-addons:
-    apt:
-        packages:
+go:
+    - 1.8.x
+    - 1.9.x
 
 env:
     global:
         - BUCKET=https://s3.eu-west-2.amazonaws.com/globalsign-mgo
+        - FASTDL=https://fastdl.mongodb.org/linux
     matrix:
-        - GO=1.6   MONGODB=x86_64-2.6.11
-        - GO=1.7   MONGODB=x86_64-2.6.11
-        - GO=1.8.x MONGODB=x86_64-2.6.11
-        - GO=1.6   MONGODB=x86_64-3.0.9
-        - GO=1.7   MONGODB=x86_64-3.0.9
-        - GO=1.8.x MONGODB=x86_64-3.0.9
-        - GO=1.6   MONGODB=x86_64-3.2.3-nojournal
-        - GO=1.7   MONGODB=x86_64-3.2.3-nojournal
-        - GO=1.8.x MONGODB=x86_64-3.2.3-nojournal
-        - GO=1.6   MONGODB=x86_64-3.2.12
-        - GO=1.7   MONGODB=x86_64-3.2.12
-        - GO=1.8.x MONGODB=x86_64-3.2.12
-        - GO=1.6   MONGODB=x86_64-3.2.16
-        - GO=1.7   MONGODB=x86_64-3.2.16
-        - GO=1.8.x MONGODB=x86_64-3.2.16
+        - MONGODB=x86_64-ubuntu1404-3.0.15
+        - MONGODB=x86_64-ubuntu1404-3.2.17
+        - MONGODB=x86_64-ubuntu1404-3.4.10
+        - MONGODB=x86_64-ubuntu1404-3.6.0
 
 install:
-    - eval "$(gimme $GO)"
 
-    - wget $BUCKET/mongodb-linux-$MONGODB.tgz
+    - wget $FASTDL/mongodb-linux-$MONGODB.tgz
     - tar xzvf mongodb-linux-$MONGODB.tgz
     - export PATH=$PWD/mongodb-linux-$MONGODB/bin:$PATH
 
@@ -40,8 +29,11 @@ install:
     - go get gopkg.in/check.v1
     - go get gopkg.in/yaml.v2
     - go get gopkg.in/tomb.v2
+    - go get github.com/golang/lint/golint
 
 before_script:
+    - golint  ./... | grep -v 'ID' | cat
+    - go vet github.com/globalsign/mgo/bson github.com/globalsign/mgo/txn github.com/globalsign/mgo 
     - export NOIPV6=1
     - make startdb
 
@@ -50,5 +42,8 @@ script:
     - go test -check.v -fast
     - (cd txn && go test -check.v)
     - make stopdb
+
+git:
+  depth: 3
 
 # vim:sw=4:ts=4:et

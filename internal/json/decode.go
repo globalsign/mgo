@@ -899,7 +899,7 @@ func (d *decodeState) name(v reflect.Value) {
 	}
 
 	// Check for unmarshaler on func field itself.
-	u, ut, pv = d.indirect(v, false)
+	u, _, _ = d.indirect(v, false)
 	if u != nil {
 		d.off = nameStart
 		err := u.UnmarshalJSON(d.next())

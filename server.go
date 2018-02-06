@@ -143,7 +143,6 @@ func (server *mongoServer) AcquireSocket(poolLimit int, timeout time.Duration) (
 		}
 		return
 	}
-	panic("unreachable")
 }
 
 // Connect establishes a new connection to the server. This should
@@ -306,7 +305,7 @@ func (server *mongoServer) pinger(loop bool) {
 	}
 	op := queryOp{
 		collection: "admin.$cmd",
-		query:      bson.D{{"ping", 1}},
+		query:      bson.D{{Name: "ping", Value: 1}},
 		flags:      flagSlaveOk,
 		limit:      -1,
 	}

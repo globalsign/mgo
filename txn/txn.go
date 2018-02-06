@@ -1,4 +1,4 @@
-// The txn package implements support for multi-document transactions.
+// Package txn implements support for multi-document transactions.
 //
 // For details check the following blog post:
 //
@@ -113,7 +113,7 @@ NextOp:
 }
 
 // tokenFor returns a unique transaction token that
-// is composed by t's id and a nonce. If t already has
+// is composed by t's Id and a nonce. If t already has
 // a nonce assigned to it, it will be used, otherwise
 // a new nonce will be generated.
 func tokenFor(t *transaction) token {
@@ -207,10 +207,13 @@ func (op *Op) name() string {
 }
 
 const (
-	// DocExists and DocMissing may be used on an operation's
+	// DocExists may be used on an operation's
 	// Assert value to assert that the document with the given
-	// Id exists or does not exist, respectively.
-	DocExists  = "d+"
+	// ID exists.
+	DocExists = "d+"
+	// DocMissing may be used on an operation's
+	// Assert value to assert that the document with the given
+	// ID does not exist.
 	DocMissing = "d-"
 )
 
@@ -268,13 +271,15 @@ func DefaultRunnerOptions() RunnerOptions {
 	}
 }
 
+// ErrAborted error returned if one or more operations
+// can't be applied.
 var ErrAborted = fmt.Errorf("transaction aborted")
 
 // Run creates a new transaction with ops and runs it immediately.
-// The id parameter specifies the transaction id, and may be written
+// The id parameter specifies the transaction Id, and may be written
 // down ahead of time to later verify the success of the change and
 // resume it, when the procedure is interrupted for any reason. If
-// empty, a random id will be generated.
+// empty, a random Id will be generated.
 // The info parameter, if not nil, is included under the "i"
 // field of the transaction document.
 //
@@ -291,7 +296,7 @@ var ErrAborted = fmt.Errorf("transaction aborted")
 // reason, it may be resumed explicitly or by attempting to apply
 // another transaction on any of the documents targeted by ops, as
 // long as the interruption was made after the transaction document
-// itself was inserted. Run Resume with the obtained transaction id
+// itself was inserted. Run Resume with the obtained transaction Id
 // to confirm whether the transaction was applied or not.
 //
 // Any number of transactions may be run concurrently, with one
@@ -349,7 +354,7 @@ func (r *Runner) Run(ops []Op, id bson.ObjectId, info interface{}) (err error) {
 // from individual transactions are ignored.
 func (r *Runner) ResumeAll() (err error) {
 	debugf("Resuming all unfinished transactions")
-	iter := r.tc.Find(bson.D{{"s", bson.D{{"$in", []state{tpreparing, tprepared, tapplying}}}}}).Iter()
+	iter := r.tc.Find(bson.D{{Name: "s", Value: bson.D{{Name: "$in", Value: []state{tpreparing, tprepared, tapplying}}}}}).Iter()
 	var t transaction
 	for iter.Next(&t) {
 		if t.State == tapplied || t.State == taborted {
@@ -366,7 +371,7 @@ func (r *Runner) ResumeAll() (err error) {
 	return nil
 }
 
-// Resume resumes the transaction with id. It returns mgo.ErrNotFound
+// Resume resumes the transaction with Id. It returns mgo.ErrNotFound
 // if the transaction is not found. Otherwise, it has the same semantics
 // of the Run method after the transaction is inserted.
 func (r *Runner) Resume(id bson.ObjectId) (err error) {
@@ -417,8 +422,8 @@ func (r *Runner) PurgeMissing(collections ...string) error {
 	type S []interface{}
 
 	type TDoc struct {
-		Id       interface{} "_id"
-		TxnQueue []string    "txn-queue"
+		Id       interface{} `bson:"_id"`
+		TxnQueue []string    `bson:"txn-queue"`
 	}
 
 	found := make(map[bson.ObjectId]bool)
@@ -451,8 +456,8 @@ func (r *Runner) PurgeMissing(collections ...string) error {
 	}
 
 	type StashTDoc struct {
-		Id       docKey   "_id"
-		TxnQueue []string "txn-queue"
+		Id       docKey   `bson:"_id"`
+		TxnQueue []string `bson:"txn-queue"`
 	}
 
 	iter := r.sc.Find(nil).Select(bson.M{"_id": 1, "txn-queue": 1}).Iter()
@@ -510,7 +515,6 @@ func (r *Runner) loadMulti(ids []bson.ObjectId, preloaded map[bson.ObjectId]*tra
 	}
 	return nil
 }
-
 
 type typeNature int
 
@@ -644,7 +648,6 @@ func structcmp(a, b interface{}) int {
 			return 1
 		}
 	}
-	panic("unreachable")
 }
 
 func isExported(name string) bool {

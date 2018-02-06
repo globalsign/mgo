@@ -83,16 +83,16 @@ type queryOp struct {
 }
 
 type queryWrapper struct {
-	Query          interface{} "$query"
-	OrderBy        interface{} "$orderby,omitempty"
-	Hint           interface{} "$hint,omitempty"
-	Explain        bool        "$explain,omitempty"
-	Snapshot       bool        "$snapshot,omitempty"
-	ReadPreference bson.D      "$readPreference,omitempty"
-	MaxScan        int         "$maxScan,omitempty"
-	MaxTimeMS      int         "$maxTimeMS,omitempty"
-	Comment        string      "$comment,omitempty"
-	Collation      *Collation  "$collation,omitempty"
+	Query          interface{} `bson:"$query"`
+	OrderBy        interface{} `bson:"$orderby,omitempty"`
+	Hint           interface{} `bson:"$hint,omitempty"`
+	Explain        bool        `bson:"$explain,omitempty"`
+	Snapshot       bool        `bson:"$snapshot,omitempty"`
+	ReadPreference bson.D      `bson:"$readPreference,omitempty"`
+	MaxScan        int         `bson:"$maxScan,omitempty"`
+	MaxTimeMS      int         `bson:"$maxTimeMS,omitempty"`
+	Comment        string      `bson:"$comment,omitempty"`
+	Collation      *Collation  `bson:"$collation,omitempty"`
 }
 
 func (op *queryOp) finalQuery(socket *mongoSocket) interface{} {
@@ -116,9 +116,9 @@ func (op *queryOp) finalQuery(socket *mongoSocket) interface{} {
 		}
 		op.hasOptions = true
 		op.options.ReadPreference = make(bson.D, 0, 2)
-		op.options.ReadPreference = append(op.options.ReadPreference, bson.DocElem{"mode", modeName})
+		op.options.ReadPreference = append(op.options.ReadPreference, bson.DocElem{Name: "mode", Value: modeName})
 		if len(op.serverTags) > 0 {
-			op.options.ReadPreference = append(op.options.ReadPreference, bson.DocElem{"tags", op.serverTags})
+			op.options.ReadPreference = append(op.options.ReadPreference, bson.DocElem{Name: "tags", Value: op.serverTags})
 		}
 	}
 	if op.hasOptions {
@@ -549,16 +549,15 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 		socket.replyFuncs[requestId] = request.replyFunc
 		requestId++
 	}
-
+	socket.Unlock()
 	debugf("Socket %p to %s: sending %d op(s) (%d bytes)", socket, socket.addr, len(ops), len(buf))
-	stats.sentOps(len(ops))
 
+	stats.sentOps(len(ops))
 	socket.updateDeadline(writeDeadline)
 	_, err = socket.conn.Write(buf)
 	if !wasWaiting && requestCount > 0 {
 		socket.updateDeadline(readDeadline)
 	}
-	socket.Unlock()
 	return err
 }
 

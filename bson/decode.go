@@ -28,7 +28,9 @@
 package bson
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/url"
 	"reflect"
@@ -56,13 +58,6 @@ func corrupted() {
 	panic("Document is corrupted")
 }
 
-func settableValueOf(i interface{}) reflect.Value {
-	v := reflect.ValueOf(i)
-	sv := reflect.New(v.Type()).Elem()
-	sv.Set(v)
-	return sv
-}
-
 // --------------------------------------------------------------------------
 // Unmarshaling of documents.
 
@@ -87,18 +82,20 @@ func setterStyle(outt reflect.Type) int {
 	setterMutex.RLock()
 	style := setterStyles[outt]
 	setterMutex.RUnlock()
-	if style == setterUnknown {
-		setterMutex.Lock()
-		defer setterMutex.Unlock()
-		if outt.Implements(setterIface) {
-			setterStyles[outt] = setterType
-		} else if reflect.PtrTo(outt).Implements(setterIface) {
-			setterStyles[outt] = setterAddr
-		} else {
-			setterStyles[outt] = setterNone
-		}
-		style = setterStyles[outt]
+	if style != setterUnknown {
+		return style
 	}
+
+	setterMutex.Lock()
+	defer setterMutex.Unlock()
+	if outt.Implements(setterIface) {
+		style = setterType
+	} else if reflect.PtrTo(outt).Implements(setterIface) {
+		style = setterAddr
+	} else {
+		style = setterNone
+	}
+	setterStyles[outt] = style
 	return style
 }
 
@@ -135,8 +132,7 @@ func (d *decoder) readDocTo(out reflect.Value) {
 			out.Set(reflect.New(outt.Elem()))
 		}
 		if setter := getSetter(outt, out); setter != nil {
-			var raw Raw
-			d.readDocTo(reflect.ValueOf(&raw))
+			raw := d.readRaw(ElementDocument)
 			err := setter.SetBSON(raw)
 			if _, ok := err.(*TypeError); err != nil && !ok {
 				panic(err)
@@ -154,7 +150,10 @@ func (d *decoder) readDocTo(out reflect.Value) {
 
 	var fieldsMap map[string]fieldInfo
 	var inlineMap reflect.Value
-	start := d.i
+	if outt == typeRaw {
+		out.Set(reflect.ValueOf(d.readRaw(ElementDocument)))
+		return
+	}
 
 	origout := out
 	if outk == reflect.Interface {
@@ -193,22 +192,20 @@ func (d *decoder) readDocTo(out reflect.Value) {
 			clearMap(out)
 		}
 	case reflect.Struct:
-		if outt != typeRaw {
-			sinfo, err := getStructInfo(out.Type())
-			if err != nil {
-				panic(err)
+		sinfo, err := getStructInfo(out.Type())
+		if err != nil {
+			panic(err)
+		}
+		fieldsMap = sinfo.FieldsMap
+		out.Set(sinfo.Zero)
+		if sinfo.InlineMap != -1 {
+			inlineMap = out.Field(sinfo.InlineMap)
+			if !inlineMap.IsNil() && inlineMap.Len() > 0 {
+				clearMap(inlineMap)
 			}
-			fieldsMap = sinfo.FieldsMap
-			out.Set(sinfo.Zero)
-			if sinfo.InlineMap != -1 {
-				inlineMap = out.Field(sinfo.InlineMap)
-				if !inlineMap.IsNil() && inlineMap.Len() > 0 {
-					clearMap(inlineMap)
-				}
-				elemType = inlineMap.Type().Elem()
-				if elemType == typeIface {
-					d.docType = inlineMap.Type()
-				}
+			elemType = inlineMap.Type().Elem()
+			if elemType == typeIface {
+				d.docType = inlineMap.Type()
 			}
 		}
 	case reflect.Slice:
@@ -225,70 +222,58 @@ func (d *decoder) readDocTo(out reflect.Value) {
 		panic("Unsupported document type for unmarshalling: " + out.Type().String())
 	}
 
-	if outt == typeRaw {
-		d.skipDoc()
-	} else {
-		end := int(d.readInt32())
-		end += d.i - 4
-		if end <= d.i || end > len(d.in) || d.in[end-1] != '\x00' {
+	end := int(d.readInt32())
+	end += d.i - 4
+	if end <= d.i || end > len(d.in) || d.in[end-1] != '\x00' {
+		corrupted()
+	}
+	for d.in[d.i] != '\x00' {
+		kind := d.readByte()
+		name := d.readCStr()
+		if d.i >= end {
 			corrupted()
 		}
-		for d.in[d.i] != '\x00' {
-			kind := d.readByte()
-			name := d.readCStr()
-			if d.i >= end {
-				corrupted()
-			}
 
-			switch outk {
-			case reflect.Map:
+		switch outk {
+		case reflect.Map:
+			e := reflect.New(elemType).Elem()
+			if d.readElemTo(e, kind) {
+				k := reflect.ValueOf(name)
+				if convertKey {
+					k = k.Convert(keyType)
+				}
+				out.SetMapIndex(k, e)
+			}
+		case reflect.Struct:
+			if info, ok := fieldsMap[name]; ok {
+				if info.Inline == nil {
+					d.readElemTo(out.Field(info.Num), kind)
+				} else {
+					d.readElemTo(out.FieldByIndex(info.Inline), kind)
+				}
+			} else if inlineMap.IsValid() {
+				if inlineMap.IsNil() {
+					inlineMap.Set(reflect.MakeMap(inlineMap.Type()))
+				}
 				e := reflect.New(elemType).Elem()
 				if d.readElemTo(e, kind) {
-					k := reflect.ValueOf(name)
-					if convertKey {
-						k = k.Convert(keyType)
-					}
-					out.SetMapIndex(k, e)
+					inlineMap.SetMapIndex(reflect.ValueOf(name), e)
 				}
-			case reflect.Struct:
-				if outt == typeRaw {
-					d.dropElem(kind)
-				} else {
-					if info, ok := fieldsMap[name]; ok {
-						if info.Inline == nil {
-							d.readElemTo(out.Field(info.Num), kind)
-						} else {
-							d.readElemTo(out.FieldByIndex(info.Inline), kind)
-						}
-					} else if inlineMap.IsValid() {
-						if inlineMap.IsNil() {
-							inlineMap.Set(reflect.MakeMap(inlineMap.Type()))
-						}
-						e := reflect.New(elemType).Elem()
-						if d.readElemTo(e, kind) {
-							inlineMap.SetMapIndex(reflect.ValueOf(name), e)
-						}
-					} else {
-						d.dropElem(kind)
-					}
-				}
-			case reflect.Slice:
+			} else {
+				d.dropElem(kind)
 			}
-
-			if d.i >= end {
-				corrupted()
-			}
+		case reflect.Slice:
 		}
-		d.i++ // '\x00'
-		if d.i != end {
+
+		if d.i >= end {
 			corrupted()
 		}
 	}
-	d.docType = docType
-
-	if outt == typeRaw {
-		out.Set(reflect.ValueOf(Raw{0x03, d.in[start:d.i]}))
+	d.i++ // '\x00'
+	if d.i != end {
+		corrupted()
 	}
+	d.docType = docType
 }
 
 func (d *decoder) readArrayDocTo(out reflect.Value) {
@@ -330,8 +315,11 @@ func (d *decoder) readSliceDoc(t reflect.Type) interface{} {
 	tmp := make([]reflect.Value, 0, 8)
 	elemType := t.Elem()
 	if elemType == typeRawDocElem {
-		d.dropElem(0x04)
+		d.dropElem(ElementArray)
 		return reflect.Zero(t).Interface()
+	}
+	if elemType == typeRaw {
+		return d.readSliceOfRaw()
 	}
 
 	end := int(d.readInt32())
@@ -369,6 +357,151 @@ func (d *decoder) readSliceDoc(t reflect.Type) interface{} {
 	return slice.Interface()
 }
 
+func BSONElementSize(kind byte, offset int, buffer []byte) (int, error) {
+	switch kind {
+	case ElementFloat64: // Float64
+		return 8, nil
+	case ElementJavaScriptWithoutScope: // JavaScript without scope
+		fallthrough
+	case ElementSymbol: // Symbol
+		fallthrough
+	case ElementString: // UTF-8 string
+		size, err := getSize(offset, buffer)
+		if err != nil {
+			return 0, err
+		}
+		if size < 1 {
+			return 0, errors.New("String size can't be less then one byte")
+		}
+		size += 4
+		if offset+size > len(buffer) {
+			return 0, io.ErrUnexpectedEOF
+		}
+		if buffer[offset+size-1] != 0 {
+			return 0, errors.New("Invalid string: non zero-terminated")
+		}
+		return size, nil
+	case ElementArray: // Array
+		fallthrough
+	case ElementDocument: // Document
+		size, err := getSize(offset, buffer)
+		if err != nil {
+			return 0, err
+		}
+		if size < 5 {
+			return 0, errors.New("Declared document size is too small")
+		}
+		return size, nil
+	case ElementBinary: // Binary
+		size, err := getSize(offset, buffer)
+		if err != nil {
+			return 0, err
+		}
+		if size < 0 {
+			return 0, errors.New("Binary data size can't be negative")
+		}
+		return size + 5, nil
+	case Element06: // Undefined (obsolete, but still seen in the wild)
+		return 0, nil
+	case ElementObjectId: // ObjectId
+		return 12, nil
+	case ElementBool: // Bool
+		return 1, nil
+	case ElementDatetime: // Timestamp
+		return 8, nil
+	case ElementNil: // Nil
+		return 0, nil
+	case ElementRegEx: // RegEx
+		end := offset
+		for i := 0; i < 2; i++ {
+			for end < len(buffer) && buffer[end] != '\x00' {
+				end++
+			}
+			end++
+		}
+		if end > len(buffer) {
+			return 0, io.ErrUnexpectedEOF
+		}
+		return end - offset, nil
+	case ElementDBPointer: // DBPointer
+		size, err := getSize(offset, buffer)
+		if err != nil {
+			return 0, err
+		}
+		if size < 1 {
+			return 0, errors.New("String size can't be less then one byte")
+		}
+		return size + 12 + 4, nil
+	case ElementJavaScriptWithScope: // JavaScript with scope
+		size, err := getSize(offset, buffer)
+		if err != nil {
+			return 0, err
+		}
+		if size < 4+5+5 {
+			return 0, errors.New("Declared document element is too small")
+		}
+		return size, nil
+	case ElementInt32: // Int32
+		return 4, nil
+	case ElementTimestamp: // Mongo-specific timestamp
+		return 8, nil
+	case ElementInt64: // Int64
+		return 8, nil
+	case ElementDecimal128: // Decimal128
+		return 16, nil
+	case ElementMaxKey: // Max key
+		return 0, nil
+	case ElementMinKey: // Min key
+		return 0, nil
+	default:
+		return 0, errors.New(fmt.Sprintf("Unknown element kind (0x%02X)", kind))
+	}
+}
+
+func (d *decoder) readRaw(kind byte) Raw {
+	size, err := BSONElementSize(kind, d.i, d.in)
+	if err != nil {
+		corrupted()
+	}
+	if d.i+size > len(d.in) {
+		corrupted()
+	}
+	d.i += size
+	return Raw{
+		Kind: kind,
+		Data: d.in[d.i-size : d.i],
+	}
+}
+
+func (d *decoder) readSliceOfRaw() interface{} {
+	tmp := make([]Raw, 0, 8)
+	end := int(d.readInt32())
+	end += d.i - 4
+	if end <= d.i || end > len(d.in) || d.in[end-1] != '\x00' {
+		corrupted()
+	}
+	for d.in[d.i] != '\x00' {
+		kind := d.readByte()
+		for d.i < end && d.in[d.i] != '\x00' {
+			d.i++
+		}
+		if d.i >= end {
+			corrupted()
+		}
+		d.i++
+		e := d.readRaw(kind)
+		tmp = append(tmp, e)
+		if d.i >= end {
+			corrupted()
+		}
+	}
+	d.i++ // '\x00'
+	if d.i != end {
+		corrupted()
+	}
+	return tmp
+}
+
 var typeSlice = reflect.TypeOf([]interface{}{})
 var typeIface = typeSlice.Elem()
 
@@ -394,11 +527,8 @@ func (d *decoder) readRawDocElems(typ reflect.Type) reflect.Value {
 	d.docType = typ
 	slice := make([]RawDocElem, 0, 8)
 	d.readDocWith(func(kind byte, name string) {
-		e := RawDocElem{Name: name}
-		v := reflect.ValueOf(&e.Value)
-		if d.readElemTo(v.Elem(), kind) {
-			slice = append(slice, e)
-		}
+		e := RawDocElem{Name: name, Value: d.readRaw(kind)}
+		slice = append(slice, e)
 	})
 	slicev := reflect.New(typ).Elem()
 	slicev.Set(reflect.ValueOf(slice))
@@ -431,76 +561,35 @@ func (d *decoder) readDocWith(f func(kind byte, name string)) {
 
 // --------------------------------------------------------------------------
 // Unmarshaling of individual elements within a document.
-
-var blackHole = settableValueOf(struct{}{})
-
 func (d *decoder) dropElem(kind byte) {
-	switch kind {
-	case 0x01, 0x09, 0x11, 0x12: // double, utc datetime, timestamp, int64
-		d.i += 8
-	case 0x02, 0x0D, 0x0E: // string, javascript, symbol
-		l := int(d.readInt32())
-		if l <= 0 || d.i+l >= len(d.in) || d.in[d.i+l-1] != 0x00 {
-			corrupted()
-		}
-		d.i += l
-	case 0x03, 0x04: // doc, array
-		d.skipDoc()
-	case 0x05: // binary
-		l := int(d.readInt32())
-		k := d.readByte()
-		if k == 0x02 && l > 4 {
-			rl := int(d.readInt32())
-			if rl != l-4 {
-				corrupted()
-			}
-		}
-		d.i += l
-	case 0x06: // undefined
-	case 0x07: // objectID
-		d.i += 12
-	case 0x08:
-		k := d.readByte()
-		if k != 0x00 && k != 0x01 {
-			corrupted()
-		}
-	case 0x0A: // null
-	case 0x0B: // regex
-		d.readCStr()
-		d.readCStr()
-	case 0x0C: // dbpointer
-		d.dropElem(0x02)
-		d.i += 12
-	case 0x0F:
-		start := d.i
-		l := int(d.readInt32())
-		d.dropElem(0x02) // string
-		d.skipDoc()
-		if d.i != start+l {
-			corrupted()
-		}
-	case 0x10: // int32
-		d.i += 4
-	case 0x13: // decimal
-		d.i += 16
-	case 0xFF, 0x7F: //min key, max key
-	default:
-		d.readElemTo(blackHole, kind)
-	}
-
-	if d.i > len(d.in) {
+	size, err := BSONElementSize(kind, d.i, d.in)
+	if err != nil {
 		corrupted()
 	}
+	if d.i+size > len(d.in) {
+		corrupted()
+	}
+	d.i += size
 }
 
 // Attempt to decode an element from the document and put it into out.
 // If the types are not compatible, the returned ok value will be
 // false and out will be unchanged.
 func (d *decoder) readElemTo(out reflect.Value, kind byte) (good bool) {
+	outt := out.Type()
 
-	start := d.i
+	if outt == typeRaw {
+		out.Set(reflect.ValueOf(d.readRaw(kind)))
+		return true
+	}
 
-	if kind == 0x03 {
+	if outt == typeRawPtr {
+		raw := d.readRaw(kind)
+		out.Set(reflect.ValueOf(&raw))
+		return true
+	}
+
+	if kind == ElementDocument {
 		// Delegate unmarshaling of documents.
 		outt := out.Type()
 		outk := out.Kind()
@@ -520,24 +609,39 @@ func (d *decoder) readElemTo(out reflect.Value, kind byte) (good bool) {
 			case typeRawDocElem:
 				out.Set(d.readRawDocElems(outt))
 			default:
-				d.skipDoc()
+				d.dropElem(kind)
 			}
 			return true
 		}
-		d.skipDoc()
+		d.dropElem(kind)
 		return true
+	}
+
+	if setter := getSetter(outt, out); setter != nil {
+		err := setter.SetBSON(d.readRaw(kind))
+		if err == ErrSetZero {
+			out.Set(reflect.Zero(outt))
+			return true
+		}
+		if err == nil {
+			return true
+		}
+		if _, ok := err.(*TypeError); !ok {
+			panic(err)
+		}
+		return false
 	}
 
 	var in interface{}
 
 	switch kind {
-	case 0x01: // Float64
+	case ElementFloat64:
 		in = d.readFloat64()
-	case 0x02: // UTF-8 string
+	case ElementString:
 		in = d.readStr()
-	case 0x03: // Document
+	case ElementDocument:
 		panic("Can't happen. Handled above.")
-	case 0x04: // Array
+	case ElementArray:
 		outt := out.Type()
 		if setterStyle(outt) != setterNone {
 			// Skip the value so its data is handed to the setter below.
@@ -556,38 +660,38 @@ func (d *decoder) readElemTo(out reflect.Value, kind byte) (good bool) {
 		default:
 			in = d.readSliceDoc(typeSlice)
 		}
-	case 0x05: // Binary
+	case ElementBinary:
 		b := d.readBinary()
-		if b.Kind == 0x00 || b.Kind == 0x02 {
+		if b.Kind == BinaryGeneric || b.Kind == BinaryBinaryOld {
 			in = b.Data
 		} else {
 			in = b
 		}
-	case 0x06: // Undefined (obsolete, but still seen in the wild)
+	case Element06: // Undefined (obsolete, but still seen in the wild)
 		in = Undefined
-	case 0x07: // ObjectId
+	case ElementObjectId:
 		in = ObjectId(d.readBytes(12))
-	case 0x08: // Bool
+	case ElementBool:
 		in = d.readBool()
-	case 0x09: // Timestamp
+	case ElementDatetime: // Timestamp
 		// MongoDB handles timestamps as milliseconds.
 		i := d.readInt64()
 		if i == -62135596800000 {
 			in = time.Time{} // In UTC for convenience.
 		} else {
-			in = time.Unix(i/1e3, i%1e3*1e6)
+			in = time.Unix(i/1e3, i%1e3*1e6).UTC()
 		}
-	case 0x0A: // Nil
+	case ElementNil:
 		in = nil
-	case 0x0B: // RegEx
+	case ElementRegEx:
 		in = d.readRegEx()
-	case 0x0C:
+	case ElementDBPointer:
 		in = DBPointer{Namespace: d.readStr(), Id: ObjectId(d.readBytes(12))}
-	case 0x0D: // JavaScript without scope
+	case ElementJavaScriptWithoutScope:
 		in = JavaScript{Code: d.readStr()}
-	case 0x0E: // Symbol
+	case ElementSymbol:
 		in = Symbol(d.readStr())
-	case 0x0F: // JavaScript with scope
+	case ElementJavaScriptWithScope:
 		start := d.i
 		l := int(d.readInt32())
 		js := JavaScript{d.readStr(), make(M)}
@@ -596,50 +700,28 @@ func (d *decoder) readElemTo(out reflect.Value, kind byte) (good bool) {
 			corrupted()
 		}
 		in = js
-	case 0x10: // Int32
+	case ElementInt32:
 		in = int(d.readInt32())
-	case 0x11: // Mongo-specific timestamp
+	case ElementTimestamp: // Mongo-specific timestamp
 		in = MongoTimestamp(d.readInt64())
-	case 0x12: // Int64
+	case ElementInt64:
 		switch out.Type() {
 		case typeTimeDuration:
 			in = time.Duration(time.Duration(d.readInt64()) * time.Millisecond)
 		default:
 			in = d.readInt64()
 		}
-	case 0x13: // Decimal128
+	case ElementDecimal128:
 		in = Decimal128{
 			l: uint64(d.readInt64()),
 			h: uint64(d.readInt64()),
 		}
-	case 0x7F: // Max key
+	case ElementMaxKey:
 		in = MaxKey
-	case 0xFF: // Min key
+	case ElementMinKey:
 		in = MinKey
 	default:
 		panic(fmt.Sprintf("Unknown element kind (0x%02X)", kind))
-	}
-
-	outt := out.Type()
-
-	if outt == typeRaw {
-		out.Set(reflect.ValueOf(Raw{kind, d.in[start:d.i]}))
-		return true
-	}
-
-	if setter := getSetter(outt, out); setter != nil {
-		err := setter.SetBSON(Raw{kind, d.in[start:d.i]})
-		if err == SetZero {
-			out.Set(reflect.Zero(outt))
-			return true
-		}
-		if err == nil {
-			return true
-		}
-		if _, ok := err.(*TypeError); !ok {
-			panic(err)
-		}
-		return false
 	}
 
 	if in == nil {
@@ -816,15 +898,6 @@ func (d *decoder) readElemTo(out reflect.Value, kind byte) (good bool) {
 // --------------------------------------------------------------------------
 // Parsers of basic types.
 
-func (d *decoder) skipDoc() {
-	end := int(d.readInt32())
-	end += d.i - 4
-	if end <= d.i || end > len(d.in) || d.in[end-1] != '\x00' {
-		corrupted()
-	}
-	d.i = end
-}
-
 func (d *decoder) readRegEx() RegEx {
 	re := RegEx{}
 	re.Pattern = d.readCStr()
@@ -836,7 +909,7 @@ func (d *decoder) readBinary() Binary {
 	l := d.readInt32()
 	b := Binary{}
 	b.Kind = d.readByte()
-	if b.Kind == 0x02 && l > 4 {
+	if b.Kind == BinaryBinaryOld && l > 4 {
 		// Weird obsolete format with redundant length.
 		rl := d.readInt32()
 		if rl != l-4 {
@@ -894,6 +967,16 @@ func (d *decoder) readInt32() int32 {
 		(uint32(b[1]) << 8) |
 		(uint32(b[2]) << 16) |
 		(uint32(b[3]) << 24))
+}
+
+func getSize(offset int, b []byte) (int, error) {
+	if offset+4 > len(b) {
+		return 0, io.ErrUnexpectedEOF
+	}
+	return int((uint32(b[offset]) << 0) |
+		(uint32(b[offset+1]) << 8) |
+		(uint32(b[offset+2]) << 16) |
+		(uint32(b[offset+3]) << 24)), nil
 }
 
 func (d *decoder) readInt64() int64 {
