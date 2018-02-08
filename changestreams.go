@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
-	"time"
 
 	"github.com/globalsign/mgo/bson"
 )
@@ -44,10 +43,10 @@ type ChangeStreamOptions struct {
 	MaxAwaitTimeMS int64
 
 	// BatchSize specifies the number of documents to return per batch.
-	BatchSize int32
+	BatchSize int
 
 	// Collation specifies the way the server should collate returned data.
-	Collation *Collation
+	//TODO Collation *Collation
 }
 
 var errMissingResumeToken = errors.New("resume token missing from result")
@@ -61,9 +60,15 @@ func (coll *Collection) Watch(pipeline interface{},
 		pipeline = []bson.M{}
 	}
 
-	pipe := constructChangeStreamPipeline(pipeline, options)
-
-	pIter := coll.Pipe(&pipe).Iter()
+	csPipe := constructChangeStreamPipeline(pipeline, options)
+	pipe := coll.Pipe(&csPipe)
+	if options.MaxAwaitTimeMS > 0 {
+		pipe.MaxTimeMS(options.MaxAwaitTimeMS)
+	}
+	if options.BatchSize > 0 {
+		pipe.Batch(options.BatchSize)
+	}
+	pIter := pipe.Iter()
 
 	// check that there was no issue creating the iterator.
 	// this will fail immediately with an error from the server if running against
@@ -73,9 +78,6 @@ func (coll *Collection) Watch(pipeline interface{},
 	}
 
 	pIter.isChangeStream = true
-	if options.MaxAwaitTimeMS > 0 {
-		pIter.timeout = time.Duration(options.MaxAwaitTimeMS) * time.Millisecond
-	}
 	return &ChangeStream{
 		iter:        pIter,
 		collection:  coll,
@@ -248,8 +250,7 @@ func constructChangeStreamPipeline(pipeline interface{},
 func (changeStream *ChangeStream) resume() error {
 	// copy the information for the new socket.
 
-	// Copy() destroys the sockets currently associated with this session
-	// so future uses will acquire a new socket against the newly selected DB.
+	// Thanks to Copy() future uses will acquire a new socket against the newly selected DB.
 	newSession := changeStream.iter.session.Copy()
 
 	// fetch the cursor from the iterator and use it to run a killCursors
@@ -281,9 +282,6 @@ func (changeStream *ChangeStream) resume() error {
 		return err
 	}
 	changeStream.iter.isChangeStream = true
-	if changeStream.options.MaxAwaitTimeMS > 0 {
-		changeStream.iter.timeout = time.Duration(changeStream.options.MaxAwaitTimeMS) * time.Millisecond
-	}
 	return nil
 }
 

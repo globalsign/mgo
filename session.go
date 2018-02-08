@@ -171,6 +171,7 @@ type Iter struct {
 	timedout       bool
 	isFindCmd      bool
 	isChangeStream bool
+	maxTimeMS      int64
 }
 
 var (
@@ -2429,6 +2430,7 @@ type Pipe struct {
 	pipeline   interface{}
 	allowDisk  bool
 	batchSize  int
+	maxTimeMS  int64
 }
 
 type pipeCmd struct {
@@ -2437,6 +2439,7 @@ type pipeCmd struct {
 	Cursor    *pipeCmdCursor `bson:",omitempty"`
 	Explain   bool           `bson:",omitempty"`
 	AllowDisk bool           `bson:"allowDiskUse,omitempty"`
+	MaxTimeMS int64          `bson:"maxTimeMS,omitempty"`
 }
 
 type pipeCmdCursor struct {
@@ -2491,6 +2494,9 @@ func (p *Pipe) Iter() *Iter {
 		AllowDisk: p.allowDisk,
 		Cursor:    &pipeCmdCursor{p.batchSize},
 	}
+	if p.maxTimeMS > 0 {
+		cmd.MaxTimeMS = p.maxTimeMS
+	}
 	err := c.Database.Run(cmd, &result)
 	if e, ok := err.(*QueryError); ok && e.Message == `unrecognized field "cursor` {
 		cmd.Cursor = nil
@@ -2501,7 +2507,11 @@ func (p *Pipe) Iter() *Iter {
 	if firstBatch == nil {
 		firstBatch = result.Cursor.FirstBatch
 	}
-	return c.NewIter(p.session, firstBatch, result.Cursor.Id, err)
+	it := c.NewIter(p.session, firstBatch, result.Cursor.Id, err)
+	if p.maxTimeMS > 0 {
+		it.maxTimeMS = p.maxTimeMS
+	}
+	return it
 }
 
 // NewIter returns a newly created iterator with the provided parameters. Using
@@ -2662,6 +2672,13 @@ func (p *Pipe) AllowDiskUse() *Pipe {
 // The default batch size is defined by the database server.
 func (p *Pipe) Batch(n int) *Pipe {
 	p.batchSize = n
+	return p
+}
+
+// MaxTimeMS sets the maximum amount of time to allow the query to run.
+//
+func (p *Pipe) MaxTimeMS(n int64) *Pipe {
+	p.maxTimeMS = n
 	return p
 }
 
@@ -4021,7 +4038,8 @@ func (iter *Iter) Timeout() bool {
 // Next returns true if a document was successfully unmarshalled onto result,
 // and false at the end of the result set or if an error happened.
 // When Next returns false, the Err method should be called to verify if
-// there was an error during iteration.
+// there was an error during iteration, and the Timeout method to verify if the
+// false return value was caused by a timeout (no available results).
 //
 // For example:
 //
@@ -4037,7 +4055,11 @@ func (iter *Iter) Next(result interface{}) bool {
 	iter.m.Lock()
 	iter.timedout = false
 	timeout := time.Time{}
-
+	// for a ChangeStream iterator we have to call getMore before the loop otherwise
+	// we'll always return false
+	if iter.isChangeStream {
+		iter.getMore()
+	}
 	// check should we expect more data.
 	for iter.err == nil && iter.docData.Len() == 0 && (iter.docsToReceive > 0 || iter.op.cursorId != 0) {
 		// we should expect more data.
@@ -4054,6 +4076,12 @@ func (iter *Iter) Next(result interface{}) bool {
 					return false
 				}
 			}
+			// for a ChangeStream one loop i enought to declare the timeout
+			if iter.isChangeStream {
+				iter.timedout = true
+				iter.m.Unlock()
+				return false
+			}
 			// run a getmore to fetch more data.
 			iter.getMore()
 			if iter.err != nil {
@@ -4062,7 +4090,6 @@ func (iter *Iter) Next(result interface{}) bool {
 		}
 		iter.gotReply.Wait()
 	}
-
 	// We have data from the getMore.
 	// Exhaust available data before reporting any errors.
 	if docData, ok := iter.docData.Pop().([]byte); ok {
@@ -4291,6 +4318,9 @@ func (iter *Iter) getMoreCmd() *queryOp {
 		CursorId:   iter.op.cursorId,
 		Collection: iter.op.collection[nameDot+1:],
 		BatchSize:  iter.op.limit,
+	}
+	if iter.maxTimeMS > 0 {
+		getMore.MaxTimeMS = iter.maxTimeMS
 	}
 
 	var op queryOp
@@ -5276,7 +5306,7 @@ func getRFC2253NameString(RDNElements *pkix.RDNSequence) string {
 	var replacer = strings.NewReplacer(",", "\\,", "=", "\\=", "+", "\\+", "<", "\\<", ">", "\\>", ";", "\\;")
 	//The elements in the sequence needs to be reversed when converting them
 	for i := len(*RDNElements) - 1; i >= 0; i-- {
-		var nameAndValueList = make([]string,len((*RDNElements)[i]))
+		var nameAndValueList = make([]string, len((*RDNElements)[i]))
 		for j, attribute := range (*RDNElements)[i] {
 			var shortAttributeName = rdnOIDToShortName(attribute.Type)
 			if len(shortAttributeName) <= 0 {

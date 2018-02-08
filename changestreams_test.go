@@ -60,7 +60,7 @@ func (s *S) TestStreamsInsert(c *C) {
 
 	//create the stream
 	pipeline := []M{}
-	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1000})
+	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1500})
 	c.Assert(err, IsNil)
 
 	//insert a new document
@@ -111,13 +111,22 @@ func (s *S) TestStreamsNextNoEventTimeout(c *C) {
 
 	//create the stream
 	pipeline := []M{}
-	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1000})
+	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1500})
 	c.Assert(err, IsNil)
 
 	//check we timeout correctly on no events
 	//we should get a false result and no error
 	ev := changeEvent{}
 	hasEvent := changeStream.Next(&ev)
+	c.Assert(hasEvent, Equals, false)
+	c.Assert(changeStream.Err(), IsNil)
+	c.Assert(changeStream.Timeout(), Equals, true)
+
+	//test the same with default timeout (MaxTimeMS=1000)
+	//create the stream
+	changeStream, err = coll.Watch(pipeline, mgo.ChangeStreamOptions{})
+	c.Assert(err, IsNil)
+	hasEvent = changeStream.Next(&ev)
 	c.Assert(hasEvent, Equals, false)
 	c.Assert(changeStream.Err(), IsNil)
 	c.Assert(changeStream.Timeout(), Equals, true)
@@ -143,7 +152,7 @@ func (s *S) TestStreamsNextTimeout(c *C) {
 
 	//create the stream
 	pipeline := []M{}
-	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 2000})
+	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1500})
 	c.Assert(err, IsNil)
 
 	//insert a new document to trigger an event
@@ -195,7 +204,7 @@ func (s *S) TestStreamsDelete(c *C) {
 
 	//create the changeStream
 	pipeline := []M{}
-	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1000})
+	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1500})
 	c.Assert(err, IsNil)
 
 	//delete the document
@@ -236,7 +245,7 @@ func (s *S) TestStreamsUpdate(c *C) {
 
 	//create the stream
 	pipeline := []M{}
-	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1000})
+	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1500})
 	c.Assert(err, IsNil)
 
 	//update document
@@ -281,7 +290,7 @@ func (s *S) TestStreamsUpdateFullDocument(c *C) {
 
 	//create the stream
 	pipeline := []M{}
-	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1000, FullDocument: mgo.UpdateLookup})
+	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1500, FullDocument: mgo.UpdateLookup})
 	c.Assert(err, IsNil)
 
 	//update document
@@ -339,10 +348,10 @@ func (s *S) TestStreamsUpdateWithPipeline(c *C) {
 	c.Assert(err, IsNil)
 
 	pipeline1 := []M{M{"$match": M{"documentKey._id": id1}}}
-	changeStream1, err := coll.Watch(pipeline1, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1000})
+	changeStream1, err := coll.Watch(pipeline1, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1500})
 	c.Assert(err, IsNil)
 	pipeline2 := []M{M{"$match": M{"documentKey._id": id2}}}
-	changeStream2, err := coll.Watch(pipeline2, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1000})
+	changeStream2, err := coll.Watch(pipeline2, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1500})
 	c.Assert(err, IsNil)
 
 	//update documents
@@ -402,7 +411,7 @@ func (s *S) TestStreamsResumeTokenMissingError(c *C) {
 
 	//create the stream
 	pipeline := []M{{"$project": M{"_id": 0}}}
-	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1000})
+	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1500})
 	c.Assert(err, IsNil)
 
 	//insert a new document
@@ -436,7 +445,7 @@ func (s *S) TestStreamsClosedStreamError(c *C) {
 
 	//create the stream
 	pipeline := []M{{"$project": M{"_id": 0}}}
-	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1000})
+	changeStream, err := coll.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1500})
 	c.Assert(err, IsNil)
 
 	//insert a new document
