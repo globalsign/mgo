@@ -2,6 +2,7 @@ package mgo
 
 import (
 	"time"
+	"net"
 )
 
 func HackPingDelay(newDelay time.Duration) (restore func()) {
@@ -30,4 +31,16 @@ func HackSyncSocketTimeout(newTimeout time.Duration) (restore func()) {
 	}
 	syncSocketTimeout = newTimeout
 	return
+}
+
+func (s *Session) Cluster() *mongoCluster {
+	return s.cluster()
+}
+
+func (cluster *mongoCluster) Server(addr string) *mongoServer {
+	tcpaddr, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		panic(err)
+	}
+	return cluster.server(addr, tcpaddr)
 }
