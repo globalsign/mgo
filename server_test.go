@@ -30,7 +30,7 @@ import (
 	"time"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2"
+	"github.com/globalsign/mgo"
 )
 
 func (s *S) TestServerRecoversFromAbend(c *C) {
@@ -42,22 +42,23 @@ func (s *S) TestServerRecoversFromAbend(c *C) {
 	server := cluster.Server("127.0.0.1:40001")
 	sock, abended, err := server.AcquireSocket(100, time.Second)
 	c.Assert(err, IsNil)
-	c.Check(abended, Equals, false)
 	c.Assert(sock, NotNil)
-	sock.Close()
+	sock.Release()
+	c.Check(abended, Equals, false)
 	// Forcefully abend this socket
+	sock.Close()
 	server.AbendSocket(sock)
 	// Next acquire notices the connection was abnormally ended
 	sock, abended, err = server.AcquireSocket(100, time.Second)
 	c.Assert(err, IsNil)
+	sock.Release()
 	c.Check(abended, Equals, true)
-	sock.Close()
 	// cluster.AcquireSocket should fix the abended problems
 	sock, err = cluster.AcquireSocket(mgo.Primary, false, time.Minute, time.Second, nil, 100)
 	c.Assert(err, IsNil)
-	sock.Close()
+	sock.Release()
 	sock, abended, err = server.AcquireSocket(100, time.Second)
 	c.Assert(err, IsNil)
 	c.Check(abended, Equals, false)
-	sock.Close()
+	sock.Release()
 }

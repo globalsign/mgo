@@ -1,8 +1,8 @@
 package mgo
 
 import (
-	"time"
 	"net"
+	"time"
 )
 
 func HackPingDelay(newDelay time.Duration) (restore func()) {

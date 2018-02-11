@@ -30,7 +30,7 @@ start() {
         UP=$(svstat daemons/* | grep ' up ' | grep -v ' [0-3] seconds' | wc -l)
         echo "$UP processes up..."
         if [ x$COUNT = x$UP ]; then
-            echo "Running setup.js with mongo..."
+            echo "Running init.js with mongo..."
             mongo --nodb ../harness/mongojs/init.js
             exit 0
         fi

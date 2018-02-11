@@ -682,6 +682,7 @@ func (cluster *mongoCluster) AcquireSocket(mode Mode, slaveOk bool, syncTimeout 
 				time.Sleep(100 * time.Millisecond)
 				continue
 			} else {
+				// We've managed to successfully reconnect to the master, we are no longer abnormaly ended
 				server.Lock()
 				server.abended = false
 				server.Unlock()
