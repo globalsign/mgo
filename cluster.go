@@ -157,7 +157,7 @@ func (cluster *mongoCluster) isMaster(socket *mongoSocket, result *isMasterResul
 	if cluster.appName != "" {
 		metaInfo["application"] = bson.M{"name": cluster.appName}
 	}
-	err := session.Run(bson.D{{Name: "isMaster", Value: 1}, {Name: "client", Value: metaInfo}}, result)
+	err := session.Run(bson.D{{Name: "isMaster", Value: 1}}, result)
 	session.Close()
 	return err
 }
