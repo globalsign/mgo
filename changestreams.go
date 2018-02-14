@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/globalsign/mgo/bson"
 )
@@ -40,7 +41,7 @@ type ChangeStreamOptions struct {
 
 	// MaxAwaitTimeMS specifies the maximum amount of time for the server to wait
 	// on new documents to satisfy a change stream query.
-	MaxAwaitTimeMS int64
+	MaxAwaitTimeMS time.Duration
 
 	// BatchSize specifies the number of documents to return per batch.
 	BatchSize int
@@ -63,7 +64,7 @@ func (coll *Collection) Watch(pipeline interface{},
 	csPipe := constructChangeStreamPipeline(pipeline, options)
 	pipe := coll.Pipe(&csPipe)
 	if options.MaxAwaitTimeMS > 0 {
-		pipe.MaxTimeMS(options.MaxAwaitTimeMS)
+		pipe.SetMaxTime(options.MaxAwaitTimeMS)
 	}
 	if options.BatchSize > 0 {
 		pipe.Batch(options.BatchSize)

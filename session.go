@@ -2675,10 +2675,10 @@ func (p *Pipe) Batch(n int) *Pipe {
 	return p
 }
 
-// MaxTimeMS sets the maximum amount of time to allow the query to run.
+// SetMaxTime sets the maximum amount of time to allow the query to run.
 //
-func (p *Pipe) MaxTimeMS(n int64) *Pipe {
-	p.maxTimeMS = n
+func (p *Pipe) SetMaxTime(d time.Duration) *Pipe {
+	p.maxTimeMS = int64(d / time.Millisecond)
 	return p
 }
 
