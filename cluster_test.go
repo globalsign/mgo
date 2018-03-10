@@ -1964,6 +1964,41 @@ func (s *S) TestConnectCloseConcurrency(c *C) {
 	wg.Wait()
 }
 
+func (s *S) TestNoDeadlockOnClose(c *C) {
+	if *fast {
+		// Unfortunately I seem to need quite a high dial timeout to get this to work
+		// on my machine.
+		c.Skip("-fast")
+	}
+
+	var shouldStop int32
+	atomic.StoreInt32(&shouldStop, 0)
+
+	listener, err := net.Listen("tcp4", "127.0.0.1:")
+	c.Check(err, Equals, nil)
+
+	go func() {
+		for atomic.LoadInt32(&shouldStop) == 0 {
+			sock, err := listener.Accept()
+			if err != nil {
+				// Probs just closed
+				continue
+			}
+			sock.Close()
+		}
+	}()
+	defer func() {
+		atomic.StoreInt32(&shouldStop, 1)
+		listener.Close()
+	}()
+
+	session, err := mgo.DialWithTimeout(listener.Addr().String(), 10*time.Second)
+	// If execution reaches here, the deadlock did not happen and all is OK
+	if session != nil {
+		session.Close()
+	}
+}
+
 func (s *S) TestSelectServers(c *C) {
 	if !s.versionAtLeast(2, 2) {
 		c.Skip("read preferences introduced in 2.2")
