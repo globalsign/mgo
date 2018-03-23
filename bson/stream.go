@@ -12,8 +12,8 @@ type Decoder struct {
 
 // NewDecoder returns a new Decoder that reads from source.
 // It does not add any extra buffering, and may not read data from source beyond the BSON values requested.
-func NewDecoder(source io.Reader) Decoder {
-	return Decoder{source: source}
+func NewDecoder(source io.Reader) *Decoder {
+	return &Decoder{source: source}
 }
 
 // Decode reads the next BSON-encoded value from its input and stores it in the value pointed to by v.
@@ -46,8 +46,8 @@ type Encoder struct {
 }
 
 // NewEncoder returns a new Encoder that writes to target.
-func NewEncoder(target io.Writer) Encoder {
-	return Encoder{target: target}
+func NewEncoder(target io.Writer) *Encoder {
+	return &Encoder{target: target}
 }
 
 // Encode encodes v to BSON, and if successful writes it to the Encoder's output stream.
