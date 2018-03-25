@@ -248,7 +248,13 @@ func (server *mongoServer) Connect(info *DialInfo) (*mongoSocket, error) {
 			panic("internal error: obtained connection is not a *net.TCPConn or *net.UnixConn!?")
 		}
 	case dial.old != nil:
-		conn, err = dial.old(server.raddr)
+		// Old Dial Type needs Conversion to TCP because ResolveAddress returns UDP
+		if _, isudp := server.raddr.(*net.UDPAddr); isudp {
+			conn, err = dial.old((*net.TCPAddr)(server.raddr.(*net.UDPAddr)))
+		} else if _, istcp := server.raddr.(*net.TCPAddr); istcp {
+			conn, err = dial.old((*net.TCPAddr)(server.raddr.(*net.TCPAddr)))
+		}
+
 	case dial.new != nil:
 		conn, err = dial.new(&ServerAddr{server.Addr, server.raddr})
 	default:
