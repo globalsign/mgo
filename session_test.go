@@ -247,7 +247,7 @@ func (s *S) TestURLUnixSocket(c *C) {
 
 	for _, test := range tests {
 		info, err := mgo.ParseURL(test.url)
-		c.Assert(err, Nil)
+		c.Assert(err, IsNil)
 		c.Assert(info.Addrs, NotNil)
 		c.Assert(info.Addrs[0], Equals, test.socket)
 		c.Assert(info.Database, Equals, test.database)
