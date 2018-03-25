@@ -450,6 +450,7 @@ func resolveAddr(addr string) (net.Addr, error) {
 
 	// Attempt to resolve IPv4 and v6 and Unix Domain Sockets concurrently.
 	addrChan := make(chan net.Addr, 3)
+	var i int
 	for _, network := range []string{"udp4", "udp6", "unix"} {
 		network := network
 		go func() {
@@ -469,8 +470,11 @@ func resolveAddr(addr string) (net.Addr, error) {
 	// Wait for the result of IPv4, v6 and Unix Domain Socket resolution. Use IPv4 if available.
 
 	for raddr := range addrChan {
-		if raddr == nil {
+		i++
+		if raddr == nil && i < 3 {
 			continue
+		} else if raddr == nil {
+			break
 		}
 
 		_, isunix := raddr.(*net.UnixAddr)
