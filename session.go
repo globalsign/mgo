@@ -685,8 +685,8 @@ type ReadPreference struct {
 // ServerAddr represents the address for establishing a connection to an
 // individual MongoDB server.
 type ServerAddr struct {
-	str string
-	tcp *net.TCPAddr
+	str  string
+	addr net.Addr
 }
 
 // String returns the address that was provided for the server before resolution.
@@ -696,7 +696,15 @@ func (addr *ServerAddr) String() string {
 
 // TCPAddr returns the resolved TCP address for the server.
 func (addr *ServerAddr) TCPAddr() *net.TCPAddr {
-	return addr.tcp
+	if udp, isudp := addr.addr.(*net.UDPAddr); isudp {
+		return (*net.TCPAddr)(udp)
+	}
+	return (*net.TCPAddr)(addr.addr.(*net.TCPAddr))
+}
+
+// Addr returns the resolved TCP address for the server.
+func (addr *ServerAddr) Addr() net.Addr {
+	return addr.addr
 }
 
 // DialWithInfo establishes a new session to the cluster identified by info.
@@ -709,7 +717,7 @@ func DialWithInfo(dialInfo *DialInfo) (*Session, error) {
 	addrs := make([]string, len(info.Addrs))
 	for i, addr := range info.Addrs {
 		p := strings.LastIndexAny(addr, "]:")
-		if p == -1 || addr[p] != ':' {
+		if (p == -1 || addr[p] != ':') && !strings.HasSuffix(addr, ".sock") {
 			// XXX This is untested. The test suite doesn't use the standard port.
 			addr += ":27017"
 		}
@@ -819,7 +827,7 @@ func extractURL(s string) (*urlInfo, error) {
 		}
 		s = s[c+1:]
 	}
-	if c := strings.Index(s, "/"); c != -1 {
+	if c := strings.LastIndex(s, "/"); c != -1 && !strings.HasSuffix(s[c+1:], ".sock") {
 		info.db = s[c+1:]
 		s = s[:c]
 	}

@@ -422,17 +422,17 @@ func (cluster *mongoCluster) syncServersLoop() {
 	debugf("SYNC Cluster %p is stopping its sync loop.", cluster)
 }
 
-func (cluster *mongoCluster) server(addr string, tcpaddr *net.TCPAddr) *mongoServer {
+func (cluster *mongoCluster) server(addr string, raddr net.Addr) *mongoServer {
 	cluster.RLock()
-	server := cluster.servers.Search(tcpaddr.String())
+	server := cluster.servers.Search(raddr.String())
 	cluster.RUnlock()
 	if server != nil {
 		return server
 	}
-	return newServer(addr, tcpaddr, cluster.sync, cluster.dial, cluster.dialInfo)
+	return newServer(addr, raddr, cluster.sync, cluster.dial, cluster.dialInfo)
 }
 
-func resolveAddr(addr string) (*net.TCPAddr, error) {
+func resolveAddr(addr string) (net.Addr, error) {
 	// Simple cases that do not need actual resolution. Works with IPv4 and v6.
 	if host, port, err := net.SplitHostPort(addr); err == nil {
 		if port, _ := strconv.Atoi(port); port > 0 {
@@ -443,14 +443,14 @@ func resolveAddr(addr string) (*net.TCPAddr, error) {
 			}
 			ip := net.ParseIP(host)
 			if ip != nil {
-				return &net.TCPAddr{IP: ip, Port: port, Zone: zone}, nil
+				return (net.Addr)(&net.TCPAddr{IP: ip, Port: port, Zone: zone}), nil
 			}
 		}
 	}
 
-	// Attempt to resolve IPv4 and v6 concurrently.
-	addrChan := make(chan *net.TCPAddr, 2)
-	for _, network := range []string{"udp4", "udp6"} {
+	// Attempt to resolve IPv4 and v6 and Unix Domain Sockets concurrently.
+	addrChan := make(chan net.Addr, 3)
+	for _, network := range []string{"udp4", "udp6", "unix"} {
 		network := network
 		go func() {
 			// The unfortunate UDP dialing hack allows having a timeout on address resolution.
@@ -458,38 +458,44 @@ func resolveAddr(addr string) (*net.TCPAddr, error) {
 			if err != nil {
 				addrChan <- nil
 			} else {
-				addrChan <- (*net.TCPAddr)(conn.RemoteAddr().(*net.UDPAddr))
+				raddr := conn.RemoteAddr()
+				addrChan <- raddr
+
 				conn.Close()
 			}
 		}()
 	}
 
-	// Wait for the result of IPv4 and v6 resolution. Use IPv4 if available.
-	tcpaddr := <-addrChan
-	if tcpaddr == nil || len(tcpaddr.IP) != 4 {
-		var timeout <-chan time.Time
-		if tcpaddr != nil {
+	// Wait for the result of IPv4, v6 and Unix Domain Socket resolution. Use IPv4 if available.
+
+	for raddr := range addrChan {
+		if raddr == nil {
+			continue
+		}
+
+		_, isunix := raddr.(*net.UnixAddr)
+
+		if isunix {
+			return raddr, nil
+		}
+
+		tcpaddr := (*net.TCPAddr)(raddr.(*net.UDPAddr))
+
+		if len(tcpaddr.IP) != 4 {
 			// Don't wait too long if an IPv6 address is known.
-			timeout = time.After(50 * time.Millisecond)
+			timeout := time.After(50 * time.Millisecond)
+			<-timeout
 		}
-		select {
-		case <-timeout:
-		case tcpaddr2 := <-addrChan:
-			if tcpaddr == nil || tcpaddr2 != nil {
-				// It's an IPv4 address or the only known address. Use it.
-				tcpaddr = tcpaddr2
-			}
+
+		if tcpaddr.String() != addr {
+			debug("SYNC Address ", addr, " resolved as ", tcpaddr.String())
 		}
+
+		return raddr, nil
 	}
 
-	if tcpaddr == nil {
-		log("SYNC Failed to resolve server address: ", addr)
-		return nil, errors.New("failed to resolve server address: " + addr)
-	}
-	if tcpaddr.String() != addr {
-		debug("SYNC Address ", addr, " resolved as ", tcpaddr.String())
-	}
-	return tcpaddr, nil
+	log("SYNC Failed to resolve server address: ", addr)
+	return nil, errors.New("failed to resolve server address: " + addr)
 }
 
 type pendingAdd struct {
@@ -513,12 +519,12 @@ func (cluster *mongoCluster) syncServersIteration(direct bool) {
 		go func() {
 			defer wg.Done()
 
-			tcpaddr, err := resolveAddr(addr)
+			raddr, err := resolveAddr(addr)
 			if err != nil {
 				log("SYNC Failed to start sync of ", addr, ": ", err.Error())
 				return
 			}
-			resolvedAddr := tcpaddr.String()
+			resolvedAddr := raddr.String()
 
 			m.Lock()
 			if byMaster {
@@ -537,7 +543,7 @@ func (cluster *mongoCluster) syncServersIteration(direct bool) {
 			seen[resolvedAddr] = true
 			m.Unlock()
 
-			server := cluster.server(addr, tcpaddr)
+			server := cluster.server(addr, raddr)
 			info, hosts, err := cluster.syncServer(server)
 			if err != nil {
 				cluster.removeServer(server)
