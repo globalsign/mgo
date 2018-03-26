@@ -243,7 +243,9 @@ func (server *mongoServer) Connect(info *DialInfo) (*mongoSocket, error) {
 		case *net.TCPConn:
 			conn.(*net.TCPConn).SetKeepAlive(true)
 		default:
-			panic("internal error: obtained connection is not a *net.TCPConn or *net.UnixConn!?")
+			if err == nil {
+				panic("internal error: obtained connection is not a *net.TCPConn or *net.UnixConn!?")
+			}
 		}
 	case dial.old != nil:
 		conn, err = dial.old(server.raddr)
