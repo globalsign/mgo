@@ -222,7 +222,7 @@ func (e *encoder) addStruct(v reflect.Value) {
 		} else {
 			value = v.FieldByIndex(info.Inline)
 		}
-		if info.OmitEmpty && isZero(value) {
+		if info.OmitEmpty && isZero(value) && !ignoreOmitempty {
 			continue
 		}
 		e.addElem(info.Key, value, info.MinSize)
