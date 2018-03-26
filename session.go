@@ -227,7 +227,12 @@ const (
 //     mongodb://myuser:mypass@localhost:40001,otherhost:40001/mydb
 //
 // If the port number is not provided for a server, it defaults to 27017.
+// A host could be an Unix Domain Socket (POSIX Local IPC Socket) like:
 //
+//     /var/run/mongodb/mongod.sock
+//     myuser:mypass@/tmp/mongod.sock/mydb
+//
+// A socket must have the file extension .sock
 // The username and password provided in the URL will be used to authenticate
 // into the database named after the slash at the end of the host names, or into
 // the "admin" database if none is provided.  The authentication information
