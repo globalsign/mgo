@@ -236,25 +236,17 @@ func (server *mongoServer) Connect(info *DialInfo) (*mongoSocket, error) {
 	var err error
 	switch {
 	case !dial.isSet():
-		if _, isunix := server.raddr.(*net.UnixAddr); isunix {
-			conn, err = net.DialTimeout("unix", server.ResolvedAddr, info.Timeout)
-		} else {
-			conn, err = net.DialTimeout("tcp", server.ResolvedAddr, info.Timeout)
-		}
+		conn, err = net.DialTimeout(server.raddr.Network(), server.ResolvedAddr, info.Timeout)
 
-		if tcpconn, ok := conn.(*net.TCPConn); ok {
-			tcpconn.SetKeepAlive(true)
-		} else if _, ok := conn.(*net.UnixConn); !ok && err == nil {
+		switch conn.(type) {
+		case *net.UnixConn:
+		case *net.TCPConn:
+			conn.(*net.TCPConn).SetKeepAlive(true)
+		default:
 			panic("internal error: obtained connection is not a *net.TCPConn or *net.UnixConn!?")
 		}
 	case dial.old != nil:
-		// Old Dial Type needs Conversion to TCP because ResolveAddress returns UDP
-		if _, isudp := server.raddr.(*net.UDPAddr); isudp {
-			conn, err = dial.old((*net.TCPAddr)(server.raddr.(*net.UDPAddr)))
-		} else if _, istcp := server.raddr.(*net.TCPAddr); istcp {
-			conn, err = dial.old((*net.TCPAddr)(server.raddr.(*net.TCPAddr)))
-		}
-
+		conn, err = dial.old(server.raddr)
 	case dial.new != nil:
 		conn, err = dial.new(&ServerAddr{server.Addr, server.raddr})
 	default:

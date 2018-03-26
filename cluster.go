@@ -443,7 +443,7 @@ func resolveAddr(addr string) (net.Addr, error) {
 			}
 			ip := net.ParseIP(host)
 			if ip != nil {
-				return (net.Addr)(&net.TCPAddr{IP: ip, Port: port, Zone: zone}), nil
+				return &net.TCPAddr{IP: ip, Port: port, Zone: zone}, nil
 			}
 		}
 	}
@@ -459,8 +459,12 @@ func resolveAddr(addr string) (net.Addr, error) {
 			if err != nil {
 				addrChan <- nil
 			} else {
-				raddr := conn.RemoteAddr()
-				addrChan <- raddr
+				switch conn.RemoteAddr().(type) {
+				case *net.UDPAddr:
+					addrChan <- (*net.TCPAddr)(conn.RemoteAddr().(*net.UDPAddr))
+				case *net.UnixAddr:
+					addrChan <- conn.RemoteAddr()
+				}
 
 				conn.Close()
 			}
@@ -468,31 +472,29 @@ func resolveAddr(addr string) (net.Addr, error) {
 	}
 
 	// Wait for the result of IPv4, v6 and Unix Domain Socket resolution. Use IPv4 if available.
-
+outer:
 	for raddr := range addrChan {
 		i++
-		if raddr == nil && i < 3 {
-			continue
-		} else if raddr == nil {
-			break
-		}
 
-		_, isunix := raddr.(*net.UnixAddr)
+		switch raddr.(type) {
+		case *net.TCPAddr:
+			tcpaddr := (*net.TCPAddr)(raddr.(*net.TCPAddr))
+			if len(tcpaddr.IP) != 4 {
+				// Don't wait too long if an IPv6 address is known.
+				timeout := time.After(50 * time.Millisecond)
+				<-timeout
+			}
 
-		if isunix {
-			return raddr, nil
-		}
+			if tcpaddr.String() != addr {
+				debug("SYNC Address ", addr, " resolved as ", tcpaddr.String())
+			}
 
-		tcpaddr := (*net.TCPAddr)(raddr.(*net.UDPAddr))
+		case nil:
+			if i < 3 {
+				continue outer
+			}
+			break outer
 
-		if len(tcpaddr.IP) != 4 {
-			// Don't wait too long if an IPv6 address is known.
-			timeout := time.After(50 * time.Millisecond)
-			<-timeout
-		}
-
-		if tcpaddr.String() != addr {
-			debug("SYNC Address ", addr, " resolved as ", tcpaddr.String())
 		}
 
 		return raddr, nil

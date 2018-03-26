@@ -696,9 +696,6 @@ func (addr *ServerAddr) String() string {
 
 // TCPAddr returns the resolved TCP address for the server.
 func (addr *ServerAddr) TCPAddr() *net.TCPAddr {
-	if udp, isudp := addr.addr.(*net.UDPAddr); isudp {
-		return (*net.TCPAddr)(udp)
-	}
 	return (*net.TCPAddr)(addr.addr.(*net.TCPAddr))
 }
 
