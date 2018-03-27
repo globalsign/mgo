@@ -1,9 +1,29 @@
 package bson
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 )
+
+const (
+	// Minimal BSON document: int32 (size) + 0x00 (end of document)
+	minDocumentSize = 5
+	// Max size = 16 MiB
+	// (see https://docs.mongodb.com/manual/reference/limits/)
+	maxDocumentSize = 16777216
+)
+
+// ErrInvalidDocumentSize is an error returned when a BSON document's header
+// contains a size smaller than minDocumentSize or greater than maxDocumentSize.
+type ErrInvalidDocumentSize struct {
+	DocumentSize int32
+}
+
+func (e ErrInvalidDocumentSize) Error() string {
+	return fmt.Sprintf("invalid document size %d", e.DocumentSize)
+}
 
 // A Decoder reads and decodes BSON values from an input stream.
 type Decoder struct {
@@ -18,26 +38,31 @@ func NewDecoder(source io.Reader) *Decoder {
 
 // Decode reads the next BSON-encoded value from its input and stores it in the value pointed to by v.
 // See the documentation for Unmarshal for details about the conversion of BSON into a Go value.
-func (dec *Decoder) Decode(v interface{}) error {
-	// BSON documents start with their size as a uint32.
-	document := make([]byte, 4)
-
-	if _, err := io.ReadFull(dec.source, document); err != nil {
-		return err
+func (dec *Decoder) Decode(v interface{}) (err error) {
+	// BSON documents start with their size as a *signed* int32.
+	var docSize int32
+	if err = binary.Read(dec.source, binary.LittleEndian, &docSize); err != nil {
+		return
 	}
 
-	docSize := int(binary.LittleEndian.Uint32(document))
-
-	// Read the rest of the BSON document.
-	tailSize := docSize - 4
-	tail := make([]byte, tailSize)
-	if _, err := io.ReadFull(dec.source, tail); err != nil {
-		return err
+	if docSize < minDocumentSize || docSize > maxDocumentSize {
+		return ErrInvalidDocumentSize{DocumentSize: docSize}
 	}
-	document = append(document, tail...)
+
+	docBuffer := bytes.NewBuffer(make([]byte, 0, docSize))
+	if err = binary.Write(docBuffer, binary.LittleEndian, docSize); err != nil {
+		return
+	}
+
+	// docSize is the *full* document's size (including the 4-byte size header,
+	// which has already been read).
+	if _, err = io.CopyN(docBuffer, dec.source, int64(docSize-4)); err != nil {
+		return
+	}
 
 	// Let Unmarshal handle the rest.
-	return Unmarshal(document, v)
+	defer handleErr(&err)
+	return Unmarshal(docBuffer.Bytes(), v)
 }
 
 // An Encoder encodes and writes BSON values to an output stream.
