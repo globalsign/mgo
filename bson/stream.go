@@ -8,15 +8,17 @@ import (
 )
 
 const (
-	// Minimal BSON document: int32 (size) + 0x00 (end of document)
-	minDocumentSize = 5
-	// Max size = 16 MiB
-	// (see https://docs.mongodb.com/manual/reference/limits/)
-	maxDocumentSize = 16777216
+	// MinDocumentSize is the size of the smallest possible valid BSON document:
+	// an int32 size header + 0x00 (end of document).
+	MinDocumentSize = 5
+
+	// MaxDocumentSize is the largest possible size for a BSON document allowed by MongoDB,
+	// that is, 16 MiB (see https://docs.mongodb.com/manual/reference/limits/).
+	MaxDocumentSize = 16777216
 )
 
 // ErrInvalidDocumentSize is an error returned when a BSON document's header
-// contains a size smaller than minDocumentSize or greater than maxDocumentSize.
+// contains a size smaller than MinDocumentSize or greater than MaxDocumentSize.
 type ErrInvalidDocumentSize struct {
 	DocumentSize int32
 }
@@ -45,7 +47,7 @@ func (dec *Decoder) Decode(v interface{}) (err error) {
 		return
 	}
 
-	if docSize < minDocumentSize || docSize > maxDocumentSize {
+	if docSize < MinDocumentSize || docSize > MaxDocumentSize {
 		return ErrInvalidDocumentSize{DocumentSize: docSize}
 	}
 
