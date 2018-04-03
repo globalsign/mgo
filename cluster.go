@@ -618,9 +618,17 @@ func (cluster *mongoCluster) syncServersIteration(direct bool) {
 // true, it will attempt to return a socket to a slave server.  If it is
 // false, the socket will necessarily be to a master server.
 func (cluster *mongoCluster) AcquireSocket(mode Mode, slaveOk bool, syncTimeout time.Duration, socketTimeout time.Duration, serverTags []bson.D, poolLimit int) (s *mongoSocket, err error) {
+	return cluster.AcquireSocketWithPoolTimeout(mode, slaveOk, syncTimeout, socketTimeout, serverTags, poolLimit, 0)
+}
+
+// AcquireSocketWithPoolTimeout returns a socket to a server in the cluster.  If slaveOk is
+// true, it will attempt to return a socket to a slave server.  If it is
+// false, the socket will necessarily be to a master server.
+func (cluster *mongoCluster) AcquireSocketWithPoolTimeout(
+	mode Mode, slaveOk bool, syncTimeout time.Duration, socketTimeout time.Duration, serverTags []bson.D, poolLimit int, poolTimeout time.Duration,
+) (s *mongoSocket, err error) {
 	var started time.Time
 	var syncCount uint
-	warnedLimit := false
 	for {
 		cluster.RLock()
 		for {
@@ -662,14 +670,10 @@ func (cluster *mongoCluster) AcquireSocket(mode Mode, slaveOk bool, syncTimeout 
 			continue
 		}
 
-		s, abended, err := server.AcquireSocket(poolLimit, socketTimeout)
-		if err == errPoolLimit {
-			if !warnedLimit {
-				warnedLimit = true
-				log("WARNING: Per-server connection limit reached.")
-			}
-			time.Sleep(100 * time.Millisecond)
-			continue
+		s, abended, err := server.AcquireSocketWithBlocking(poolLimit, socketTimeout, poolTimeout)
+		if err == errPoolTimeout {
+			// No need to remove servers from the topology if acquiring a socket fails for this reason.
+			return nil, err
 		}
 		if err != nil {
 			cluster.removeServer(server)

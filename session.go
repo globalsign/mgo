@@ -92,6 +92,7 @@ type Session struct {
 	syncTimeout      time.Duration
 	sockTimeout      time.Duration
 	poolLimit        int
+	poolTimeout      time.Duration
 	consistency      Mode
 	creds            []Credential
 	dialCred         *Credential
@@ -486,6 +487,11 @@ type DialInfo struct {
 	// See Session.SetPoolLimit for details.
 	PoolLimit int
 
+	// PoolTimeout defines max time to wait for a connection to become available
+	// if the pool limit is reaqched. Defaults to zero, which means forever.
+	// See Session.SetPoolTimeout for details
+	PoolTimeout time.Duration
+
 	// The identifier of the client application which ran the operation.
 	AppName string
 
@@ -595,6 +601,10 @@ func DialWithInfo(info *DialInfo) (*Session, error) {
 
 	cluster.minPoolSize = info.MinPoolSize
 	cluster.maxIdleTimeMS = info.MaxIdleTimeMS
+
+	if info.PoolTimeout > 0 {
+		session.poolTimeout = info.PoolTimeout
+	}
 
 	cluster.Release()
 
@@ -711,6 +721,7 @@ func copySession(session *Session, keepCreds bool) (s *Session) {
 		syncTimeout:      session.syncTimeout,
 		sockTimeout:      session.sockTimeout,
 		poolLimit:        session.poolLimit,
+		poolTimeout:      session.poolTimeout,
 		consistency:      session.consistency,
 		creds:            creds,
 		dialCred:         session.dialCred,
@@ -2048,6 +2059,16 @@ func (s *Session) SetCursorTimeout(d time.Duration) {
 func (s *Session) SetPoolLimit(limit int) {
 	s.m.Lock()
 	s.poolLimit = limit
+	s.m.Unlock()
+}
+
+// SetPoolTimeout sets the maxinum time connection attempts will wait to reuse
+// an existing connection from the pool if the PoolLimit has been reached. If
+// the value is exceeded, the attempt to use a session will fail with an error.
+// The default value is zero, which means to wait forever with no timeout.
+func (s *Session) SetPoolTimeout(timeout time.Duration) {
+	s.m.Lock()
+	s.poolTimeout = timeout
 	s.m.Unlock()
 }
 
@@ -4908,7 +4929,9 @@ func (s *Session) acquireSocket(slaveOk bool) (*mongoSocket, error) {
 	}
 
 	// Still not good.  We need a new socket.
-	sock, err := s.cluster().AcquireSocket(s.consistency, slaveOk && s.slaveOk, s.syncTimeout, s.sockTimeout, s.queryConfig.op.serverTags, s.poolLimit)
+	sock, err := s.cluster().AcquireSocketWithPoolTimeout(
+		s.consistency, slaveOk && s.slaveOk, s.syncTimeout, s.sockTimeout, s.queryConfig.op.serverTags, s.poolLimit, s.poolTimeout,
+	)
 	if err != nil {
 		return nil, err
 	}
