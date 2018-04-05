@@ -10,6 +10,31 @@
 //
 //     session, err := mgo.Dial(url)
 //
+// If you wish to dial via SSL, or the cluster force a SSL connection
+// (e.g. MongoDB Atlas), the code gets a bit more complex:
+//
+//	import (
+//		"log"
+//		"crypto/tls"
+//		"github.com/globalsign/mgo"
+//		"net"
+//	)
+//
+//	func main() {
+//		dialInfo, err := mgo.ParseURL(url)
+//
+//		tlsConfig := &tls.Config{}
+//		dialInfo.DialServer = func(addr *mgo.ServerAddr) (net.Conn, error) {
+//			conn, err := tls.Dial("tcp", addr.String(), tlsConfig)
+//			return conn, err
+//		}
+//		session, err := mgo.DialWithInfo(dialInfo)
+//		if err != nil {
+//			log.Fatal(err)
+//		}
+//		// and so on
+//	}
+//
 // This will establish one or more connections with the cluster of
 // servers defined by the url parameter.  From then on, the cluster
 // may be queried with multiple consistency rules (see SetMode) and
