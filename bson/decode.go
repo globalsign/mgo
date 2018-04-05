@@ -308,7 +308,7 @@ func (d *decoder) readDocTo(out reflect.Value) {
 	d.docType = docType
 }
 
-func (d *decoder) parseMapKeyAsFloat(k reflect.Value, mapKeyKind reflect.Kind) float64 {
+func (decoder) parseMapKeyAsFloat(k reflect.Value, mapKeyKind reflect.Kind) float64 {
 	parsed, err := strconv.ParseFloat(k.String(), 64)
 	if err != nil {
 		panic("Map key is defined to be a decimal type (" + mapKeyKind.String() + ") but got error " +
