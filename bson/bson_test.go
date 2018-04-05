@@ -582,6 +582,8 @@ func (s *S) TestMarshalOneWayItems(c *C) {
 // --------------------------------------------------------------------------
 // One-way unmarshaling tests.
 
+type intAlias int
+
 var unmarshalItems = []testItemType{
 	// Field is private.  Should not attempt to unmarshal it.
 	{&struct{ priv byte }{},
@@ -636,6 +638,14 @@ var unmarshalItems = []testItemType{
 	// Decode a doc within a doc in to a slice within a doc; shouldn't error
 	{&struct{ Foo []string }{},
 		"\x03\x66\x6f\x6f\x00\x05\x00\x00\x00\x00"},
+
+	// int key maps
+	{map[int]string{10: "s"},
+		"\x0210\x00\x02\x00\x00\x00s\x00"},
+
+	//// event if type is alias to int
+	{map[intAlias]string{10: "s"},
+		"\x0210\x00\x02\x00\x00\x00s\x00"},
 }
 
 func (s *S) TestUnmarshalOneWayItems(c *C) {
@@ -713,11 +723,6 @@ var unmarshalErrorItems = []unmarshalErrorType{
 		"\x10name\x00\x08\x00\x00\x00",
 		"Duplicated key 'name' in struct bson_test.structWithDupKeys"},
 
-	// Non-string map key.
-	{map[int]interface{}{},
-		"\x10name\x00\x08\x00\x00\x00",
-		"BSON map must have string keys. Got: map\\[int\\]interface \\{\\}"},
-
 	{nil,
 		"\xEEname\x00",
 		"Unknown element kind \\(0xEE\\)"},
@@ -733,6 +738,11 @@ var unmarshalErrorItems = []unmarshalErrorType{
 	{nil,
 		"\x08\x62\x00\x02",
 		"encoded boolean must be 1 or 0, found 2"},
+
+	// Non-string and not numeric map key.
+	{map[bool]interface{}{true: 1},
+		"\x10true\x00\x01\x00\x00\x00",
+		"BSON map must have string or decimal keys. Got: map\\[bool\\]interface \\{\\}"},
 }
 
 func (s *S) TestUnmarshalErrorItems(c *C) {
@@ -1136,8 +1146,8 @@ type inlineBadKeyMap struct {
 	M map[int]int `bson:",inline"`
 }
 type inlineUnexported struct {
-	M          map[string]interface{} `bson:",inline"`
-	unexported `bson:",inline"`
+	M map[string]interface{} `bson:",inline"`
+	unexported               `bson:",inline"`
 }
 type unexported struct {
 	A int
@@ -1194,11 +1204,11 @@ func (s ifaceSlice) GetBSON() (interface{}, error) {
 
 type (
 	MyString string
-	MyBytes  []byte
-	MyBool   bool
-	MyD      []bson.DocElem
-	MyRawD   []bson.RawDocElem
-	MyM      map[string]interface{}
+	MyBytes []byte
+	MyBool bool
+	MyD []bson.DocElem
+	MyRawD []bson.RawDocElem
+	MyM map[string]interface{}
 )
 
 var (

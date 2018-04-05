@@ -194,7 +194,7 @@ func (e *encoder) addDoc(v reflect.Value) {
 
 func (e *encoder) addMap(v reflect.Value) {
 	for _, k := range v.MapKeys() {
-		e.addElem(k.String(), v.MapIndex(k), false)
+		e.addElem(fmt.Sprint(k), v.MapIndex(k), false)
 	}
 }
 
