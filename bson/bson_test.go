@@ -34,9 +34,9 @@ import (
 	"errors"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
-	"strings"
 
 	"github.com/globalsign/mgo/bson"
 	. "gopkg.in/check.v1"
@@ -111,6 +111,10 @@ var sampleItems = []testItemType{
 	{bson.M{"BSON": []interface{}{"awesome", float64(5.05), 1986}},
 		"1\x00\x00\x00\x04BSON\x00&\x00\x00\x00\x020\x00\x08\x00\x00\x00" +
 			"awesome\x00\x011\x00333333\x14@\x102\x00\xc2\x07\x00\x00\x00\x00"},
+	{bson.M{"slice": []uint8{1, 2}},
+		"\x13\x00\x00\x00\x05slice\x00\x02\x00\x00\x00\x00\x01\x02\x00"},
+	{bson.M{"slice": []byte{1, 2}},
+		"\x13\x00\x00\x00\x05slice\x00\x02\x00\x00\x00\x00\x01\x02\x00"},
 }
 
 func (s *S) TestMarshalSampleItems(c *C) {
@@ -336,6 +340,27 @@ var oneWayMarshalItems = []testItemType{
 
 func (s *S) TestOneWayMarshalItems(c *C) {
 	for i, item := range oneWayMarshalItems {
+		data, err := bson.Marshal(item.obj)
+		c.Assert(err, IsNil)
+		c.Assert(string(data), Equals, wrapInDoc(item.data),
+			Commentf("Failed on item %d", i))
+	}
+}
+
+// --------------------------------------------------------------------------
+// Some ops marshaling operations which would encode []uint8 or []byte in array.
+
+var arrayOpsMarshalItems = []testItemType{
+	{bson.M{"_": bson.M{"$in": []uint8{1, 2}}},
+		"\x03_\x00\x1d\x00\x00\x00\x04$in\x00\x13\x00\x00\x00\x100\x00\x01\x00\x00\x00\x101\x00\x02\x00\x00\x00\x00\x00"},
+	{bson.M{"_": bson.M{"$nin": []uint8{1, 2}}},
+		"\x03_\x00\x1e\x00\x00\x00\x04$nin\x00\x13\x00\x00\x00\x100\x00\x01\x00\x00\x00\x101\x00\x02\x00\x00\x00\x00\x00"},
+	{bson.M{"_": bson.M{"$all": []uint8{1, 2}}},
+		"\x03_\x00\x1e\x00\x00\x00\x04$all\x00\x13\x00\x00\x00\x100\x00\x01\x00\x00\x00\x101\x00\x02\x00\x00\x00\x00\x00"},
+}
+
+func (s *S) TestArrayOpsMarshalItems(c *C) {
+	for i, item := range arrayOpsMarshalItems {
 		data, err := bson.Marshal(item.obj)
 		c.Assert(err, IsNil)
 		c.Assert(string(data), Equals, wrapInDoc(item.data),

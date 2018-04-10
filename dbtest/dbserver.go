@@ -69,6 +69,8 @@ func (dbs *DBServer) start() {
 	dbs.server.Stderr = &dbs.output
 	err = dbs.server.Start()
 	if err != nil {
+		// print error to facilitate troubleshooting as the panic will be caught in a panic handler
+		fmt.Fprintf(os.Stderr, "mongod failed to start: %v\n",err)
 		panic(err)
 	}
 	dbs.tomb.Go(dbs.monitor)

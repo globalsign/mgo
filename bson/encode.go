@@ -60,6 +60,15 @@ var (
 	typeTimeDuration   = reflect.TypeOf(time.Duration(0))
 )
 
+var (
+	// spec for []uint8 or []byte encoding
+	arrayOps = map[string]bool{
+		"$in":  true,
+		"$nin": true,
+		"$all": true,
+	}
+)
+
 const itoaCacheSize = 32
 
 const (
@@ -423,8 +432,13 @@ func (e *encoder) addElem(name string, v reflect.Value, minSize bool) {
 		vt := v.Type()
 		et := vt.Elem()
 		if et.Kind() == reflect.Uint8 {
-			e.addElemName(0x05, name)
-			e.addBinary(0x00, v.Bytes())
+			if arrayOps[name] {
+				e.addElemName(0x04, name)
+				e.addDoc(v)
+			} else {
+				e.addElemName(0x05, name)
+				e.addBinary(0x00, v.Bytes())
+			}
 		} else if et == typeDocElem || et == typeRawDocElem {
 			e.addElemName(0x03, name)
 			e.addDoc(v)
@@ -436,16 +450,21 @@ func (e *encoder) addElem(name string, v reflect.Value, minSize bool) {
 	case reflect.Array:
 		et := v.Type().Elem()
 		if et.Kind() == reflect.Uint8 {
-			e.addElemName(0x05, name)
-			if v.CanAddr() {
-				e.addBinary(0x00, v.Slice(0, v.Len()).Interface().([]byte))
+			if arrayOps[name] {
+				e.addElemName(0x04, name)
+				e.addDoc(v)
 			} else {
-				n := v.Len()
-				e.addInt32(int32(n))
-				e.addBytes(0x00)
-				for i := 0; i < n; i++ {
-					el := v.Index(i)
-					e.addBytes(byte(el.Uint()))
+				e.addElemName(0x05, name)
+				if v.CanAddr() {
+					e.addBinary(0x00, v.Slice(0, v.Len()).Interface().([]byte))
+				} else {
+					n := v.Len()
+					e.addInt32(int32(n))
+					e.addBytes(0x00)
+					for i := 0; i < n; i++ {
+						el := v.Index(i)
+						e.addBytes(byte(el.Uint()))
+					}
 				}
 			}
 		} else {

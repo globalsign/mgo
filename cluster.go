@@ -48,21 +48,23 @@ import (
 
 type mongoCluster struct {
 	sync.RWMutex
-	serverSynced sync.Cond
-	userSeeds    []string
-	dynaSeeds    []string
-	servers      mongoServers
-	masters      mongoServers
-	references   int
-	syncing      bool
-	direct       bool
-	failFast     bool
-	syncCount    uint
-	setName      string
-	cachedIndex  map[string]bool
-	sync         chan bool
-	dial         dialer
-	appName      string
+	serverSynced  sync.Cond
+	userSeeds     []string
+	dynaSeeds     []string
+	servers       mongoServers
+	masters       mongoServers
+	references    int
+	syncing       bool
+	direct        bool
+	failFast      bool
+	syncCount     uint
+	setName       string
+	cachedIndex   map[string]bool
+	sync          chan bool
+	dial          dialer
+	appName       string
+	minPoolSize   int
+	maxIdleTimeMS int
 }
 
 func newCluster(userSeeds []string, direct, failFast bool, dial dialer, setName string, appName string) *mongoCluster {
@@ -437,11 +439,13 @@ func (cluster *mongoCluster) syncServersLoop() {
 func (cluster *mongoCluster) server(addr string, tcpaddr *net.TCPAddr) *mongoServer {
 	cluster.RLock()
 	server := cluster.servers.Search(tcpaddr.String())
+	minPoolSize := cluster.minPoolSize
+	maxIdleTimeMS := cluster.maxIdleTimeMS
 	cluster.RUnlock()
 	if server != nil {
 		return server
 	}
-	return newServer(addr, tcpaddr, cluster.sync, cluster.dial)
+	return newServer(addr, tcpaddr, cluster.sync, cluster.dial, minPoolSize, maxIdleTimeMS)
 }
 
 func resolveAddr(addr string) (*net.TCPAddr, error) {
@@ -614,9 +618,17 @@ func (cluster *mongoCluster) syncServersIteration(direct bool) {
 // true, it will attempt to return a socket to a slave server.  If it is
 // false, the socket will necessarily be to a master server.
 func (cluster *mongoCluster) AcquireSocket(mode Mode, slaveOk bool, syncTimeout time.Duration, socketTimeout time.Duration, serverTags []bson.D, poolLimit int) (s *mongoSocket, err error) {
+	return cluster.AcquireSocketWithPoolTimeout(mode, slaveOk, syncTimeout, socketTimeout, serverTags, poolLimit, 0)
+}
+
+// AcquireSocketWithPoolTimeout returns a socket to a server in the cluster.  If slaveOk is
+// true, it will attempt to return a socket to a slave server.  If it is
+// false, the socket will necessarily be to a master server.
+func (cluster *mongoCluster) AcquireSocketWithPoolTimeout(
+	mode Mode, slaveOk bool, syncTimeout time.Duration, socketTimeout time.Duration, serverTags []bson.D, poolLimit int, poolTimeout time.Duration,
+) (s *mongoSocket, err error) {
 	var started time.Time
 	var syncCount uint
-	warnedLimit := false
 	for {
 		cluster.RLock()
 		for {
@@ -658,14 +670,10 @@ func (cluster *mongoCluster) AcquireSocket(mode Mode, slaveOk bool, syncTimeout 
 			continue
 		}
 
-		s, abended, err := server.AcquireSocket(poolLimit, socketTimeout)
-		if err == errPoolLimit {
-			if !warnedLimit {
-				warnedLimit = true
-				log("WARNING: Per-server connection limit reached.")
-			}
-			time.Sleep(100 * time.Millisecond)
-			continue
+		s, abended, err := server.AcquireSocketWithBlocking(poolLimit, socketTimeout, poolTimeout)
+		if err == errPoolTimeout {
+			// No need to remove servers from the topology if acquiring a socket fails for this reason.
+			return nil, err
 		}
 		if err != nil {
 			cluster.removeServer(server)
