@@ -1171,8 +1171,8 @@ type inlineBadKeyMap struct {
 	M map[int]int `bson:",inline"`
 }
 type inlineUnexported struct {
-	M map[string]interface{} `bson:",inline"`
-	unexported               `bson:",inline"`
+	M          map[string]interface{} `bson:",inline"`
+	unexported `bson:",inline"`
 }
 type unexported struct {
 	A int
@@ -1229,11 +1229,11 @@ func (s ifaceSlice) GetBSON() (interface{}, error) {
 
 type (
 	MyString string
-	MyBytes []byte
-	MyBool bool
-	MyD []bson.DocElem
-	MyRawD []bson.RawDocElem
-	MyM map[string]interface{}
+	MyBytes  []byte
+	MyBool   bool
+	MyD      []bson.DocElem
+	MyRawD   []bson.RawDocElem
+	MyM      map[string]interface{}
 )
 
 var (
@@ -1887,4 +1887,60 @@ func (s *S) BenchmarkNewObjectId(c *C) {
 	for i := 0; i < c.N; i++ {
 		bson.NewObjectId()
 	}
+}
+
+func (s *S) TestMarshalRespectNil(c *C) {
+	type T struct {
+		Slice    []int
+		SlicePtr *[]int
+		Ptr      *int
+		Map      map[string]interface{}
+		MapPtr   *map[string]interface{}
+	}
+
+	bson.SetRespectNilValues(true)
+	defer bson.SetRespectNilValues(false)
+
+	testStruct1 := T{}
+
+	c.Assert(testStruct1.Slice, IsNil)
+	c.Assert(testStruct1.SlicePtr, IsNil)
+	c.Assert(testStruct1.Map, IsNil)
+	c.Assert(testStruct1.MapPtr, IsNil)
+	c.Assert(testStruct1.Ptr, IsNil)
+
+	b, _ := bson.Marshal(testStruct1)
+
+	testStruct2 := T{}
+
+	bson.Unmarshal(b, &testStruct2)
+
+	c.Assert(testStruct2.Slice, IsNil)
+	c.Assert(testStruct2.SlicePtr, IsNil)
+	c.Assert(testStruct2.Map, IsNil)
+	c.Assert(testStruct2.MapPtr, IsNil)
+	c.Assert(testStruct2.Ptr, IsNil)
+
+	testStruct1 = T{
+		Slice:    []int{},
+		SlicePtr: &[]int{},
+		Map:      map[string]interface{}{},
+		MapPtr:   &map[string]interface{}{},
+	}
+
+	c.Assert(testStruct1.Slice, NotNil)
+	c.Assert(testStruct1.SlicePtr, NotNil)
+	c.Assert(testStruct1.Map, NotNil)
+	c.Assert(testStruct1.MapPtr, NotNil)
+
+	b, _ = bson.Marshal(testStruct1)
+
+	testStruct2 = T{}
+
+	bson.Unmarshal(b, &testStruct2)
+
+	c.Assert(testStruct2.Slice, NotNil)
+	c.Assert(testStruct2.SlicePtr, NotNil)
+	c.Assert(testStruct2.Map, NotNil)
+	c.Assert(testStruct2.MapPtr, NotNil)
 }
