@@ -746,6 +746,14 @@ func getStructInfo(st reflect.Type) (*structInfo, error) {
 					return nil, errors.New("Option ,inline needs a map with string keys in struct " + st.String())
 				}
 				inlineMap = info.Num
+			case reflect.Ptr:
+				// allow only pointer to struct
+				if field.Type.Elem().Kind() != reflect.Struct {
+					break
+				}
+
+				field.Type = field.Type.Elem()
+				fallthrough
 			case reflect.Struct:
 				sinfo, err := getStructInfo(field.Type)
 				if err != nil {

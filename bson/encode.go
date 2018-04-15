@@ -220,13 +220,34 @@ func (e *encoder) addStruct(v reflect.Value) {
 		if info.Inline == nil {
 			value = v.Field(info.Num)
 		} else {
-			value = v.FieldByIndex(info.Inline)
+			field, errField := safeFieldByIndex(v, info.Inline)
+			if errField != nil {
+				continue
+			}
+
+			value = field
 		}
 		if info.OmitEmpty && isZero(value) {
 			continue
 		}
 		e.addElem(info.Key, value, info.MinSize)
 	}
+}
+
+func safeFieldByIndex(v reflect.Value, index []int) (result reflect.Value, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			switch r := recovered.(type) {
+			case string:
+				err = fmt.Errorf("%s", r)
+			case error:
+				err = r
+			}
+		}
+	}()
+
+	result = v.FieldByIndex(index)
+	return
 }
 
 func isZero(v reflect.Value) bool {
