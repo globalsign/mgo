@@ -16,10 +16,14 @@ func JSONTagFallbackState() bool {
 	return useJSONTagFallback
 }
 
+// SetRespectNilValues enables or disables serializing nil slices or maps to `null` values.
+// In other words it enables `encoding/json` compatible behaviour.
 func SetRespectNilValues(state bool) {
 	useRespectNilValues = state
 }
 
+// RespectNilValuesState returns the current status of the JSON nil slices and maps fallback compatibility option.
+// See SetRespectNilValues for more information.
 func RespectNilValuesState() bool {
 	return useRespectNilValues
 }
