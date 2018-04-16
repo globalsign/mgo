@@ -1171,8 +1171,8 @@ type inlineBadKeyMap struct {
 	M map[int]int `bson:",inline"`
 }
 type inlineUnexported struct {
-	M          map[string]interface{} `bson:",inline"`
-	unexported `bson:",inline"`
+	M map[string]interface{} `bson:",inline"`
+	unexported               `bson:",inline"`
 }
 type unexported struct {
 	A int
@@ -1229,11 +1229,11 @@ func (s ifaceSlice) GetBSON() (interface{}, error) {
 
 type (
 	MyString string
-	MyBytes  []byte
-	MyBool   bool
-	MyD      []bson.DocElem
-	MyRawD   []bson.RawDocElem
-	MyM      map[string]interface{}
+	MyBytes []byte
+	MyBool bool
+	MyD []bson.DocElem
+	MyRawD []bson.RawDocElem
+	MyM map[string]interface{}
 )
 
 var (
