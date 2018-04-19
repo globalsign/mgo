@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func TestcoarseTimeProvider(t *testing.T) {
+func TestCoarseTimeProvider(t *testing.T) {
 	t.Parallel()
 
 	const granularity = 50 * time.Millisecond
