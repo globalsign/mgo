@@ -4969,6 +4969,19 @@ func (s *S) TestCollationQueries(c *C) {
 	}
 }
 
+func (s *S) TestDialTimeouts(c *C) {
+	info := &mgo.DialInfo{}
+
+	c.Assert(info.readTimeout(), Equals, mgo.DefaultReadTimeout)
+	c.Assert(info.writeTimeout(), Equals, mgo.DefaultWriteTimeout)
+
+	info.ReadTimeout = time.Second
+	c.Assert(info.readTimeout(), Equals, time.Second)
+
+	info.WriteTimewut = time.Second
+	c.Assert(info.writeTimeout(), Equals, time.Second)
+}
+
 // --------------------------------------------------------------------------
 // Some benchmarks that require a running database.
 

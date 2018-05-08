@@ -124,21 +124,23 @@ var errServerClosed = errors.New("server was closed")
 // use in this server is greater than the provided limit, errPoolLimit is
 // returned.
 func (server *mongoServer) AcquireSocket(poolLimit int, timeout time.Duration) (socket *mongoSocket, abended bool, err error) {
-	return server.acquireSocketInternal(poolLimit, timeout, false, 0*time.Millisecond)
+	info := &DialInfo{
+		PoolLimit:    poolLimit,
+		ReadTimeout:  timeout,
+		WriteTimeout: timeout,
+		Timeout:      timeout,
+	}
+	return server.acquireSocketInternal(info, false)
 }
 
 // AcquireSocketWithBlocking wraps AcquireSocket, but if a socket is not available, it will _not_
 // return errPoolLimit. Instead, it will block waiting for a socket to become available. If poolTimeout
 // should elapse before a socket is available, it will return errPoolTimeout.
-func (server *mongoServer) AcquireSocketWithBlocking(
-	poolLimit int, socketTimeout time.Duration, poolTimeout time.Duration,
-) (socket *mongoSocket, abended bool, err error) {
-	return server.acquireSocketInternal(poolLimit, socketTimeout, true, poolTimeout)
+func (server *mongoServer) AcquireSocketWithBlocking(info *DialInfo) (socket *mongoSocket, abended bool, err error) {
+	return server.acquireSocketInternal(info, true)
 }
 
-func (server *mongoServer) acquireSocketInternal(
-	poolLimit int, timeout time.Duration, shouldBlock bool, poolTimeout time.Duration,
-) (socket *mongoSocket, abended bool, err error) {
+func (server *mongoServer) acquireSocketInternal(info *DialInfo, shouldBlock bool) (socket *mongoSocket, abended bool, err error) {
 	for {
 		server.Lock()
 		abended = server.abended
@@ -146,7 +148,7 @@ func (server *mongoServer) acquireSocketInternal(
 			server.Unlock()
 			return nil, abended, errServerClosed
 		}
-		if poolLimit > 0 {
+		if info.poolLimit() > 0 {
 			if shouldBlock {
 				// Beautiful. Golang conditions don't have a WaitWithTimeout, so I've implemented the timeout
 				// with a wait + broadcast. The broadcast will cause the loop here to re-check the timeout,
@@ -158,11 +160,11 @@ func (server *mongoServer) acquireSocketInternal(
 				// https://github.com/golang/go/issues/16620, since the lock needs to be held in _this_ goroutine.
 				waitDone := make(chan struct{})
 				timeoutHit := false
-				if poolTimeout > 0 {
+				if info.PoolTimeout > 0 {
 					go func() {
 						select {
 						case <-waitDone:
-						case <-time.After(poolTimeout):
+						case <-time.After(info.PoolTimeout):
 							// timeoutHit is part of the wait condition, so needs to be changed under mutex.
 							server.Lock()
 							defer server.Unlock()
@@ -172,7 +174,7 @@ func (server *mongoServer) acquireSocketInternal(
 					}()
 				}
 				timeSpentWaiting := time.Duration(0)
-				for len(server.liveSockets)-len(server.unusedSockets) >= poolLimit && !timeoutHit {
+				for len(server.liveSockets)-len(server.unusedSockets) >= info.poolLimit() && !timeoutHit {
 					// We only count time spent in Wait(), and not time evaluating the entire loop,
 					// so that in the happy non-blocking path where the condition above evaluates true
 					// first time, we record a nice round zero wait time.
@@ -191,7 +193,7 @@ func (server *mongoServer) acquireSocketInternal(
 				// Record that we fetched a connection of of a socket list and how long we spent waiting
 				stats.noticeSocketAcquisition(timeSpentWaiting)
 			} else {
-				if len(server.liveSockets)-len(server.unusedSockets) >= poolLimit {
+				if len(server.liveSockets)-len(server.unusedSockets) >= info.poolLimit() {
 					server.Unlock()
 					return nil, false, errPoolLimit
 				}
@@ -202,15 +204,15 @@ func (server *mongoServer) acquireSocketInternal(
 			socket = server.unusedSockets[n-1]
 			server.unusedSockets[n-1] = nil // Help GC.
 			server.unusedSockets = server.unusedSockets[:n-1]
-			info := server.info
+			serverInfo := server.info
 			server.Unlock()
-			err = socket.InitialAcquire(info, timeout)
+			err = socket.InitialAcquire(serverInfo, info)
 			if err != nil {
 				continue
 			}
 		} else {
 			server.Unlock()
-			socket, err = server.Connect(timeout)
+			socket, err = server.Connect(info)
 			if err == nil {
 				server.Lock()
 				// We've waited for the Connect, see if we got
@@ -231,20 +233,18 @@ func (server *mongoServer) acquireSocketInternal(
 
 // Connect establishes a new connection to the server. This should
 // generally be done through server.AcquireSocket().
-func (server *mongoServer) Connect(timeout time.Duration) (*mongoSocket, error) {
+func (server *mongoServer) Connect(info *DialInfo) (*mongoSocket, error) {
 	server.RLock()
 	master := server.info.Master
 	dial := server.dial
 	server.RUnlock()
 
-	logf("Establishing new connection to %s (timeout=%s)...", server.Addr, timeout)
+	logf("Establishing new connection to %s (timeout=%s)...", server.Addr, info.Timeout)
 	var conn net.Conn
 	var err error
 	switch {
 	case !dial.isSet():
-		// Cannot do this because it lacks timeout support. :-(
-		//conn, err = net.DialTCP("tcp", nil, server.tcpaddr)
-		conn, err = net.DialTimeout("tcp", server.ResolvedAddr, timeout)
+		conn, err = net.DialTimeout("tcp", server.ResolvedAddr, info.Timeout)
 		if tcpconn, ok := conn.(*net.TCPConn); ok {
 			tcpconn.SetKeepAlive(true)
 		} else if err == nil {
@@ -264,7 +264,7 @@ func (server *mongoServer) Connect(timeout time.Duration) (*mongoSocket, error) 
 	logf("Connection to %s established.", server.Addr)
 
 	stats.conn(+1, master)
-	return newSocket(server, conn, timeout), nil
+	return newSocket(server, conn, info), nil
 }
 
 // Close forces closing all sockets that are alive, whether

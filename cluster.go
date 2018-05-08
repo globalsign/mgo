@@ -146,8 +146,17 @@ type isMasterResult struct {
 }
 
 func (cluster *mongoCluster) isMaster(socket *mongoSocket, result *isMasterResult) error {
+	// I'm not really sure why the timeout was hard coded to these values (I
+	// assume because everything is passed as a func arg, and thus this info is
+	// unavailable here), but leaving them as is for backwards compatibility.
+	config := &DialInfo{
+		Timeout:      10 * time.Second,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+
 	// Monotonic let's it talk to a slave and still hold the socket.
-	session := newSession(Monotonic, cluster, 10*time.Second)
+	session := newSession(Monotonic, cluster, config)
 	session.setSocket(socket)
 
 	var cmd = bson.D{{Name: "isMaster", Value: 1}}
@@ -624,9 +633,7 @@ func (cluster *mongoCluster) AcquireSocket(mode Mode, slaveOk bool, syncTimeout 
 // AcquireSocketWithPoolTimeout returns a socket to a server in the cluster.  If slaveOk is
 // true, it will attempt to return a socket to a slave server.  If it is
 // false, the socket will necessarily be to a master server.
-func (cluster *mongoCluster) AcquireSocketWithPoolTimeout(
-	mode Mode, slaveOk bool, syncTimeout time.Duration, socketTimeout time.Duration, serverTags []bson.D, poolLimit int, poolTimeout time.Duration,
-) (s *mongoSocket, err error) {
+func (cluster *mongoCluster) AcquireSocketWithPoolTimeout(mode Mode, slaveOk bool, syncTimeout time.Duration, serverTags []bson.D, info *DialInfo) (s *mongoSocket, err error) {
 	var started time.Time
 	var syncCount uint
 	for {
@@ -670,7 +677,7 @@ func (cluster *mongoCluster) AcquireSocketWithPoolTimeout(
 			continue
 		}
 
-		s, abended, err := server.AcquireSocketWithBlocking(poolLimit, socketTimeout, poolTimeout)
+		s, abended, err := server.AcquireSocketWithBlocking(info)
 		if err == errPoolTimeout {
 			// No need to remove servers from the topology if acquiring a socket fails for this reason.
 			return nil, err
