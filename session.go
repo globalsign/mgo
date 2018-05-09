@@ -555,7 +555,7 @@ type DialInfo struct {
 	// Defaults to 0.
 	MinPoolSize int
 
-	//The maximum number of milliseconds that a connection can remain idle in the pool
+	// The maximum number of milliseconds that a connection can remain idle in the pool
 	// before being removed and closed.
 	MaxIdleTimeMS int
 
@@ -681,7 +681,7 @@ func DialWithInfo(dialInfo *DialInfo) (*Session, error) {
 		}
 		addrs[i] = addr
 	}
-	cluster := newCluster(addrs, info.Direct, info.FailFast, dialer{info.Dial, info.DialServer}, info.ReplicaSetName, info.AppName)
+	cluster := newCluster(addrs, info)
 	session := newSession(Eventual, cluster, info)
 	session.defaultdb = info.Database
 	if session.defaultdb == "" {
@@ -4472,11 +4472,11 @@ func (iter *Iter) acquireSocket() (*mongoSocket, error) {
 		// to primary. Our cursor is in a specific server, though.
 
 		iter.session.m.Lock()
-		sockTimeout := iter.session.dialInfo.roundTripTimeout()
+		info := iter.session.dialInfo
 		iter.session.m.Unlock()
 
 		socket.Release()
-		socket, _, err = iter.server.AcquireSocket(0, sockTimeout)
+		socket, _, err = iter.server.AcquireSocket(info)
 		if err != nil {
 			return nil, err
 		}

@@ -67,9 +67,8 @@ type mongoServer struct {
 	pingCount     uint32
 	closed        bool
 	abended       bool
-	minPoolSize   int
-	maxIdleTimeMS int
 	poolWaiter    *sync.Cond
+	dialInfo      *DialInfo
 }
 
 type dialer struct {
@@ -91,21 +90,20 @@ type mongoServerInfo struct {
 
 var defaultServerInfo mongoServerInfo
 
-func newServer(addr string, tcpaddr *net.TCPAddr, syncChan chan bool, dial dialer, minPoolSize, maxIdleTimeMS int) *mongoServer {
+func newServer(addr string, tcpaddr *net.TCPAddr, syncChan chan bool, dial dialer, info *DialInfo) *mongoServer {
 	server := &mongoServer{
-		Addr:          addr,
-		ResolvedAddr:  tcpaddr.String(),
-		tcpaddr:       tcpaddr,
-		sync:          syncChan,
-		dial:          dial,
-		info:          &defaultServerInfo,
-		pingValue:     time.Hour, // Push it back before an actual ping.
-		minPoolSize:   minPoolSize,
-		maxIdleTimeMS: maxIdleTimeMS,
+		Addr:         addr,
+		ResolvedAddr: tcpaddr.String(),
+		tcpaddr:      tcpaddr,
+		sync:         syncChan,
+		dial:         dial,
+		info:         &defaultServerInfo,
+		pingValue:    time.Hour, // Push it back before an actual ping.
+		dialInfo:     info,
 	}
 	server.poolWaiter = sync.NewCond(server)
 	go server.pinger(true)
-	if maxIdleTimeMS != 0 {
+	if info.MaxIdleTimeMS != 0 {
 		go server.poolShrinker()
 	}
 	return server
@@ -123,13 +121,7 @@ var errServerClosed = errors.New("server was closed")
 // If the poolLimit argument is greater than zero and the number of sockets in
 // use in this server is greater than the provided limit, errPoolLimit is
 // returned.
-func (server *mongoServer) AcquireSocket(poolLimit int, timeout time.Duration) (socket *mongoSocket, abended bool, err error) {
-	info := &DialInfo{
-		PoolLimit:    poolLimit,
-		ReadTimeout:  timeout,
-		WriteTimeout: timeout,
-		Timeout:      timeout,
-	}
+func (server *mongoServer) AcquireSocket(info *DialInfo) (socket *mongoSocket, abended bool, err error) {
 	return server.acquireSocketInternal(info, false)
 }
 
@@ -407,7 +399,8 @@ func (server *mongoServer) pinger(loop bool) {
 			time.Sleep(delay)
 		}
 		op := op
-		socket, _, err := server.AcquireSocket(0, delay)
+
+		socket, _, err := server.AcquireSocket(server.dialInfo)
 		if err == nil {
 			start := time.Now()
 			_, _ = socket.SimpleQuery(&op)
@@ -448,7 +441,7 @@ func (server *mongoServer) poolShrinker() {
 		}
 		server.Lock()
 		unused := len(server.unusedSockets)
-		if unused < server.minPoolSize {
+		if unused < server.dialInfo.MinPoolSize {
 			server.Unlock()
 			continue
 		}
@@ -457,8 +450,8 @@ func (server *mongoServer) poolShrinker() {
 		reclaimMap := map[*mongoSocket]struct{}{}
 		// Because the acquisition and recycle are done at the tail of array,
 		// the head is always the oldest unused socket.
-		for _, s := range server.unusedSockets[:unused-server.minPoolSize] {
-			if s.lastTimeUsed.Add(time.Duration(server.maxIdleTimeMS) * time.Millisecond).After(now) {
+		for _, s := range server.unusedSockets[:unused-server.dialInfo.MinPoolSize] {
+			if s.lastTimeUsed.Add(time.Duration(server.dialInfo.MaxIdleTimeMS) * time.Millisecond).After(now) {
 				break
 			}
 			end++
