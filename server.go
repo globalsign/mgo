@@ -565,7 +565,7 @@ func (servers *mongoServers) BestFit(mode Mode, serverTags []bson.D) *mongoServe
 		if best == nil {
 			best = next
 			best.RLock()
-			if serverTags != nil && !next.info.Mongos && !best.hasTags(serverTags) {
+			if len(serverTags) != 0 && !next.info.Mongos && !best.hasTags(serverTags) {
 				best.RUnlock()
 				best = nil
 			}
@@ -574,7 +574,7 @@ func (servers *mongoServers) BestFit(mode Mode, serverTags []bson.D) *mongoServe
 		next.RLock()
 		swap := false
 		switch {
-		case serverTags != nil && !next.info.Mongos && !next.hasTags(serverTags):
+		case len(serverTags) != 0 && !next.info.Mongos && !next.hasTags(serverTags):
 			// Must have requested tags.
 		case mode == Secondary && next.info.Master && !next.info.Mongos:
 			// Must be a secondary or mongos.
