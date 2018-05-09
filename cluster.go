@@ -623,13 +623,6 @@ func (cluster *mongoCluster) syncServersIteration(direct bool) {
 	cluster.Unlock()
 }
 
-// AcquireSocket returns a socket to a server in the cluster.  If slaveOk is
-// true, it will attempt to return a socket to a slave server.  If it is
-// false, the socket will necessarily be to a master server.
-func (cluster *mongoCluster) AcquireSocket(mode Mode, slaveOk bool, syncTimeout time.Duration, socketTimeout time.Duration, serverTags []bson.D, poolLimit int) (s *mongoSocket, err error) {
-	return cluster.AcquireSocketWithPoolTimeout(mode, slaveOk, syncTimeout, socketTimeout, serverTags, poolLimit, 0)
-}
-
 // AcquireSocketWithPoolTimeout returns a socket to a server in the cluster.  If slaveOk is
 // true, it will attempt to return a socket to a slave server.  If it is
 // false, the socket will necessarily be to a master server.

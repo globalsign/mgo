@@ -29,8 +29,8 @@ package mgo_test
 import (
 	"time"
 
-	. "gopkg.in/check.v1"
 	"github.com/globalsign/mgo"
+	. "gopkg.in/check.v1"
 )
 
 func (s *S) TestServerRecoversFromAbend(c *C) {
@@ -53,8 +53,8 @@ func (s *S) TestServerRecoversFromAbend(c *C) {
 	c.Assert(err, IsNil)
 	sock.Release()
 	c.Check(abended, Equals, true)
-	// cluster.AcquireSocket should fix the abended problems
-	sock, err = cluster.AcquireSocket(mgo.Primary, false, time.Minute, time.Second, nil, 100)
+	// cluster.AcquireSocketWithPoolTimeout should fix the abended problems
+	sock, err = cluster.AcquireSocketWithPoolTimeout(mgo.Primary, false, time.Minute, time.Second, nil, 100)
 	c.Assert(err, IsNil)
 	sock.Release()
 	sock, abended, err = server.AcquireSocket(100, time.Second)
