@@ -5,5 +5,8 @@ An Implementation of BSON for Go
 
 Package bson is an implementation of the [BSON specification](http://bsonspec.org) for Go.
 
-It was created as part of the mgo MongoDB driver for Go, but is standalone
-and may be used on its own without the driver.
+While the BSON package implements the BSON spec as faithfully as possible, there
+is some MongoDB specific behaviour (such as map keys `$in`, `$all`, etc) in the
+`bson` package. The priority is for backwards compatibility for the `mgo`
+driver, though fixes for obviously buggy behaviour is welcome (and features, etc
+behind feature flags).

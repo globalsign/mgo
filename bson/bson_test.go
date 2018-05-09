@@ -271,6 +271,42 @@ func (s *S) TestMarshalBuffer(c *C) {
 	c.Assert(data, DeepEquals, buf[:len(data)])
 }
 
+func (s *S) TestPtrInline(c *C) {
+	cases := []struct {
+		In  interface{}
+		Out bson.M
+	}{
+		{
+			In:  inlinePtrStruct{A: 1, MStruct: &MStruct{M: 3}},
+			Out: bson.M{"a": 1, "m": 3},
+		},
+		{ // go deeper
+			In:  inlinePtrPtrStruct{B: 10, inlinePtrStruct: &inlinePtrStruct{A: 20, MStruct: &MStruct{M: 30}}},
+			Out: bson.M{"b": 10, "a": 20, "m": 30},
+		},
+		{
+			// nil embed struct
+			In: &inlinePtrStruct{A: 3},
+			Out: bson.M{"a": 3},
+		},
+		{
+			// nil embed struct
+			In: &inlinePtrPtrStruct{B: 5},
+			Out: bson.M{"b": 5},
+		},
+	}
+
+	for _, cs := range cases {
+		data, err := bson.Marshal(cs.In)
+		c.Assert(err, IsNil)
+		var dataBSON bson.M
+		err = bson.Unmarshal(data, &dataBSON)
+		c.Assert(err, IsNil)
+
+		c.Assert(dataBSON, DeepEquals, cs.Out)
+	}
+}
+
 // --------------------------------------------------------------------------
 // Some one way marshaling operations which would unmarshal differently.
 
@@ -713,8 +749,6 @@ var marshalErrorItems = []testItemType{
 		"Attempted to marshal empty Raw document"},
 	{bson.M{"w": bson.Raw{Kind: 0x3, Data: []byte{}}},
 		"Attempted to marshal empty Raw document"},
-	{&inlineCantPtr{&struct{ A, B int }{1, 2}},
-		"Option ,inline needs a struct value or map field"},
 	{&inlineDupName{1, struct{ A, B int }{2, 3}},
 		"Duplicated key 'a' in struct bson_test.inlineDupName"},
 	{&inlineDupMap{},
@@ -1173,6 +1207,17 @@ type inlineBadKeyMap struct {
 type inlineUnexported struct {
 	M map[string]interface{} `bson:",inline"`
 	unexported               `bson:",inline"`
+}
+type MStruct struct {
+	M int `bson:"m,omitempty"`
+}
+type inlinePtrStruct struct {
+	A int
+	*MStruct `bson:",inline"`
+}
+type inlinePtrPtrStruct struct {
+	B int
+	*inlinePtrStruct `bson:",inline"`
 }
 type unexported struct {
 	A int

@@ -2510,6 +2510,7 @@ type Pipe struct {
 	allowDisk  bool
 	batchSize  int
 	maxTimeMS  int64
+	collation  *Collation
 }
 
 type pipeCmd struct {
@@ -2519,6 +2520,7 @@ type pipeCmd struct {
 	Explain   bool           `bson:",omitempty"`
 	AllowDisk bool           `bson:"allowDiskUse,omitempty"`
 	MaxTimeMS int64          `bson:"maxTimeMS,omitempty"`
+	Collation *Collation     `bson:"collation,omitempty"`
 }
 
 type pipeCmdCursor struct {
@@ -2539,6 +2541,7 @@ type pipeCmdCursor struct {
 //     http://docs.mongodb.org/manual/applications/aggregation
 //     http://docs.mongodb.org/manual/tutorial/aggregation-examples
 //
+
 func (c *Collection) Pipe(pipeline interface{}) *Pipe {
 	session := c.Database.Session
 	session.m.RLock()
@@ -2572,6 +2575,7 @@ func (p *Pipe) Iter() *Iter {
 		Pipeline:  p.pipeline,
 		AllowDisk: p.allowDisk,
 		Cursor:    &pipeCmdCursor{p.batchSize},
+		Collation: p.collation,
 	}
 	if p.maxTimeMS > 0 {
 		cmd.MaxTimeMS = p.maxTimeMS
@@ -2758,6 +2762,22 @@ func (p *Pipe) Batch(n int) *Pipe {
 //
 func (p *Pipe) SetMaxTime(d time.Duration) *Pipe {
 	p.maxTimeMS = int64(d / time.Millisecond)
+	return p
+}
+
+// Collation allows to specify language-specific rules for string comparison,
+// such as rules for lettercase and accent marks.
+// When specifying collation, the locale field is mandatory; all other collation
+// fields are optional
+//
+// Relevant documentation:
+//
+//      https://docs.mongodb.com/manual/reference/collation/
+//
+func (p *Pipe) Collation(collation *Collation) *Pipe {
+	if collation != nil {
+		p.collation = collation
+	}
 	return p
 }
 

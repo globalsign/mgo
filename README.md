@@ -3,9 +3,6 @@
 The MongoDB driver for Go
 -------------------------
 
-This is the "official", maintained fork of `mgo` (pronounced as "mango").
-We are grateful for the great work that @niemeyer and the mgo contributors have made over the years.
-
 This fork has had a few improvements by ourselves as well as several PR's merged from the original mgo repo that are currently awaiting review.
 Changes are mostly geared towards performance improvements and bug fixes, though a few new features have been added.
 
@@ -14,7 +11,7 @@ Further PR's (with tests) are welcome, but please maintain backwards compatibili
 Detailed documentation of the API is available at
 [GoDoc](https://godoc.org/github.com/globalsign/mgo).
 
-A [sub-package](https://godoc.org/github.com/globalsign/mgo/bson) that implements [BSON](http://bsonspec.org) is also included, and may be used independently of the driver.
+A [sub-package](https://godoc.org/github.com/globalsign/mgo/bson) that implements the [BSON](http://bsonspec.org) specification is also included, and may be used independently of the driver.
 
 ## Changes
 * Fixes attempting to authenticate before every query ([details](https://github.com/go-mgo/mgo/issues/254))
@@ -46,13 +43,21 @@ A [sub-package](https://godoc.org/github.com/globalsign/mgo/bson) that implement
 * Use JSON tags when no explicit BSON are tags set ([details](https://github.com/globalsign/mgo/pull/91))
 * Support [$changeStream](https://docs.mongodb.com/manual/changeStreams/) tailing on 3.6+ ([details](https://github.com/globalsign/mgo/pull/97))
 * Fix deadlock in cluster synchronisation ([details](https://github.com/globalsign/mgo/issues/120))
+* Implement `maxIdleTimeout` for pooled connections ([details](https://github.com/globalsign/mgo/pull/116))
+* Connection pool waiting improvements ([details](https://github.com/globalsign/mgo/pull/115))
+* Fixes BSON encoding for `$in` and friends ([details](https://github.com/globalsign/mgo/pull/128))
+* Add BSON stream encoders ([details](https://github.com/globalsign/mgo/pull/127))
+* Add integer map key support in the BSON encoder ([details](https://github.com/globalsign/mgo/pull/140)) 
+* Support aggregation [collations](https://docs.mongodb.com/manual/reference/collation/) ([details](https://github.com/globalsign/mgo/pull/144))
 
 ---
 
 ### Thanks to
+* @aksentyev
 * @bachue
 * @bozaro
 * @BenLubar
+* @carldunham
 * @carter2000
 * @cezarsa
 * @drichelson
@@ -60,11 +65,15 @@ A [sub-package](https://godoc.org/github.com/globalsign/mgo/bson) that implement
 * @eaglerayp
 * @feliixx
 * @fmpwizard
+* @gazoon
+* @gnawux
 * @idy
 * @jameinel
+* @johnlawsharrison
 * @KJTsanaktsidis
-* @gazoon
 * @mapete94
+* @maxnoel
+* @mcspring
 * @peterdeka
 * @Reenjii
 * @smoya

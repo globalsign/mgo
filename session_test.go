@@ -4617,6 +4617,36 @@ func (s *S) TestPipeExplain(c *C) {
 	c.Assert(result.Ok, Equals, 1)
 }
 
+func (s *S) TestPipeCollation(c *C) {
+	if !s.versionAtLeast(2, 1) {
+		c.Skip("Pipe only works on 2.1+")
+	}
+	if !s.versionAtLeast(3, 3, 12) {
+		c.Skip("collations being released with 3.4")
+	}
+
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+	beatles := []string{"John", "RINGO", "George", "Paul"}
+	for _, n := range beatles {
+		err := coll.Insert(M{"name": n})
+		c.Assert(err, IsNil)
+	}
+
+	collation := &mgo.Collation{
+		Locale:   "en",
+		Strength: 1, // ignore case/diacritics
+	}
+	var result []struct{ Name string }
+	err = coll.Pipe([]M{{"$match": M{"name": "ringo"}}}).Collation(collation).All(&result)
+	c.Assert(err, IsNil)
+	c.Assert(len(result), Equals, 1)
+	c.Assert(result[0].Name, Equals, "RINGO")
+}
+
 func (s *S) TestBatch1Bug(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
