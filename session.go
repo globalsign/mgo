@@ -598,8 +598,7 @@ func (i *DialInfo) Copy() *DialInfo {
 	return info
 }
 
-// readTimeout returns the configured read timeout, or DefaultReadTimeout if
-// unset.
+// readTimeout returns the configured read timeout, or i.Timeout if it's not set
 func (i *DialInfo) readTimeout() time.Duration {
 	if i.ReadTimeout == zeroDuration {
 		return i.Timeout
@@ -607,8 +606,8 @@ func (i *DialInfo) readTimeout() time.Duration {
 	return i.ReadTimeout
 }
 
-// writeTimeout returns the configured write timeout, or DefaultWriteTimeout if
-// unset.
+// writeTimeout returns the configured write timeout, or i.Timeout if it's not
+// set
 func (i *DialInfo) writeTimeout() time.Duration {
 	if i.WriteTimeout == zeroDuration {
 		return i.Timeout
