@@ -168,6 +168,43 @@ func (s *S) TestURLInvalidReadPreference(c *C) {
 	}
 }
 
+func (s *S) TestURLSafe(c *C) {
+	type test struct {
+		url  string
+		safe mgo.Safe
+	}
+
+	tests := []test{
+		{"localhost:40001?w=majority", mgo.Safe{WMode: "majority"}},
+		{"localhost:40001?j=true", mgo.Safe{J: true}},
+		{"localhost:40001?j=false", mgo.Safe{J: false}},
+		{"localhost:40001?wtimeoutMS=1", mgo.Safe{WTimeout: 1}},
+		{"localhost:40001?wtimeoutMS=1000", mgo.Safe{WTimeout: 1000}},
+		{"localhost:40001?w=1&j=true&wtimeoutMS=1000", mgo.Safe{WMode: "1", J: true, WTimeout: 1000}},
+	}
+
+	for _, test := range tests {
+		info, err := mgo.ParseURL(test.url)
+		c.Assert(err, IsNil)
+		c.Assert(info.Safe, NotNil)
+		c.Assert(info.Safe, Equals, test.safe)
+	}
+}
+
+func (s *S) TestURLInvalidSafe(c *C) {
+	urls := []string{
+		"localhost:40001?wtimeoutMS=abc",
+		"localhost:40001?wtimeoutMS=",
+		"localhost:40001?wtimeoutMS=-1",
+		"localhost:40001?j=12",
+		"localhost:40001?j=foo",
+	}
+	for _, url := range urls {
+		_, err := mgo.ParseURL(url)
+		c.Assert(err, NotNil)
+	}
+}
+
 func (s *S) TestMinPoolSize(c *C) {
 	tests := []struct {
 		url  string

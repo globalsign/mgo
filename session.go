@@ -342,6 +342,7 @@ func ParseURL(url string) (*DialInfo, error) {
 	var readPreferenceTagSets []bson.D
 	minPoolSize := 0
 	maxIdleTimeMS := 0
+	safe := Safe{}
 	for _, opt := range uinfo.options {
 		switch opt.key {
 		case "authSource":
@@ -352,6 +353,23 @@ func ParseURL(url string) (*DialInfo, error) {
 			service = opt.value
 		case "replicaSet":
 			setName = opt.value
+		case "w":
+			safe.WMode = opt.value
+		case "j":
+			journal, err := strconv.ParseBool(opt.value)
+			if err != nil {
+				return nil, errors.New("bad value for w: " + opt.value)
+			}
+			safe.J = journal
+		case "wtimeoutMS":
+			timeout, err := strconv.Atoi(opt.value)
+			if err != nil {
+				return nil, errors.New("bad value for wtimeoutMS: " + opt.value)
+			}
+			if timeout < 0 {
+				return nil, errors.New("bad value (negative) for wtimeoutMS: " + opt.value)
+			}
+			safe.WTimeout = timeout
 		case "maxPoolSize":
 			poolLimit, err = strconv.Atoi(opt.value)
 			if err != nil {
@@ -394,7 +412,7 @@ func ParseURL(url string) (*DialInfo, error) {
 				return nil, errors.New("bad value for minPoolSize: " + opt.value)
 			}
 			if minPoolSize < 0 {
-				return nil, errors.New("bad value (negtive) for minPoolSize: " + opt.value)
+				return nil, errors.New("bad value (negative) for minPoolSize: " + opt.value)
 			}
 		case "maxIdleTimeMS":
 			maxIdleTimeMS, err = strconv.Atoi(opt.value)
@@ -402,7 +420,7 @@ func ParseURL(url string) (*DialInfo, error) {
 				return nil, errors.New("bad value for maxIdleTimeMS: " + opt.value)
 			}
 			if maxIdleTimeMS < 0 {
-				return nil, errors.New("bad value (negtive) for maxIdleTimeMS: " + opt.value)
+				return nil, errors.New("bad value (negative) for maxIdleTimeMS: " + opt.value)
 			}
 		case "connect":
 			if opt.value == "direct" {
@@ -437,6 +455,7 @@ func ParseURL(url string) (*DialInfo, error) {
 			Mode:    readPreferenceMode,
 			TagSets: readPreferenceTagSets,
 		},
+		Safe:           safe,
 		ReplicaSetName: setName,
 		MinPoolSize:    minPoolSize,
 		MaxIdleTimeMS:  maxIdleTimeMS,
@@ -528,6 +547,9 @@ type DialInfo struct {
 	// ReadPreference defines the manner in which servers are chosen. See
 	// Session.SetMode and Session.SelectServers.
 	ReadPreference *ReadPreference
+
+	// Safe mostly defines write options, though there is RMode. See Session.SetSafe
+	Safe Safe
 
 	// FailFast will cause connection and query attempts to fail faster when
 	// the server is unavailable, instead of retrying until the configured
@@ -714,6 +736,8 @@ func DialWithInfo(dialInfo *DialInfo) (*Session, error) {
 		session.Close()
 		return nil, err
 	}
+
+	session.SetSafe(&info.Safe)
 
 	if info.ReadPreference != nil {
 		session.SelectServers(info.ReadPreference.TagSets...)
