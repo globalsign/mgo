@@ -711,8 +711,6 @@ func DialWithInfo(dialInfo *DialInfo) (*Session, error) {
 		session.creds = []Credential{*session.dialCred}
 	}
 
-	cluster.minPoolSize = info.MinPoolSize
-	cluster.maxIdleTimeMS = info.MaxIdleTimeMS
 	cluster.Release()
 
 	// People get confused when we return a session that is not actually

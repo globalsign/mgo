@@ -48,20 +48,18 @@ import (
 
 type mongoCluster struct {
 	sync.RWMutex
-	serverSynced  sync.Cond
-	userSeeds     []string
-	dynaSeeds     []string
-	servers       mongoServers
-	masters       mongoServers
-	references    int
-	syncing       bool
-	syncCount     uint
-	cachedIndex   map[string]bool
-	sync          chan bool
-	dial          dialer
-	minPoolSize   int
-	maxIdleTimeMS int
-	dialInfo      *DialInfo
+	serverSynced sync.Cond
+	userSeeds    []string
+	dynaSeeds    []string
+	servers      mongoServers
+	masters      mongoServers
+	references   int
+	syncing      bool
+	syncCount    uint
+	cachedIndex  map[string]bool
+	sync         chan bool
+	dial         dialer
+	dialInfo     *DialInfo
 }
 
 func newCluster(userSeeds []string, info *DialInfo) *mongoCluster {
