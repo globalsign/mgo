@@ -358,7 +358,7 @@ func ParseURL(url string) (*DialInfo, error) {
 		case "j":
 			journal, err := strconv.ParseBool(opt.value)
 			if err != nil {
-				return nil, errors.New("bad value for w: " + opt.value)
+				return nil, errors.New("bad value for j: " + opt.value)
 			}
 			safe.J = journal
 		case "wtimeoutMS":
