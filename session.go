@@ -74,21 +74,11 @@ const (
 	// Strong mode is specific to mgo, and is same as Primary.
 	Strong Mode = 2
 
-	// DefaultConnectionPoolSize defines the default maximum number of
+	// DefaultConnectionPoolLimit defines the default maximum number of
 	// connections in the connection pool.
 	//
 	// To override this value set DialInfo.PoolLimit.
-	DefaultConnectionPoolSize = 4096
-
-	// DefaultReadTimeout is set to 60 seconds for backwards compatibility.
-	//
-	// See DialInfo.ReadTimeout
-	DefaultReadTimeout = time.Second * 60
-
-	// DefaultWriteTimeout is set to 60 seconds for backwards compatibility.
-	//
-	// See DialInfo.WriteTimeout
-	DefaultWriteTimeout = time.Second * 60
+	DefaultConnectionPoolLimit = 4096
 
 	zeroDuration = time.Duration(0)
 )
@@ -501,7 +491,7 @@ type DialInfo struct {
 	Password string
 
 	// PoolLimit defines the per-server socket pool limit. Defaults to
-	// DefaultConnectionPoolSize. See Session.SetPoolLimit for details.
+	// DefaultConnectionPoolLimit. See Session.SetPoolLimit for details.
 	PoolLimit int
 
 	// PoolTimeout defines max time to wait for a connection to become available
@@ -509,8 +499,8 @@ type DialInfo struct {
 	// Session.SetPoolTimeout for details
 	PoolTimeout time.Duration
 
-	// ReadTimeout defines the maximum duration to wait for a response from
-	// MongoDB.
+	// ReadTimeout defines the maximum duration to wait for a response to be
+	// read from MongoDB.
 	//
 	// This effectively limits the maximum query execution time. If a MongoDB
 	// query duration exceeds this timeout, the caller will receive a timeout,
