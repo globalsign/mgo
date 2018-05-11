@@ -304,37 +304,37 @@ const (
 
 func (socket *mongoSocket) updateDeadline(which deadlineType) {
 	var when time.Time
-	var whichstr string
+	var whichStr string
 	switch which {
 	case readDeadline | writeDeadline:
 		if socket.dialInfo.roundTripTimeout() == 0 {
 			return
 		}
-		whichstr = "read/write"
+		whichStr = "read/write"
 		when = time.Now().Add(socket.dialInfo.roundTripTimeout())
 		socket.conn.SetDeadline(when)
 
 	case readDeadline:
-		if socket.dialInfo.readTimeout() == 0 {
+		if socket.dialInfo.ReadTimeout == zeroDuration {
 			return
 		}
-		whichstr = "read"
-		when = time.Now().Add(socket.dialInfo.readTimeout())
+		whichStr = "read"
+		when = time.Now().Add(socket.dialInfo.ReadTimeout)
 		socket.conn.SetReadDeadline(when)
 
 	case writeDeadline:
-		if socket.dialInfo.writeTimeout() == 0 {
+		if socket.dialInfo.WriteTimeout == zeroDuration {
 			return
 		}
-		whichstr = "write"
-		when = time.Now().Add(socket.dialInfo.writeTimeout())
+		whichStr = "write"
+		when = time.Now().Add(socket.dialInfo.WriteTimeout)
 		socket.conn.SetWriteDeadline(when)
 
 	default:
 		panic("invalid parameter to updateDeadline")
 	}
 
-	debugf("Socket %p to %s: updated %s deadline to %s", socket, socket.addr, whichstr, when)
+	debugf("Socket %p to %s: updated %s deadline to %s", socket, socket.addr, whichStr, when)
 }
 
 // Close terminates the socket use.

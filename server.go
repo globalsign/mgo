@@ -140,7 +140,7 @@ func (server *mongoServer) acquireSocketInternal(info *DialInfo, shouldBlock boo
 			server.Unlock()
 			return nil, abended, errServerClosed
 		}
-		if info.poolLimit() > 0 {
+		if info.PoolLimit > 0 {
 			if shouldBlock {
 				// Beautiful. Golang conditions don't have a WaitWithTimeout, so I've implemented the timeout
 				// with a wait + broadcast. The broadcast will cause the loop here to re-check the timeout,
@@ -166,7 +166,7 @@ func (server *mongoServer) acquireSocketInternal(info *DialInfo, shouldBlock boo
 					}()
 				}
 				timeSpentWaiting := time.Duration(0)
-				for len(server.liveSockets)-len(server.unusedSockets) >= info.poolLimit() && !timeoutHit {
+				for len(server.liveSockets)-len(server.unusedSockets) >= info.PoolLimit && !timeoutHit {
 					// We only count time spent in Wait(), and not time evaluating the entire loop,
 					// so that in the happy non-blocking path where the condition above evaluates true
 					// first time, we record a nice round zero wait time.
@@ -185,7 +185,7 @@ func (server *mongoServer) acquireSocketInternal(info *DialInfo, shouldBlock boo
 				// Record that we fetched a connection of of a socket list and how long we spent waiting
 				stats.noticeSocketAcquisition(timeSpentWaiting)
 			} else {
-				if len(server.liveSockets)-len(server.unusedSockets) >= info.poolLimit() {
+				if len(server.liveSockets)-len(server.unusedSockets) >= info.PoolLimit {
 					server.Unlock()
 					return nil, false, errPoolLimit
 				}

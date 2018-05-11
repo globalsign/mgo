@@ -633,10 +633,10 @@ func (i *DialInfo) roundTripTimeout() time.Duration {
 }
 
 // poolLimit returns the configured connection pool size, or
-// DefaultConnectionPoolSize.
+// DefaultConnectionPoolLimit.
 func (i *DialInfo) poolLimit() int {
-	if i == nil || i.PoolLimit == 0 {
-		return DefaultConnectionPoolSize
+	if i.PoolLimit == 0 {
+		return DefaultConnectionPoolLimit
 	}
 	return i.PoolLimit
 }
@@ -672,6 +672,10 @@ func (addr *ServerAddr) TCPAddr() *net.TCPAddr {
 // DialWithInfo establishes a new session to the cluster identified by info.
 func DialWithInfo(dialInfo *DialInfo) (*Session, error) {
 	info := dialInfo.Copy()
+	info.PoolLimit = info.poolLimit()
+	info.ReadTimeout = info.readTimeout()
+	info.WriteTimeout = info.writeTimeout()
+
 	addrs := make([]string, len(info.Addrs))
 	for i, addr := range info.Addrs {
 		p := strings.LastIndexAny(addr, "]:")
