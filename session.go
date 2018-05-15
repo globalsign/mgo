@@ -4265,15 +4265,20 @@ func (iter *Iter) Timeout() bool {
 //
 // Next returns true if a document was successfully unmarshalled onto result,
 // and false at the end of the result set or if an error happened.
-// When Next returns false, the Err method should be called to verify if
-// there was an error during iteration, and the Timeout method to verify if the
-// false return value was caused by a timeout (no available results).
+// When Next returns false, either the Err method or the Close method should be
+// called to verify if there was an error during iteration. While both will
+// return the error (or nil), Close will also release the cursor on the server.
+// The Timeout method may also be called to verify if the false return value
+// was caused by a timeout (no available results).
 //
 // For example:
 //
 //    iter := collection.Find(nil).Iter()
 //    for iter.Next(&result) {
 //        fmt.Printf("Result: %v\n", result.Id)
+//    }
+//    if iter.Timeout() {
+//        // react to timeout
 //    }
 //    if err := iter.Close(); err != nil {
 //        return err
