@@ -1560,6 +1560,38 @@ func (s *S) TestCountQuery(c *C) {
 	c.Assert(n, Equals, 2)
 }
 
+func (s *S) TestCountQueryWithCollation(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("depends on mongodb 3.4+")
+	}
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+	c.Assert(err, IsNil)
+
+	collation := &mgo.Collation{
+		Locale:   "en",
+		Strength: 2,
+	}
+	err = coll.EnsureIndex(mgo.Index{
+		Key:       []string{"n"},
+		Collation: collation,
+	})
+	c.Assert(err, IsNil)
+
+	ns := []string{"hello", "Hello", "hEllO"}
+	for _, n := range ns {
+		err := coll.Insert(M{"n": n})
+		c.Assert(err, IsNil)
+	}
+
+	n, err := coll.Find(M{"n": "hello"}).Collation(collation).Count()
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 3)
+}
+
 func (s *S) TestCountQuerySorted(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)

@@ -4564,10 +4564,11 @@ func (iter *Iter) getMoreCmd() *queryOp {
 type countCmd struct {
 	Count     string
 	Query     interface{}
-	Limit     int32  `bson:",omitempty"`
-	Skip      int32  `bson:",omitempty"`
-	Hint      bson.D `bson:"hint,omitempty"`
-	MaxTimeMS int    `bson:"maxTimeMS,omitempty"`
+	Limit     int32      `bson:",omitempty"`
+	Skip      int32      `bson:",omitempty"`
+	Hint      bson.D     `bson:"hint,omitempty"`
+	MaxTimeMS int        `bson:"maxTimeMS,omitempty"`
+	Collation *Collation `bson:"collation,omitempty"`
 }
 
 // Count returns the total number of documents in the result set.
@@ -4593,7 +4594,7 @@ func (q *Query) Count() (n int, err error) {
 	// simply want a Zero bson.D
 	hint, _ := q.op.options.Hint.(bson.D)
 	result := struct{ N int }{}
-	err = session.DB(dbname).Run(countCmd{cname, query, limit, op.skip, hint, op.options.MaxTimeMS}, &result)
+	err = session.DB(dbname).Run(countCmd{cname, query, limit, op.skip, hint, op.options.MaxTimeMS, op.options.Collation}, &result)
 
 	return result.N, err
 }
