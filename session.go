@@ -124,9 +124,10 @@ type Database struct {
 //    https://docs.mongodb.com/manual/core/databases-and-collections/#collections
 //
 type Collection struct {
-	Database *Database
-	Name     string // "collection"
-	FullName string // "db.collection"
+	Database       *Database
+	Name           string // "collection"
+	FullName       string // "db.collection"
+	UsesSoftDelete bool
 }
 
 // Query keeps info on the query.
@@ -767,7 +768,7 @@ func (s *Session) DB(name string) *Database {
 // Creating this value is a very lightweight operation, and
 // involves no network communication.
 func (db *Database) C(name string) *Collection {
-	return &Collection{db, name, db.Name + "." + name}
+	return &Collection{db, name, db.Name + "." + name, false}
 }
 
 // CreateView creates a view as the result of the applying the specified
@@ -2451,6 +2452,13 @@ func (c *Collection) Find(query interface{}) *Query {
 	q := &Query{session: session, query: session.queryConfig}
 	session.m.RUnlock()
 	q.op.query = query
+	if c.UsesSoftDelete {
+		md, _ := query.(bson.M)
+		if md == nil {
+			md = bson.M{}
+		}
+		md["deleted"] = bson.M{"$ne": true}
+	}
 	q.op.collection = c.FullName
 	return q
 }
@@ -2997,10 +3005,27 @@ func (c *Collection) UpsertId(id interface{}, update interface{}) (info *ChangeI
 //     http://www.mongodb.org/display/DOCS/Removing
 //
 func (c *Collection) Remove(selector interface{}) error {
+	var lerr *LastError
+	var err error
 	if selector == nil {
 		selector = bson.D{}
 	}
-	lerr, err := c.writeOp(&deleteOp{c.FullName, selector, 1, 1}, true)
+	if c.UsesSoftDelete {
+		op := updateOp{
+			Collection: c.FullName,
+			Selector:   selector,
+			Update:     bson.M{"$set": bson.M{"deleted": true}},
+		}
+		lerr, err = c.writeOp(&op, true)
+	} else {
+		op := deleteOp{
+			c.FullName,
+			selector,
+			1,
+			1,
+		}
+		lerr, err = c.writeOp(&op, true)
+	}
 	if err == nil && lerr != nil && lerr.N == 0 {
 		return ErrNotFound
 	}
@@ -3026,10 +3051,22 @@ func (c *Collection) RemoveId(id interface{}) error {
 //     http://www.mongodb.org/display/DOCS/Removing
 //
 func (c *Collection) RemoveAll(selector interface{}) (info *ChangeInfo, err error) {
+	var lerr *LastError
 	if selector == nil {
 		selector = bson.D{}
 	}
-	lerr, err := c.writeOp(&deleteOp{c.FullName, selector, 0, 0}, true)
+	if c.UsesSoftDelete {
+		op := updateOp{
+			Collection: c.FullName,
+			Selector:   selector,
+			Update:     bson.M{"$set": bson.M{"deleted": true}},
+			Flags: 		2,
+			Multi:		true,
+		}
+		lerr, err = c.writeOp(&op, true)
+	} else {
+		lerr, err = c.writeOp(&deleteOp{c.FullName, selector, 0, 0}, true)
+	}
 	if err == nil && lerr != nil {
 		info = &ChangeInfo{Removed: lerr.N, Matched: lerr.N}
 	}
