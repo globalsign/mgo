@@ -1332,7 +1332,6 @@ type Index struct {
 // Collation allows users to specify language-specific rules for string comparison,
 // such as rules for lettercase and accent marks.
 type Collation struct {
-
 	// Locale defines the collation locale.
 	Locale string `bson:"locale"`
 
@@ -2764,7 +2763,6 @@ func (p *Pipe) SetMaxTime(d time.Duration) *Pipe {
 	p.maxTimeMS = int64(d / time.Millisecond)
 	return p
 }
-
 
 // Collation allows to specify language-specific rules for string comparison,
 // such as rules for lettercase and accent marks.
@@ -4275,10 +4273,19 @@ func (iter *Iter) Next(result interface{}) bool {
 //
 func (iter *Iter) All(result interface{}) error {
 	resultv := reflect.ValueOf(result)
-	if resultv.Kind() != reflect.Ptr || resultv.Elem().Kind() != reflect.Slice {
-		panic("result argument must be a slice address")
+	if resultv.Kind() != reflect.Ptr {
+		panic("result argument must be a pointer")
 	}
+
 	slicev := resultv.Elem()
+
+	if slicev.Kind() == reflect.Interface {
+		slicev = slicev.Elem()
+	}
+	if slicev.Kind() != reflect.Slice {
+		panic("result argument must be a pointer to a slice")
+	}
+
 	slicev = slicev.Slice(0, slicev.Cap())
 	elemt := slicev.Type().Elem()
 	i := 0
