@@ -4274,7 +4274,7 @@ func (iter *Iter) Next(result interface{}) bool {
 func (iter *Iter) All(result interface{}) error {
 	resultv := reflect.ValueOf(result)
 	if resultv.Kind() != reflect.Ptr {
-		panic("result argument must be a pointer")
+		panic("result argument must be a slice address")
 	}
 
 	slicev := resultv.Elem()
@@ -4283,7 +4283,7 @@ func (iter *Iter) All(result interface{}) error {
 		slicev = slicev.Elem()
 	}
 	if slicev.Kind() != reflect.Slice {
-		panic("result argument must be a pointer to a slice")
+		panic("result argument must be a slice address")
 	}
 
 	slicev = slicev.Slice(0, slicev.Cap())

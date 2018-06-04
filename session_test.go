@@ -416,6 +416,18 @@ func (s *S) TestInsertFindAll(c *C) {
 	// Ensure result is backed by the originally allocated array
 	c.Assert(&result[0], Equals, &allocd[0])
 
+	// Re-run test destination as a pointer to interface{}
+	var resultInterface interface{}
+
+	anotherslice := make([]R, 5)
+	resultInterface = anotherslice
+	err = coll.Find(nil).Sort("a").All(&resultInterface)
+	c.Assert(err, IsNil)
+	assertResult()
+
+	// Ensure result is backed by the originally allocated array
+	c.Assert(&result[0], Equals, &allocd[0])
+
 	// Non-pointer slice error
 	f := func() { coll.Find(nil).All(result) }
 	c.Assert(f, Panics, "result argument must be a slice address")
