@@ -29,8 +29,8 @@ package mgo_test
 import (
 	"time"
 
-	. "gopkg.in/check.v1"
 	"github.com/globalsign/mgo"
+	. "gopkg.in/check.v1"
 )
 
 func (s *S) TestServerRecoversFromAbend(c *C) {
@@ -40,7 +40,13 @@ func (s *S) TestServerRecoversFromAbend(c *C) {
 	// Peek behind the scenes
 	cluster := session.Cluster()
 	server := cluster.Server("127.0.0.1:40001")
-	sock, abended, err := server.AcquireSocket(100, time.Second)
+
+	info := &mgo.DialInfo{
+		Timeout: time.Second,
+		PoolLimit: 100,
+	}
+	
+	sock, abended, err := server.AcquireSocket(info)
 	c.Assert(err, IsNil)
 	c.Assert(sock, NotNil)
 	sock.Release()
@@ -49,15 +55,15 @@ func (s *S) TestServerRecoversFromAbend(c *C) {
 	sock.Close()
 	server.AbendSocket(sock)
 	// Next acquire notices the connection was abnormally ended
-	sock, abended, err = server.AcquireSocket(100, time.Second)
+	sock, abended, err = server.AcquireSocket(info)
 	c.Assert(err, IsNil)
 	sock.Release()
 	c.Check(abended, Equals, true)
-	// cluster.AcquireSocket should fix the abended problems
-	sock, err = cluster.AcquireSocket(mgo.Primary, false, time.Minute, time.Second, nil, 100)
+	// cluster.AcquireSocketWithPoolTimeout should fix the abended problems
+	sock, err = cluster.AcquireSocketWithPoolTimeout(mgo.Primary, false, time.Minute, nil, info)
 	c.Assert(err, IsNil)
 	sock.Release()
-	sock, abended, err = server.AcquireSocket(100, time.Second)
+	sock, abended, err = server.AcquireSocket(info)
 	c.Assert(err, IsNil)
 	c.Check(abended, Equals, false)
 	sock.Release()

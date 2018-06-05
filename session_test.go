@@ -168,6 +168,43 @@ func (s *S) TestURLInvalidReadPreference(c *C) {
 	}
 }
 
+func (s *S) TestURLSafe(c *C) {
+	type test struct {
+		url  string
+		safe mgo.Safe
+	}
+
+	tests := []test{
+		{"localhost:40001?w=majority", mgo.Safe{WMode: "majority"}},
+		{"localhost:40001?j=true", mgo.Safe{J: true}},
+		{"localhost:40001?j=false", mgo.Safe{J: false}},
+		{"localhost:40001?wtimeoutMS=1", mgo.Safe{WTimeout: 1}},
+		{"localhost:40001?wtimeoutMS=1000", mgo.Safe{WTimeout: 1000}},
+		{"localhost:40001?w=1&j=true&wtimeoutMS=1000", mgo.Safe{WMode: "1", J: true, WTimeout: 1000}},
+	}
+
+	for _, test := range tests {
+		info, err := mgo.ParseURL(test.url)
+		c.Assert(err, IsNil)
+		c.Assert(info.Safe, NotNil)
+		c.Assert(info.Safe, Equals, test.safe)
+	}
+}
+
+func (s *S) TestURLInvalidSafe(c *C) {
+	urls := []string{
+		"localhost:40001?wtimeoutMS=abc",
+		"localhost:40001?wtimeoutMS=",
+		"localhost:40001?wtimeoutMS=-1",
+		"localhost:40001?j=12",
+		"localhost:40001?j=foo",
+	}
+	for _, url := range urls {
+		_, err := mgo.ParseURL(url)
+		c.Assert(err, NotNil)
+	}
+}
+
 func (s *S) TestMinPoolSize(c *C) {
 	tests := []struct {
 		url  string
@@ -1533,6 +1570,38 @@ func (s *S) TestCountQuery(c *C) {
 	n, err := coll.Find(M{"n": M{"$gt": 40}}).Count()
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, 2)
+}
+
+func (s *S) TestCountQueryWithCollation(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("depends on mongodb 3.4+")
+	}
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+	c.Assert(err, IsNil)
+
+	collation := &mgo.Collation{
+		Locale:   "en",
+		Strength: 2,
+	}
+	err = coll.EnsureIndex(mgo.Index{
+		Key:       []string{"n"},
+		Collation: collation,
+	})
+	c.Assert(err, IsNil)
+
+	ns := []string{"hello", "Hello", "hEllO"}
+	for _, n := range ns {
+		err := coll.Insert(M{"n": n})
+		c.Assert(err, IsNil)
+	}
+
+	n, err := coll.Find(M{"n": "hello"}).Collation(collation).Count()
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 3)
 }
 
 func (s *S) TestCountQuerySorted(c *C) {
