@@ -135,6 +135,25 @@ func (s *S) TestURLParsing(c *C) {
 	}
 }
 
+func (s *S) TestURLSsl(c *C) {
+	type test struct {
+		url           string
+		nilDialServer bool
+	}
+
+	tests := []test{
+		{"localhost:40001", true},
+		{"localhost:40001?ssl=false", true},
+		{"localhost:40001?ssl=true", false},
+	}
+
+	for _, test := range tests {
+		info, err := mgo.ParseURL(test.url)
+		c.Assert(err, IsNil)
+		c.Assert(info.DialServer == nil, Equals, test.nilDialServer)
+	}
+}
+
 func (s *S) TestURLReadPreference(c *C) {
 	type test struct {
 		url  string

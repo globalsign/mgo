@@ -28,6 +28,7 @@ package mgo
 
 import (
 	"crypto/md5"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -294,6 +295,12 @@ const (
 //        The identifier of this client application. This parameter is used to
 //        annotate logs / profiler output and cannot exceed 128 bytes.
 //
+//     ssl=<true|false>
+//
+//        true: Initiate the connection with TLS/SSL.
+//        false: Initiate the connection without TLS/SSL.
+//        The default value is false.
+//
 // Relevant documentation:
 //
 //     http://docs.mongodb.org/manual/reference/connection-string/
@@ -331,6 +338,7 @@ func ParseURL(url string) (*DialInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	ssl := false
 	direct := false
 	mechanism := ""
 	service := ""
@@ -345,6 +353,8 @@ func ParseURL(url string) (*DialInfo, error) {
 	safe := Safe{}
 	for _, opt := range uinfo.options {
 		switch opt.key {
+		case "ssl":
+			ssl = opt.value == "true"
 		case "authSource":
 			source = opt.value
 		case "authMechanism":
@@ -459,6 +469,12 @@ func ParseURL(url string) (*DialInfo, error) {
 		ReplicaSetName: setName,
 		MinPoolSize:    minPoolSize,
 		MaxIdleTimeMS:  maxIdleTimeMS,
+	}
+	if ssl {
+		info.DialServer = func(addr *ServerAddr) (net.Conn, error) {
+			conn, err := tls.Dial("tcp", addr.String(), &tls.Config{})
+			return conn, err
+		}
 	}
 	return &info, nil
 }
