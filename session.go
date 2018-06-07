@@ -4895,7 +4895,7 @@ type findModifyCmd struct {
 	Collection                  string      `bson:"findAndModify"`
 	Query, Update, Sort, Fields interface{} `bson:",omitempty"`
 	Upsert, Remove, New         bool        `bson:",omitempty"`
-	WriteConcern                interface{} `bson:",omitempty"`
+	WriteConcern                interface{} `bson:"writeConcern"`
 }
 
 type valueResult struct {

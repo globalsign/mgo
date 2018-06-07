@@ -1376,7 +1376,7 @@ func (s *S) TestFindAndModifyWriteConcern(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	err = coll.Insert(M{"fid": 42})
+	err = coll.Insert(M{"id": 42})
 	c.Assert(err, IsNil)
 
 	// Tweak the safety parameters to something unachievable.
@@ -1391,15 +1391,14 @@ func (s *S) TestFindAndModifyWriteConcern(c *C) {
 		ReturnNew: false,
 	}
 	info, err := coll.Find(M{"id": M{"$exists": true}}).Apply(change, &ret)
-	c.Assert(err, ErrorMatches, "timeout|timed out waiting for slaves|Not enough data-bearing nodes|waiting for replication timed out")
-	if !s.versionAtLeast(2, 6) {
-		// 2.6 turned it into a query error.
-		c.Assert(err.(*mgo.LastError).WTimeout, Equals, true)
-	}
 	c.Assert(info.Updated, Equals, 1)
 	c.Assert(info.Matched, Equals, 1)
-	c.Assert(info.UpsertedId, NotNil)
-	c.Assert(ret.Id, Equals, 50)
+	c.Assert(ret.Id, Equals, uint64(42))
+
+	if s.versionAtLeast(3, 2) {
+		// findAndModify support writeConcern after version 3.2.
+		c.Assert(err, ErrorMatches, "timeout|timed out waiting for slaves|Not enough data-bearing nodes|waiting for replication timed out")
+	}
 }
 
 func (s *S) TestFindAndModifyBug997828(c *C) {
