@@ -470,7 +470,8 @@ func ParseURL(url string) (*DialInfo, error) {
 		MinPoolSize:    minPoolSize,
 		MaxIdleTimeMS:  maxIdleTimeMS,
 	}
-	if ssl {
+	if ssl && info.DialServer == nil {
+		// Set DialServer only if nil, we don't want to override user's settings.
 		info.DialServer = func(addr *ServerAddr) (net.Conn, error) {
 			conn, err := tls.Dial("tcp", addr.String(), &tls.Config{})
 			return conn, err
