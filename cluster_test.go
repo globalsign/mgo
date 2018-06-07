@@ -1055,8 +1055,6 @@ func (s *S) TestSocketTimeoutOnDial(c *C) {
 
 	timeout := 1 * time.Second
 
-	defer mgo.HackSyncSocketTimeout(timeout)()
-
 	s.Freeze("localhost:40001")
 
 	started := time.Now()

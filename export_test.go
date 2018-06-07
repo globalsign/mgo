@@ -19,20 +19,6 @@ func HackPingDelay(newDelay time.Duration) (restore func()) {
 	return
 }
 
-func HackSyncSocketTimeout(newTimeout time.Duration) (restore func()) {
-	globalMutex.Lock()
-	defer globalMutex.Unlock()
-
-	oldTimeout := syncSocketTimeout
-	restore = func() {
-		globalMutex.Lock()
-		syncSocketTimeout = oldTimeout
-		globalMutex.Unlock()
-	}
-	syncSocketTimeout = newTimeout
-	return
-}
-
 func (s *Session) Cluster() *mongoCluster {
 	return s.cluster()
 }
