@@ -87,6 +87,14 @@ func (s *S) TestPing(c *C) {
 	c.Assert(stats.ReceivedOps, Equals, 1)
 }
 
+func (s *S) TestPingSsl(c *C) {
+	session, err := mgo.Dial("localhost:40001?ssl=true")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	c.Assert(session.Ping(), IsNil)
+}
+
 func (s *S) TestDialIPAddress(c *C) {
 	session, err := mgo.Dial("127.0.0.1:40001")
 	c.Assert(err, IsNil)
