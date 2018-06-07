@@ -354,7 +354,9 @@ func ParseURL(url string) (*DialInfo, error) {
 	for _, opt := range uinfo.options {
 		switch opt.key {
 		case "ssl":
-			ssl = opt.value == "true"
+			if v, err := strconv.ParseBool(opt.value); err == nil && v {
+				ssl = true
+			}
 		case "authSource":
 			source = opt.value
 		case "authMechanism":
