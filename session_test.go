@@ -1370,6 +1370,38 @@ func (s *S) TestFindAndModify(c *C) {
 	c.Assert(info, IsNil)
 }
 
+func (s *S) TestFindAndModifyWriteConcern(c *C) {
+	session, err := mgo.Dial("localhost:40011")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+	err = coll.Insert(M{"fid": 42})
+	c.Assert(err, IsNil)
+
+	// Tweak the safety parameters to something unachievable.
+	session.SetSafe(&mgo.Safe{W: 4, WTimeout: 100})
+
+	var ret struct {
+		Id uint64 `bson:"id"`
+	}
+
+	change := mgo.Change{
+		Update:    M{"$inc": M{"id": 8}},
+		ReturnNew: false,
+	}
+	info, err := coll.Find(M{"id": M{"$exists": true}}).Apply(change, &ret)
+	c.Assert(err, ErrorMatches, "timeout|timed out waiting for slaves|Not enough data-bearing nodes|waiting for replication timed out")
+	if !s.versionAtLeast(2, 6) {
+		// 2.6 turned it into a query error.
+		c.Assert(err.(*mgo.LastError).WTimeout, Equals, true)
+	}
+	c.Assert(info.Updated, Equals, 1)
+	c.Assert(info.Matched, Equals, 1)
+	c.Assert(info.UpsertedId, NotNil)
+	c.Assert(ret.Id, Equals, 50)
+}
+
 func (s *S) TestFindAndModifyBug997828(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
