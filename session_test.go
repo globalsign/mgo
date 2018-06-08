@@ -88,6 +88,7 @@ func (s *S) TestPing(c *C) {
 }
 
 func (s *S) TestPingSsl(c *C) {
+	c.Skip("this test requires the usage of the system provided certificates")
 	session, err := mgo.Dial("localhost:40001?ssl=true")
 	c.Assert(err, IsNil)
 	defer session.Close()
