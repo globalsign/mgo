@@ -1472,7 +1472,6 @@ type Index struct {
 // Collation allows users to specify language-specific rules for string comparison,
 // such as rules for lettercase and accent marks.
 type Collation struct {
-
 	// Locale defines the collation locale.
 	Locale string `bson:"locale"`
 
@@ -2912,6 +2911,7 @@ func (p *Pipe) SetMaxTime(d time.Duration) *Pipe {
 	p.maxTimeMS = int64(d / time.Millisecond)
 	return p
 }
+
 
 // Collation allows to specify language-specific rules for string comparison,
 // such as rules for lettercase and accent marks.
@@ -4427,10 +4427,19 @@ func (iter *Iter) Next(result interface{}) bool {
 //
 func (iter *Iter) All(result interface{}) error {
 	resultv := reflect.ValueOf(result)
-	if resultv.Kind() != reflect.Ptr || resultv.Elem().Kind() != reflect.Slice {
+	if resultv.Kind() != reflect.Ptr {
 		panic("result argument must be a slice address")
 	}
+
 	slicev := resultv.Elem()
+
+	if slicev.Kind() == reflect.Interface {
+		slicev = slicev.Elem()
+	}
+	if slicev.Kind() != reflect.Slice {
+		panic("result argument must be a slice address")
+	}
+
 	slicev = slicev.Slice(0, slicev.Cap())
 	elemt := slicev.Type().Elem()
 	i := 0
@@ -4905,17 +4914,21 @@ type findModifyCmd struct {
 	Collection                  string      `bson:"findAndModify"`
 	Query, Update, Sort, Fields interface{} `bson:",omitempty"`
 	Upsert, Remove, New         bool        `bson:",omitempty"`
+	WriteConcern                interface{} `bson:"writeConcern"`
 }
 
 type valueResult struct {
-	Value     bson.Raw
-	LastError LastError `bson:"lastErrorObject"`
+	Value        bson.Raw
+	LastError    LastError         `bson:"lastErrorObject"`
+	ConcernError writeConcernError `bson:"writeConcernError"`
 }
 
 // Apply runs the findAndModify MongoDB command, which allows updating, upserting
 // or removing a document matching a query and atomically returning either the old
 // version (the default) or the new version of the document (when ReturnNew is true).
 // If no objects are found Apply returns ErrNotFound.
+//
+// If the session is in safe mode, the LastError result will be returned as err.
 //
 // The Sort and Select query methods affect the result of Apply.  In case
 // multiple documents match the query, Sort enables selecting which document to
@@ -4953,15 +4966,27 @@ func (q *Query) Apply(change Change, result interface{}) (info *ChangeInfo, err 
 	dbname := op.collection[:c]
 	cname := op.collection[c+1:]
 
+	// https://docs.mongodb.com/manual/reference/command/findAndModify/#dbcmd.findAndModify
+	session.m.RLock()
+	safeOp := session.safeOp
+	session.m.RUnlock()
+	var writeConcern interface{}
+	if safeOp == nil {
+		writeConcern = bson.D{{Name: "w", Value: 0}}
+	} else {
+		writeConcern = safeOp.query.(*getLastError)
+	}
+
 	cmd := findModifyCmd{
-		Collection: cname,
-		Update:     change.Update,
-		Upsert:     change.Upsert,
-		Remove:     change.Remove,
-		New:        change.ReturnNew,
-		Query:      op.query,
-		Sort:       op.options.OrderBy,
-		Fields:     op.selector,
+		Collection:   cname,
+		Update:       change.Update,
+		Upsert:       change.Upsert,
+		Remove:       change.Remove,
+		New:          change.ReturnNew,
+		Query:        op.query,
+		Sort:         op.options.OrderBy,
+		Fields:       op.selector,
+		WriteConcern: writeConcern,
 	}
 
 	session = session.Clone()
@@ -5003,6 +5028,14 @@ func (q *Query) Apply(change Change, result interface{}) (info *ChangeInfo, err 
 		info.Matched = lerr.N
 	} else if change.Upsert {
 		info.UpsertedId = lerr.UpsertedId
+	}
+	if doc.ConcernError.Code != 0 {
+		var lerr LastError
+		e := doc.ConcernError
+		lerr.Code = e.Code
+		lerr.Err = e.ErrMsg
+		err = &lerr
+		return info, err
 	}
 	return info, nil
 }

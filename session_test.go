@@ -481,6 +481,18 @@ func (s *S) TestInsertFindAll(c *C) {
 	// Ensure result is backed by the originally allocated array
 	c.Assert(&result[0], Equals, &allocd[0])
 
+	// Re-run test destination as a pointer to interface{}
+	var resultInterface interface{}
+
+	anotherslice := make([]R, 5)
+	resultInterface = anotherslice
+	err = coll.Find(nil).Sort("a").All(&resultInterface)
+	c.Assert(err, IsNil)
+	assertResult()
+
+	// Ensure result is backed by the originally allocated array
+	c.Assert(&result[0], Equals, &allocd[0])
+
 	// Non-pointer slice error
 	f := func() { coll.Find(nil).All(result) }
 	c.Assert(f, Panics, "result argument must be a slice address")
@@ -1384,6 +1396,37 @@ func (s *S) TestFindAndModify(c *C) {
 	c.Assert(err, Equals, mgo.ErrNotFound)
 	c.Assert(len(result), Equals, 0)
 	c.Assert(info, IsNil)
+}
+
+func (s *S) TestFindAndModifyWriteConcern(c *C) {
+	session, err := mgo.Dial("localhost:40011")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+	err = coll.Insert(M{"id": 42})
+	c.Assert(err, IsNil)
+
+	// Tweak the safety parameters to something unachievable.
+	session.SetSafe(&mgo.Safe{W: 4, WTimeout: 100})
+
+	var ret struct {
+		Id uint64 `bson:"id"`
+	}
+
+	change := mgo.Change{
+		Update:    M{"$inc": M{"id": 8}},
+		ReturnNew: false,
+	}
+	info, err := coll.Find(M{"id": M{"$exists": true}}).Apply(change, &ret)
+	c.Assert(info.Updated, Equals, 1)
+	c.Assert(info.Matched, Equals, 1)
+	c.Assert(ret.Id, Equals, uint64(42))
+
+	if s.versionAtLeast(3, 2) {
+		// findAndModify support writeConcern after version 3.2.
+		c.Assert(err, ErrorMatches, "timeout|timed out waiting for slaves|Not enough data-bearing nodes|waiting for replication timed out")
+	}
 }
 
 func (s *S) TestFindAndModifyBug997828(c *C) {
