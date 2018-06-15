@@ -137,7 +137,21 @@ func ExampleSession_concurrency() {
 
 func ExampleDial_usingSSL() {
 	// To connect via TLS/SSL (enforced for MongoDB Atlas for example) requires
-	// configuring the dialer to use a TLS connection:
+	// to set the ssl query param to true.
+	url := "mongodb://localhost:40003?ssl=true"
+
+	session, err := Dial(url)
+	if err != nil {
+		panic(err)
+	}
+
+	// Use session as normal
+	session.Close()
+}
+
+func ExampleDial_tlsConfig() {
+	// You can define a custom tlsConfig, this one enables TLS, like if you have
+	// ssl=true in the connection string.
 	url := "mongodb://localhost:40003"
 
 	tlsConfig := &tls.Config{

@@ -28,6 +28,7 @@ package mgo
 
 import (
 	"crypto/md5"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -73,6 +74,14 @@ const (
 	Monotonic Mode = 1
 	// Strong mode is specific to mgo, and is same as Primary.
 	Strong Mode = 2
+
+	// DefaultConnectionPoolLimit defines the default maximum number of
+	// connections in the connection pool.
+	//
+	// To override this value set DialInfo.PoolLimit.
+	DefaultConnectionPoolLimit = 4096
+
+	zeroDuration = time.Duration(0)
 )
 
 // mgo.v3: Drop Strong mode, suffix all modes with "Mode".
@@ -90,9 +99,6 @@ type Session struct {
 	defaultdb        string
 	sourcedb         string
 	syncTimeout      time.Duration
-	sockTimeout      time.Duration
-	poolLimit        int
-	poolTimeout      time.Duration
 	consistency      Mode
 	creds            []Credential
 	dialCred         *Credential
@@ -104,6 +110,8 @@ type Session struct {
 	queryConfig      query
 	bypassValidation bool
 	slaveOk          bool
+
+	dialInfo *DialInfo
 }
 
 // Database holds collections of documents
@@ -196,7 +204,7 @@ const (
 // Dial will timeout after 10 seconds if a server isn't reached. The returned
 // session will timeout operations after one minute by default if servers aren't
 // available. To customize the timeout, see DialWithTimeout, SetSyncTimeout, and
-// SetSocketTimeout.
+// DialInfo Read/WriteTimeout.
 //
 // This method is generally called just once for a given cluster.  Further
 // sessions to the same cluster are then established using the New or Copy
@@ -287,6 +295,12 @@ const (
 //        The identifier of this client application. This parameter is used to
 //        annotate logs / profiler output and cannot exceed 128 bytes.
 //
+//     ssl=<true|false>
+//
+//        true: Initiate the connection with TLS/SSL.
+//        false: Initiate the connection without TLS/SSL.
+//        The default value is false.
+//
 // Relevant documentation:
 //
 //     http://docs.mongodb.org/manual/reference/connection-string/
@@ -324,6 +338,7 @@ func ParseURL(url string) (*DialInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	ssl := false
 	direct := false
 	mechanism := ""
 	service := ""
@@ -335,8 +350,13 @@ func ParseURL(url string) (*DialInfo, error) {
 	var readPreferenceTagSets []bson.D
 	minPoolSize := 0
 	maxIdleTimeMS := 0
+	safe := Safe{}
 	for _, opt := range uinfo.options {
 		switch opt.key {
+		case "ssl":
+			if v, err := strconv.ParseBool(opt.value); err == nil && v {
+				ssl = true
+			}
 		case "authSource":
 			source = opt.value
 		case "authMechanism":
@@ -345,6 +365,23 @@ func ParseURL(url string) (*DialInfo, error) {
 			service = opt.value
 		case "replicaSet":
 			setName = opt.value
+		case "w":
+			safe.WMode = opt.value
+		case "j":
+			journal, err := strconv.ParseBool(opt.value)
+			if err != nil {
+				return nil, errors.New("bad value for j: " + opt.value)
+			}
+			safe.J = journal
+		case "wtimeoutMS":
+			timeout, err := strconv.Atoi(opt.value)
+			if err != nil {
+				return nil, errors.New("bad value for wtimeoutMS: " + opt.value)
+			}
+			if timeout < 0 {
+				return nil, errors.New("bad value (negative) for wtimeoutMS: " + opt.value)
+			}
+			safe.WTimeout = timeout
 		case "maxPoolSize":
 			poolLimit, err = strconv.Atoi(opt.value)
 			if err != nil {
@@ -387,7 +424,7 @@ func ParseURL(url string) (*DialInfo, error) {
 				return nil, errors.New("bad value for minPoolSize: " + opt.value)
 			}
 			if minPoolSize < 0 {
-				return nil, errors.New("bad value (negtive) for minPoolSize: " + opt.value)
+				return nil, errors.New("bad value (negative) for minPoolSize: " + opt.value)
 			}
 		case "maxIdleTimeMS":
 			maxIdleTimeMS, err = strconv.Atoi(opt.value)
@@ -395,7 +432,7 @@ func ParseURL(url string) (*DialInfo, error) {
 				return nil, errors.New("bad value for maxIdleTimeMS: " + opt.value)
 			}
 			if maxIdleTimeMS < 0 {
-				return nil, errors.New("bad value (negtive) for maxIdleTimeMS: " + opt.value)
+				return nil, errors.New("bad value (negative) for maxIdleTimeMS: " + opt.value)
 			}
 		case "connect":
 			if opt.value == "direct" {
@@ -430,9 +467,17 @@ func ParseURL(url string) (*DialInfo, error) {
 			Mode:    readPreferenceMode,
 			TagSets: readPreferenceTagSets,
 		},
+		Safe:           safe,
 		ReplicaSetName: setName,
 		MinPoolSize:    minPoolSize,
 		MaxIdleTimeMS:  maxIdleTimeMS,
+	}
+	if ssl && info.DialServer == nil {
+		// Set DialServer only if nil, we don't want to override user's settings.
+		info.DialServer = func(addr *ServerAddr) (net.Conn, error) {
+			conn, err := tls.Dial("tcp", addr.String(), &tls.Config{})
+			return conn, err
+		}
 	}
 	return &info, nil
 }
@@ -483,14 +528,37 @@ type DialInfo struct {
 	Username string
 	Password string
 
-	// PoolLimit defines the per-server socket pool limit. Defaults to 4096.
-	// See Session.SetPoolLimit for details.
+	// PoolLimit defines the per-server socket pool limit. Defaults to
+	// DefaultConnectionPoolLimit. See Session.SetPoolLimit for details.
 	PoolLimit int
 
 	// PoolTimeout defines max time to wait for a connection to become available
-	// if the pool limit is reaqched. Defaults to zero, which means forever.
-	// See Session.SetPoolTimeout for details
+	// if the pool limit is reached. Defaults to zero, which means forever. See
+	// Session.SetPoolTimeout for details
 	PoolTimeout time.Duration
+
+	// ReadTimeout defines the maximum duration to wait for a response to be
+	// read from MongoDB.
+	//
+	// This effectively limits the maximum query execution time. If a MongoDB
+	// query duration exceeds this timeout, the caller will receive a timeout,
+	// however MongoDB will continue processing the query. This duration must be
+	// large enough to allow MongoDB to execute the query, and the response be
+	// received over the network connection.
+	//
+	// Only limits the network read - does not include unmarshalling /
+	// processing of the response. Defaults to DialInfo.Timeout. If 0, no
+	// timeout is set.
+	ReadTimeout time.Duration
+
+	// WriteTimeout defines the maximum duration of a write to MongoDB over the
+	// network connection.
+	//
+	// This is can usually be low unless writing large documents, or over a high
+	// latency link. Only limits network write time - does not include
+	// marshalling/processing the request. Defaults to DialInfo.Timeout. If 0,
+	// no timeout is set.
+	WriteTimeout time.Duration
 
 	// The identifier of the client application which ran the operation.
 	AppName string
@@ -498,6 +566,9 @@ type DialInfo struct {
 	// ReadPreference defines the manner in which servers are chosen. See
 	// Session.SetMode and Session.SelectServers.
 	ReadPreference *ReadPreference
+
+	// Safe mostly defines write options, though there is RMode. See Session.SetSafe
+	Safe Safe
 
 	// FailFast will cause connection and query attempts to fail faster when
 	// the server is unavailable, instead of retrying until the configured
@@ -515,7 +586,7 @@ type DialInfo struct {
 	// Defaults to 0.
 	MinPoolSize int
 
-	//The maximum number of milliseconds that a connection can remain idle in the pool
+	// The maximum number of milliseconds that a connection can remain idle in the pool
 	// before being removed and closed.
 	MaxIdleTimeMS int
 
@@ -525,6 +596,79 @@ type DialInfo struct {
 
 	// WARNING: This field is obsolete. See DialServer above.
 	Dial func(addr net.Addr) (net.Conn, error)
+}
+
+// Copy returns a deep-copy of i.
+func (i *DialInfo) Copy() *DialInfo {
+	var readPreference *ReadPreference
+	if i.ReadPreference != nil {
+		readPreference = &ReadPreference{
+			Mode: i.ReadPreference.Mode,
+		}
+		readPreference.TagSets = make([]bson.D, len(i.ReadPreference.TagSets))
+		copy(readPreference.TagSets, i.ReadPreference.TagSets)
+	}
+
+	info := &DialInfo{
+		Timeout:        i.Timeout,
+		Database:       i.Database,
+		ReplicaSetName: i.ReplicaSetName,
+		Source:         i.Source,
+		Service:        i.Service,
+		ServiceHost:    i.ServiceHost,
+		Mechanism:      i.Mechanism,
+		Username:       i.Username,
+		Password:       i.Password,
+		PoolLimit:      i.PoolLimit,
+		PoolTimeout:    i.PoolTimeout,
+		ReadTimeout:    i.ReadTimeout,
+		WriteTimeout:   i.WriteTimeout,
+		AppName:        i.AppName,
+		ReadPreference: readPreference,
+		FailFast:       i.FailFast,
+		Direct:         i.Direct,
+		MinPoolSize:    i.MinPoolSize,
+		MaxIdleTimeMS:  i.MaxIdleTimeMS,
+		DialServer:     i.DialServer,
+		Dial:           i.Dial,
+	}
+
+	info.Addrs = make([]string, len(i.Addrs))
+	copy(info.Addrs, i.Addrs)
+
+	return info
+}
+
+// readTimeout returns the configured read timeout, or i.Timeout if it's not set
+func (i *DialInfo) readTimeout() time.Duration {
+	if i.ReadTimeout == zeroDuration {
+		return i.Timeout
+	}
+	return i.ReadTimeout
+}
+
+// writeTimeout returns the configured write timeout, or i.Timeout if it's not
+// set
+func (i *DialInfo) writeTimeout() time.Duration {
+	if i.WriteTimeout == zeroDuration {
+		return i.Timeout
+	}
+	return i.WriteTimeout
+}
+
+// roundTripTimeout returns the total time allocated for a single network read
+// and write.
+func (i *DialInfo) roundTripTimeout() time.Duration {
+	return i.readTimeout() + i.writeTimeout()
+}
+
+// poolLimit returns the configured connection pool size, or
+// DefaultConnectionPoolLimit.
+func (i *DialInfo) poolLimit() int {
+	if i.PoolLimit == 0 {
+		return DefaultConnectionPoolLimit
+	}
+	return i.PoolLimit
 }
 
 // ReadPreference defines the manner in which servers are chosen.
@@ -556,7 +700,12 @@ func (addr *ServerAddr) TCPAddr() *net.TCPAddr {
 }
 
 // DialWithInfo establishes a new session to the cluster identified by info.
-func DialWithInfo(info *DialInfo) (*Session, error) {
+func DialWithInfo(dialInfo *DialInfo) (*Session, error) {
+	info := dialInfo.Copy()
+	info.PoolLimit = info.poolLimit()
+	info.ReadTimeout = info.readTimeout()
+	info.WriteTimeout = info.writeTimeout()
+
 	addrs := make([]string, len(info.Addrs))
 	for i, addr := range info.Addrs {
 		p := strings.LastIndexAny(addr, "]:")
@@ -566,8 +715,8 @@ func DialWithInfo(info *DialInfo) (*Session, error) {
 		}
 		addrs[i] = addr
 	}
-	cluster := newCluster(addrs, info.Direct, info.FailFast, dialer{info.Dial, info.DialServer}, info.ReplicaSetName, info.AppName)
-	session := newSession(Eventual, cluster, info.Timeout)
+	cluster := newCluster(addrs, info)
+	session := newSession(Eventual, cluster, info)
 	session.defaultdb = info.Database
 	if session.defaultdb == "" {
 		session.defaultdb = "test"
@@ -595,16 +744,6 @@ func DialWithInfo(info *DialInfo) (*Session, error) {
 		}
 		session.creds = []Credential{*session.dialCred}
 	}
-	if info.PoolLimit > 0 {
-		session.poolLimit = info.PoolLimit
-	}
-
-	cluster.minPoolSize = info.MinPoolSize
-	cluster.maxIdleTimeMS = info.MaxIdleTimeMS
-
-	if info.PoolTimeout > 0 {
-		session.poolTimeout = info.PoolTimeout
-	}
 
 	cluster.Release()
 
@@ -617,12 +756,16 @@ func DialWithInfo(info *DialInfo) (*Session, error) {
 		return nil, err
 	}
 
+	session.SetSafe(&info.Safe)
+
 	if info.ReadPreference != nil {
 		session.SelectServers(info.ReadPreference.TagSets...)
 		session.SetMode(info.ReadPreference.Mode, true)
 	} else {
 		session.SetMode(Strong, true)
 	}
+
+	session.dialInfo = info
 
 	return session, nil
 }
@@ -684,13 +827,12 @@ func extractURL(s string) (*urlInfo, error) {
 	return info, nil
 }
 
-func newSession(consistency Mode, cluster *mongoCluster, timeout time.Duration) (session *Session) {
+func newSession(consistency Mode, cluster *mongoCluster, info *DialInfo) (session *Session) {
 	cluster.Acquire()
 	session = &Session{
 		mgoCluster:  cluster,
-		syncTimeout: timeout,
-		sockTimeout: timeout,
-		poolLimit:   4096,
+		syncTimeout: info.Timeout,
+		dialInfo:    info,
 	}
 	debugf("New session %p on cluster %p", session, cluster)
 	session.SetMode(consistency, true)
@@ -719,9 +861,6 @@ func copySession(session *Session, keepCreds bool) (s *Session) {
 		defaultdb:        session.defaultdb,
 		sourcedb:         session.sourcedb,
 		syncTimeout:      session.syncTimeout,
-		sockTimeout:      session.sockTimeout,
-		poolLimit:        session.poolLimit,
-		poolTimeout:      session.poolTimeout,
 		consistency:      session.consistency,
 		creds:            creds,
 		dialCred:         session.dialCred,
@@ -733,6 +872,7 @@ func copySession(session *Session, keepCreds bool) (s *Session) {
 		queryConfig:      session.queryConfig,
 		bypassValidation: session.bypassValidation,
 		slaveOk:          session.slaveOk,
+		dialInfo:         session.dialInfo,
 	}
 	s = &scopy
 	debugf("New session %p on cluster %p (copy from %p)", s, cluster, session)
@@ -1332,7 +1472,6 @@ type Index struct {
 // Collation allows users to specify language-specific rules for string comparison,
 // such as rules for lettercase and accent marks.
 type Collation struct {
-
 	// Locale defines the collation locale.
 	Locale string `bson:"locale"`
 
@@ -2018,13 +2157,21 @@ func (s *Session) SetSyncTimeout(d time.Duration) {
 	s.m.Unlock()
 }
 
-// SetSocketTimeout sets the amount of time to wait for a non-responding
-// socket to the database before it is forcefully closed.
+// SetSocketTimeout is deprecated - use DialInfo read/write timeouts instead.
+//
+// SetSocketTimeout sets the amount of time to wait for a non-responding socket
+// to the database before it is forcefully closed.
 //
 // The default timeout is 1 minute.
 func (s *Session) SetSocketTimeout(d time.Duration) {
 	s.m.Lock()
-	s.sockTimeout = d
+
+	// Set both the read and write timeout, as well as the DialInfo.Timeout for
+	// backwards compatibility,
+	s.dialInfo.Timeout = d
+	s.dialInfo.ReadTimeout = d
+	s.dialInfo.WriteTimeout = d
+
 	if s.masterSocket != nil {
 		s.masterSocket.SetTimeout(d)
 	}
@@ -2058,7 +2205,7 @@ func (s *Session) SetCursorTimeout(d time.Duration) {
 // of used resources and number of goroutines before they are created.
 func (s *Session) SetPoolLimit(limit int) {
 	s.m.Lock()
-	s.poolLimit = limit
+	s.dialInfo.PoolLimit = limit
 	s.m.Unlock()
 }
 
@@ -2068,7 +2215,7 @@ func (s *Session) SetPoolLimit(limit int) {
 // The default value is zero, which means to wait forever with no timeout.
 func (s *Session) SetPoolTimeout(timeout time.Duration) {
 	s.m.Lock()
-	s.poolTimeout = timeout
+	s.dialInfo.PoolTimeout = timeout
 	s.m.Unlock()
 }
 
@@ -4137,15 +4284,20 @@ func (iter *Iter) Timeout() bool {
 //
 // Next returns true if a document was successfully unmarshalled onto result,
 // and false at the end of the result set or if an error happened.
-// When Next returns false, the Err method should be called to verify if
-// there was an error during iteration, and the Timeout method to verify if the
-// false return value was caused by a timeout (no available results).
+// When Next returns false, either the Err method or the Close method should be
+// called to verify if there was an error during iteration. While both will
+// return the error (or nil), Close will also release the cursor on the server.
+// The Timeout method may also be called to verify if the false return value
+// was caused by a timeout (no available results).
 //
 // For example:
 //
 //    iter := collection.Find(nil).Iter()
 //    for iter.Next(&result) {
 //        fmt.Printf("Result: %v\n", result.Id)
+//    }
+//    if iter.Timeout() {
+//        // react to timeout
 //    }
 //    if err := iter.Close(); err != nil {
 //        return err
@@ -4275,10 +4427,19 @@ func (iter *Iter) Next(result interface{}) bool {
 //
 func (iter *Iter) All(result interface{}) error {
 	resultv := reflect.ValueOf(result)
-	if resultv.Kind() != reflect.Ptr || resultv.Elem().Kind() != reflect.Slice {
+	if resultv.Kind() != reflect.Ptr {
 		panic("result argument must be a slice address")
 	}
+
 	slicev := resultv.Elem()
+
+	if slicev.Kind() == reflect.Interface {
+		slicev = slicev.Elem()
+	}
+	if slicev.Kind() != reflect.Slice {
+		panic("result argument must be a slice address")
+	}
+
 	slicev = slicev.Slice(0, slicev.Cap())
 	elemt := slicev.Type().Elem()
 	i := 0
@@ -4357,11 +4518,13 @@ func (iter *Iter) acquireSocket() (*mongoSocket, error) {
 		// with Eventual sessions, if a Refresh is done, or if a
 		// monotonic session gets a write and shifts from secondary
 		// to primary. Our cursor is in a specific server, though.
+
 		iter.session.m.Lock()
-		sockTimeout := iter.session.sockTimeout
+		info := iter.session.dialInfo
 		iter.session.m.Unlock()
+
 		socket.Release()
-		socket, _, err = iter.server.AcquireSocket(0, sockTimeout)
+		socket, _, err = iter.server.AcquireSocket(info)
 		if err != nil {
 			return nil, err
 		}
@@ -4434,10 +4597,11 @@ func (iter *Iter) getMoreCmd() *queryOp {
 type countCmd struct {
 	Count     string
 	Query     interface{}
-	Limit     int32  `bson:",omitempty"`
-	Skip      int32  `bson:",omitempty"`
-	Hint      bson.D `bson:"hint,omitempty"`
-	MaxTimeMS int    `bson:"maxTimeMS,omitempty"`
+	Limit     int32      `bson:",omitempty"`
+	Skip      int32      `bson:",omitempty"`
+	Hint      bson.D     `bson:"hint,omitempty"`
+	MaxTimeMS int        `bson:"maxTimeMS,omitempty"`
+	Collation *Collation `bson:"collation,omitempty"`
 }
 
 // Count returns the total number of documents in the result set.
@@ -4463,7 +4627,7 @@ func (q *Query) Count() (n int, err error) {
 	// simply want a Zero bson.D
 	hint, _ := q.op.options.Hint.(bson.D)
 	result := struct{ N int }{}
-	err = session.DB(dbname).Run(countCmd{cname, query, limit, op.skip, hint, op.options.MaxTimeMS}, &result)
+	err = session.DB(dbname).Run(countCmd{cname, query, limit, op.skip, hint, op.options.MaxTimeMS, op.options.Collation}, &result)
 
 	return result.N, err
 }
@@ -4744,17 +4908,21 @@ type findModifyCmd struct {
 	Collection                  string      `bson:"findAndModify"`
 	Query, Update, Sort, Fields interface{} `bson:",omitempty"`
 	Upsert, Remove, New         bool        `bson:",omitempty"`
+	WriteConcern                interface{} `bson:"writeConcern"`
 }
 
 type valueResult struct {
-	Value     bson.Raw
-	LastError LastError `bson:"lastErrorObject"`
+	Value        bson.Raw
+	LastError    LastError         `bson:"lastErrorObject"`
+	ConcernError writeConcernError `bson:"writeConcernError"`
 }
 
 // Apply runs the findAndModify MongoDB command, which allows updating, upserting
 // or removing a document matching a query and atomically returning either the old
 // version (the default) or the new version of the document (when ReturnNew is true).
 // If no objects are found Apply returns ErrNotFound.
+//
+// If the session is in safe mode, the LastError result will be returned as err.
 //
 // The Sort and Select query methods affect the result of Apply.  In case
 // multiple documents match the query, Sort enables selecting which document to
@@ -4792,15 +4960,27 @@ func (q *Query) Apply(change Change, result interface{}) (info *ChangeInfo, err 
 	dbname := op.collection[:c]
 	cname := op.collection[c+1:]
 
+	// https://docs.mongodb.com/manual/reference/command/findAndModify/#dbcmd.findAndModify
+	session.m.RLock()
+	safeOp := session.safeOp
+	session.m.RUnlock()
+	var writeConcern interface{}
+	if safeOp == nil {
+		writeConcern = bson.D{{Name: "w", Value: 0}}
+	} else {
+		writeConcern = safeOp.query.(*getLastError)
+	}
+
 	cmd := findModifyCmd{
-		Collection: cname,
-		Update:     change.Update,
-		Upsert:     change.Upsert,
-		Remove:     change.Remove,
-		New:        change.ReturnNew,
-		Query:      op.query,
-		Sort:       op.options.OrderBy,
-		Fields:     op.selector,
+		Collection:   cname,
+		Update:       change.Update,
+		Upsert:       change.Upsert,
+		Remove:       change.Remove,
+		New:          change.ReturnNew,
+		Query:        op.query,
+		Sort:         op.options.OrderBy,
+		Fields:       op.selector,
+		WriteConcern: writeConcern,
 	}
 
 	session = session.Clone()
@@ -4842,6 +5022,14 @@ func (q *Query) Apply(change Change, result interface{}) (info *ChangeInfo, err 
 		info.Matched = lerr.N
 	} else if change.Upsert {
 		info.UpsertedId = lerr.UpsertedId
+	}
+	if doc.ConcernError.Code != 0 {
+		var lerr LastError
+		e := doc.ConcernError
+		lerr.Code = e.Code
+		lerr.Err = e.ErrMsg
+		err = &lerr
+		return info, err
 	}
 	return info, nil
 }
@@ -4951,7 +5139,11 @@ func (s *Session) acquireSocket(slaveOk bool) (*mongoSocket, error) {
 
 	// Still not good.  We need a new socket.
 	sock, err := s.cluster().AcquireSocketWithPoolTimeout(
-		s.consistency, slaveOk && s.slaveOk, s.syncTimeout, s.sockTimeout, s.queryConfig.op.serverTags, s.poolLimit, s.poolTimeout,
+		s.consistency,
+		slaveOk && s.slaveOk,
+		s.syncTimeout,
+		s.queryConfig.op.serverTags,
+		s.dialInfo,
 	)
 	if err != nil {
 		return nil, err
