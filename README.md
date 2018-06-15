@@ -56,6 +56,7 @@ A [sub-package](https://godoc.org/github.com/globalsign/mgo/bson) that implement
 * Expanded dial string configuration options ([details](https://github.com/globalsign/mgo/pull/162))
 * Implement MongoTimestamp ([details](https://github.com/globalsign/mgo/pull/171))
 * Support setting `writeConcern` for `findAndModify` operations ([details](https://github.com/globalsign/mgo/pull/185))
+* Add `ssl` to the dial string options ([details](https://github.com/globalsign/mgo/pull/184))
 
 
 ---
@@ -94,4 +95,5 @@ A [sub-package](https://godoc.org/github.com/globalsign/mgo/bson) that implement
 * @roobre
 * @smoya
 * @steve-gray
+* @tbruyelle
 * @wgallagher
