@@ -433,6 +433,11 @@ func (cluster *mongoCluster) server(addr string, raddr net.Addr) *mongoServer {
 }
 
 func resolveAddr(addr string) (net.Addr, error) {
+	// Check if addr is a Unix Domain Socket
+	if strings.HasSuffix(addr, ".sock") {
+		return &net.UnixAddr{Net: "unix", Name: addr}, nil
+	}
+
 	// Simple cases that do not need actual resolution. Works with IPv4 and v6.
 	if host, port, err := net.SplitHostPort(addr); err == nil {
 		if port, _ := strconv.Atoi(port); port > 0 {
@@ -448,10 +453,9 @@ func resolveAddr(addr string) (net.Addr, error) {
 		}
 	}
 
-	// Attempt to resolve IPv4 and v6 and Unix Domain Sockets concurrently.
-	addrChan := make(chan net.Addr, 3)
-	var i int
-	for _, network := range []string{"udp4", "udp6", "unix"} {
+	// Attempt to resolve IPv4 and v6 concurrently.
+	addrChan := make(chan *net.TCPAddr, 2)
+	for _, network := range []string{"udp4", "udp6"} {
 		network := network
 		go func() {
 			// The unfortunate UDP dialing hack allows having a timeout on address resolution.
@@ -459,49 +463,38 @@ func resolveAddr(addr string) (net.Addr, error) {
 			if err != nil {
 				addrChan <- nil
 			} else {
-				switch conn.RemoteAddr().(type) {
-				case *net.UDPAddr:
-					addrChan <- (*net.TCPAddr)(conn.RemoteAddr().(*net.UDPAddr))
-				case *net.UnixAddr:
-					addrChan <- conn.RemoteAddr()
-				}
-
+				addrChan <- (*net.TCPAddr)(conn.RemoteAddr().(*net.UDPAddr))
 				conn.Close()
 			}
 		}()
 	}
 
-	// Wait for the result of IPv4, v6 and Unix Domain Socket resolution. Use IPv4 if available.
-outer:
-	for raddr := range addrChan {
-		i++
-
-		switch raddr.(type) {
-		case *net.TCPAddr:
-			tcpaddr := (*net.TCPAddr)(raddr.(*net.TCPAddr))
-			if len(tcpaddr.IP) != 4 {
-				// Don't wait too long if an IPv6 address is known.
-				timeout := time.After(50 * time.Millisecond)
-				<-timeout
-			}
-
-			if tcpaddr.String() != addr {
-				debug("SYNC Address ", addr, " resolved as ", tcpaddr.String())
-			}
-
-		case nil:
-			if i < 3 {
-				continue outer
-			}
-			break outer
-
+	// Wait for the result of IPv4 and v6 resolution. Use IPv4 if available.
+	tcpaddr := <-addrChan
+	if tcpaddr == nil || len(tcpaddr.IP) != 4 {
+		var timeout <-chan time.Time
+		if tcpaddr != nil {
+			// Don't wait too long if an IPv6 address is known.
+			timeout = time.After(50 * time.Millisecond)
 		}
-
-		return raddr, nil
+		select {
+		case <-timeout:
+		case tcpaddr2 := <-addrChan:
+			if tcpaddr == nil || tcpaddr2 != nil {
+				// It's an IPv4 address or the only known address. Use it.
+				tcpaddr = tcpaddr2
+			}
+		}
 	}
 
-	log("SYNC Failed to resolve server address: ", addr)
-	return nil, errors.New("failed to resolve server address: " + addr)
+	if tcpaddr == nil {
+		log("SYNC Failed to resolve server address: ", addr)
+		return nil, errors.New("failed to resolve server address: " + addr)
+	}
+	if tcpaddr.String() != addr {
+		debug("SYNC Address ", addr, " resolved as ", tcpaddr.String())
+	}
+	return tcpaddr, nil
 }
 
 type pendingAdd struct {

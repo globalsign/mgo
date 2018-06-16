@@ -238,10 +238,10 @@ func (server *mongoServer) Connect(info *DialInfo) (*mongoSocket, error) {
 	case !dial.isSet():
 		conn, err = net.DialTimeout(server.raddr.Network(), server.ResolvedAddr, info.Timeout)
 
-		switch conn.(type) {
+		switch connImpl := conn.(type) {
 		case *net.UnixConn:
 		case *net.TCPConn:
-			conn.(*net.TCPConn).SetKeepAlive(true)
+			connImpl.SetKeepAlive(true)
 		default:
 			if err == nil {
 				panic("internal error: obtained connection is not a *net.TCPConn or *net.UnixConn!?")

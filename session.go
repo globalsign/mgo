@@ -229,10 +229,10 @@ const (
 // If the port number is not provided for a server, it defaults to 27017.
 // A host could be an Unix Domain Socket (POSIX Local IPC Socket) like:
 //
-//     /var/run/mongodb/mongod.sock
-//     myuser:mypass@/tmp/mongod.sock/mydb
+//     %2Fvar%2Frun%2Fmongodb%2Fmongod.sock
+//     myuser:mypass@%2Ftmp%2Fmongod.sock/mydb
 //
-// A socket must have the file extension .sock
+// A socket must have the file extension .sock and must not contain unescaped characters
 // The username and password provided in the URL will be used to authenticate
 // into the database named after the slash at the end of the host names, or into
 // the "admin" database if none is provided.  The authentication information
@@ -700,6 +700,7 @@ func (addr *ServerAddr) String() string {
 }
 
 // TCPAddr returns the resolved TCP address for the server.
+// TCPAddr will panic if ServerAddr is a Unix Domain Socket
 func (addr *ServerAddr) TCPAddr() *net.TCPAddr {
 	return (*net.TCPAddr)(addr.addr.(*net.TCPAddr))
 }
@@ -834,6 +835,21 @@ func extractURL(s string) (*urlInfo, error) {
 		s = s[:c]
 	}
 	info.addrs = strings.Split(s, ",")
+
+	for i := 0; i < len(info.addrs); i++ {
+		if strings.Contains(info.addrs[i], "/") {
+			return nil, fmt.Errorf("host information cannot contain any unescaped slashes")
+		}
+
+		if strings.HasSuffix(info.addrs[i], ".sock") {
+			var err error
+
+			info.addrs[i], err = url.PathUnescape(info.addrs[i])
+			if err != nil {
+				return nil, fmt.Errorf("cannot unescape Unix Domain Socket in URL")
+			}
+		}
+	}
 	return info, nil
 }
 
@@ -2921,7 +2937,6 @@ func (p *Pipe) SetMaxTime(d time.Duration) *Pipe {
 	p.maxTimeMS = int64(d / time.Millisecond)
 	return p
 }
-
 
 // Collation allows to specify language-specific rules for string comparison,
 // such as rules for lettercase and accent marks.

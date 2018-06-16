@@ -241,8 +241,8 @@ func (s *S) TestURLUnixSocket(c *C) {
 	}
 
 	tests := []test{
-		{"/var/run/mongodb/mongod.sock", "/var/run/mongodb/mongod.sock", ""},
-		{"/var/run/mongodb/mongod.sock/testing", "/var/run/mongodb/mongod.sock", "testing"},
+		{"%2Fvar%2Frun%2Fmongodb%2Fmongod.sock", "/var/run/mongodb/mongod.sock", ""},
+		{"%2Fvar%2Frun%2Fmongodb%2Fmongod.sock/testing", "/var/run/mongodb/mongod.sock", "testing"},
 	}
 
 	for _, test := range tests {
