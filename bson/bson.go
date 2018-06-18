@@ -671,6 +671,18 @@ func (raw Raw) Unmarshal(out interface{}) (err error) {
 	return nil
 }
 
+// MarshalJSON serializes raw into JSON
+func (raw Raw) MarshalJSON() ([]byte, error) {
+	var rawInterface interface{}
+
+	err := raw.Unmarshal(&rawInterface)
+	if err != nil {
+		return nil, errors.New("unable to unmarshal BSON data into interface")
+	}
+
+	return json.Marshal(rawInterface)
+}
+
 // TypeError store details for type error occuring
 // during unmarshaling
 type TypeError struct {
