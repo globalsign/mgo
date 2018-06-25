@@ -23,16 +23,17 @@ import (
 //   http://blog.mongodb.org/post/84922794768/mongodbs-new-bulk-api
 //
 type Bulk struct {
-	c       *Collection
-	opcount int
-	actions []bulkAction
-	ordered bool
+	c          *Collection
+	opcount    int
+	actions    []bulkAction
+	ordered    bool
+	actionPool sync.Pool
 }
 
 type bulkOp int
 
 const (
-	bulkInsert bulkOp = iota + 1
+	bulkInsert    bulkOp = iota + 1
 	bulkUpdate
 	bulkUpdateAll
 	bulkRemove
@@ -119,18 +120,16 @@ func (e *BulkError) Cases() []BulkErrorCase {
 	return e.ecases
 }
 
-var actionPool = sync.Pool{
-	New: func() interface{} {
-		return &bulkAction{
-			docs: make([]interface{}, 0),
-			idxs: make([]int, 0),
-		}
-	},
-}
-
 // Bulk returns a value to prepare the execution of a bulk operation.
 func (c *Collection) Bulk() *Bulk {
-	return &Bulk{c: c, ordered: true}
+	return &Bulk{c: c, ordered: true, actionPool: sync.Pool{
+		New: func() interface{} {
+			return &bulkAction{
+				docs: make([]interface{}, 0),
+				idxs: make([]int, 0),
+			}
+		},
+	}}
 }
 
 // Unordered puts the bulk operation in unordered mode.
@@ -155,7 +154,7 @@ func (b *Bulk) action(op bulkOp, opcount int) *bulkAction {
 		}
 	}
 	if action == nil {
-		a := actionPool.Get().(*bulkAction)
+		a := b.actionPool.Get().(*bulkAction)
 		a.op = op
 		b.actions = append(b.actions, *a)
 		action = &b.actions[len(b.actions)-1]
@@ -302,7 +301,7 @@ func (b *Bulk) Run() (*BulkResult, error) {
 		}
 		action.idxs = action.idxs[0:0]
 		action.docs = action.docs[0:0]
-		actionPool.Put(action)
+		b.actionPool.Put(action)
 		if !ok {
 			failed = true
 			if b.ordered {
