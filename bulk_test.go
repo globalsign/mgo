@@ -61,8 +61,9 @@ func (s *S) TestBulkInsertMultipleBulks(c *C) {
 	bulk1 := coll1.Bulk()
 	bulk2 := coll2.Bulk()
 
+	var err error
 	bulk1.Insert(M{"n": 1})
-	_, err := bulk1.Run()
+	_, err = bulk1.Run()
 	c.Assert(err, IsNil)
 
 	bulk1.Insert(M{"n": 2})
