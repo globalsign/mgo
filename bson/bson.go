@@ -834,3 +834,65 @@ func getStructInfo(st reflect.Type) (*structInfo, error) {
 	structMapMutex.Unlock()
 	return sinfo, nil
 }
+
+/* SetObjectID : Sets Mongo _id for all the elements of a slice based on tags */
+func SetObjectIdForArrayElements(data interface{}) error {
+	s := reflect.ValueOf(data)
+
+	/* Get the value if the type is a pointer */
+	if s.Kind() == reflect.Ptr {
+		s = reflect.Indirect(s)
+	}
+	switch s.Kind() {
+	case reflect.Slice:
+		/* If its a slice, Iterate to check if there is a struct */
+		for i := 0; i < s.Len(); i++ {
+			if s.Index(i).CanAddr() && s.Index(i).CanSet() {
+				item := reflect.Indirect(s.Index(i))
+				SetObjectID(item.Addr().Interface())
+			}
+		}
+	case reflect.Struct:
+		for i := 0; i < s.NumField(); i++ {
+			/* Check if the field is addressable and can be set */
+			if s.Field(i).CanAddr() && s.Field(i).CanSet() {
+				arrayTag := s.Type().Field(i).Tag.Get("elemunique")
+				uniqueTag := s.Type().Field(i).Tag.Get("unique")
+				if reflect.Indirect(s.Field(i)).Kind() == reflect.Struct {
+					SetObjectID(reflect.Indirect(s.Field(i)).Addr().Interface())
+				}
+
+				// Skip if tag is not defined or ignored
+				if (arrayTag == "" || arrayTag == "-") && (uniqueTag == "" || uniqueTag == "-") {
+					continue
+				}
+				if arrayTag == "true" {
+					SetObjectID(reflect.Indirect(s.Field(i)).Addr().Interface())
+				} /*  else {
+					SetObjectID(reflect.Indirect(s.Field(i)).Addr().Interface())
+
+				} */
+				if uniqueTag == "true" {
+					IDField := s.Field(i)
+					ObjID := NewObjectId()
+					zeroVal := reflect.Zero(IDField.Type())
+					/* Checking if the Value of ID field can be set */
+					if IDField.CanSet() {
+						if IDField.Type() == reflect.TypeOf(ObjID) && reflect.DeepEqual(IDField.Interface(), zeroVal.Interface()) {
+							IDField.Set(reflect.ValueOf(ObjID)) /* Set Object ID to the ID field */
+						} else if IDField.Kind() == reflect.Ptr && IDField.IsNil() {
+							IDField.Set(reflect.ValueOf(&ObjID)) /* Set address of Object ID to the ID field which is a pointer */
+						}
+					}
+				}
+			}
+
+		}
+	case reflect.Ptr:
+		s := reflect.Indirect(s)
+		SetObjectID(s)
+	default:
+		return errors.New("Input must be a slice,a struct or a pointer to either of them!")
+	}
+	return nil
+}
