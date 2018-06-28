@@ -74,11 +74,12 @@ func (s *S) TestBulkInsertMultipleBulks(c *C) {
 	_, err = bulk2.Run()
 	c.Assert(err, IsNil)
 
-	count1, err := coll1.Count()
+	var count1, count2 int
+	count1, err = coll1.Count()
 	c.Assert(err, IsNil)
 	c.Assert(count1, DeepEquals, 2)
 
-	count2, err := coll2.Count()
+	count2, err = coll2.Count()
 	c.Assert(err, IsNil)
 	c.Assert(count2, DeepEquals, 1)
 }
