@@ -112,6 +112,43 @@ type BulkErrorCase struct {
 	Err   error
 }
 
+type bulkActionPool struct {
+	sync.Pool
+}
+
+func newBulkActionPool() *bulkActionPool {
+	var bulkActionPool = &bulkActionPool{
+		Pool: sync.Pool{},
+	}
+
+	bulkActionPool.New = func() interface{} {
+		return &bulkAction{
+			docs: make([]interface{}, 0),
+			idxs: make([]int, 0),
+		}
+	}
+
+	return bulkActionPool
+}
+
+func (p *bulkActionPool) Get() *bulkAction {
+	a := (p.Pool.Get()).(*bulkAction)
+
+	a.reset()
+
+	return a
+}
+
+func (p *bulkActionPool) Put(action *bulkAction) {
+	p.Pool.Put(action)
+}
+
+func (a *bulkAction) reset() {
+	a.docs = a.docs[:0]
+	a.idxs = a.idxs[:0]
+	a.op = 0
+}
+
 // Cases returns all individual errors found while attempting the requested changes.
 //
 // See the documentation of BulkErrorCase for limitations in older MongoDB releases.
@@ -119,14 +156,7 @@ func (e *BulkError) Cases() []BulkErrorCase {
 	return e.ecases
 }
 
-var actionPool = sync.Pool{
-	New: func() interface{} {
-		return &bulkAction{
-			docs: make([]interface{}, 0),
-			idxs: make([]int, 0),
-		}
-	},
-}
+var actionPool = newBulkActionPool()
 
 // Bulk returns a value to prepare the execution of a bulk operation.
 func (c *Collection) Bulk() *Bulk {
@@ -155,7 +185,7 @@ func (b *Bulk) action(op bulkOp, opcount int) *bulkAction {
 		}
 	}
 	if action == nil {
-		a := actionPool.Get().(*bulkAction)
+		a := actionPool.Get()
 		a.op = op
 		b.actions = append(b.actions, *a)
 		action = &b.actions[len(b.actions)-1]
@@ -300,8 +330,7 @@ func (b *Bulk) Run() (*BulkResult, error) {
 		default:
 			panic("unknown bulk operation")
 		}
-		action.idxs = action.idxs[0:0]
-		action.docs = action.docs[0:0]
+
 		actionPool.Put(action)
 		if !ok {
 			failed = true
@@ -314,6 +343,8 @@ func (b *Bulk) Run() (*BulkResult, error) {
 		sort.Sort(bulkErrorCases(berr.ecases))
 		return nil, &berr
 	}
+
+	b.actions = b.actions[:0]
 	return &result, nil
 }
 
