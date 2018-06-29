@@ -17,7 +17,7 @@ A [sub-package](https://godoc.org/github.com/globalsign/mgo/bson) that implement
 * Fixes attempting to authenticate before every query ([details](https://github.com/go-mgo/mgo/issues/254))
 * Removes bulk update / delete batch size limitations ([details](https://github.com/go-mgo/mgo/issues/288))
 * Adds native support for `time.Duration` marshalling ([details](https://github.com/go-mgo/mgo/pull/373))
-* Reduce memory footprint / garbage collection pressure by reusing buffers ([details](https://github.com/go-mgo/mgo/pull/229), [more](https://github.com/globalsign/mgo/pull/56))
+* Reduce memory footprint / garbage collection pressure by reusing buffers ([details](https://github.com/go-mgo/mgo/pull/229), [more](https://github.com/globalsign/mgo/pull/56), [more](https://github.com/globalsign/mgo/pull/199))
 * Support majority read concerns ([details](https://github.com/globalsign/mgo/pull/2))
 * Improved connection handling ([details](https://github.com/globalsign/mgo/pull/5))
 * Hides SASL warnings ([details](https://github.com/globalsign/mgo/pull/7))
@@ -57,6 +57,7 @@ A [sub-package](https://godoc.org/github.com/globalsign/mgo/bson) that implement
 * Implement MongoTimestamp ([details](https://github.com/globalsign/mgo/pull/171))
 * Support setting `writeConcern` for `findAndModify` operations ([details](https://github.com/globalsign/mgo/pull/185))
 * Add `ssl` to the dial string options ([details](https://github.com/globalsign/mgo/pull/184))
+* Support connecting via Unix sockets ([details](https://github.com/globalsign/mgo/pull/129))
 
 
 ---
@@ -75,6 +76,7 @@ A [sub-package](https://godoc.org/github.com/globalsign/mgo/bson) that implement
 * @drichelson
 * @dvic
 * @eaglerayp
+* @eminano
 * @feliixx
 * @fmpwizard
 * @gazoon
@@ -91,6 +93,7 @@ A [sub-package](https://godoc.org/github.com/globalsign/mgo/bson) that implement
 * @mcspring
 * @Mei-Zhao
 * @peterdeka
+* @pzillmann
 * @Reenjii
 * @roobre
 * @smoya
