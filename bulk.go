@@ -11,6 +11,8 @@ import (
 // Bulk represents an operation that can be prepared with several
 // orthogonal changes before being delivered to the server.
 //
+// A single Bulk instance is not safe for concurrent access.
+//
 // MongoDB servers older than version 2.6 do not have proper support for bulk
 // operations, so the driver attempts to map its API as much as possible into
 // the functionality that works. In particular, in those releases updates and
@@ -25,7 +27,7 @@ import (
 type Bulk struct {
 	c       *Collection
 	opcount int
-	actions []bulkAction
+	actions []*bulkAction
 	ordered bool
 }
 
@@ -133,7 +135,6 @@ func newBulkActionPool() *bulkActionPool {
 
 func (p *bulkActionPool) Get() *bulkAction {
 	a := (p.Pool.Get()).(*bulkAction)
-
 	a.reset()
 
 	return a
@@ -172,24 +173,34 @@ func (b *Bulk) Unordered() {
 	b.ordered = false
 }
 
+// action adds a batch of op to the run list, however the caller must then add
+// the actual documents to the returned action.
 func (b *Bulk) action(op bulkOp, opcount int) *bulkAction {
 	var action *bulkAction
+
+	// If the last action in the list is of the same type, append this operation
+	// to it
 	if len(b.actions) > 0 && b.actions[len(b.actions)-1].op == op {
-		action = &b.actions[len(b.actions)-1]
+		action = b.actions[len(b.actions)-1]
 	} else if !b.ordered {
+		// If this bulk is unordered, find any action of the same type
 		for i := range b.actions {
 			if b.actions[i].op == op {
-				action = &b.actions[i]
+				action = b.actions[i]
 				break
 			}
 		}
 	}
 	if action == nil {
-		a := actionPool.Get()
-		a.op = op
-		b.actions = append(b.actions, *a)
-		action = &b.actions[len(b.actions)-1]
+		// Create a new action if there's no suitable existing action to add to
+		action = actionPool.Get()
+		action.op = op
+		b.actions = append(b.actions, action)
 	}
+
+	// Add this action, and the number of documents to index array to track
+	// ordering in case of an error (all the errors have indexes, and they're
+	// all mashed back together at the end)
 	for i := 0; i < opcount; i++ {
 		action.idxs = append(action.idxs, b.opcount)
 		b.opcount++
@@ -313,12 +324,15 @@ func (b *Bulk) Upsert(pairs ...interface{}) {
 // be an aggregation of all issues observed. As an exception to that, Insert
 // operations running on MongoDB versions prior to 2.6 will report the last
 // error only due to a limitation in the wire protocol.
+//
+// A successful call to Run() resets the Bulk. If Run() errors, Bulk is
+// unchanged, containing both the successful and failed actions.
 func (b *Bulk) Run() (*BulkResult, error) {
 	var result BulkResult
 	var berr BulkError
 	var failed bool
 	for i := range b.actions {
-		action := &b.actions[i]
+		action := b.actions[i]
 		var ok bool
 		switch action.op {
 		case bulkInsert:
@@ -331,7 +345,6 @@ func (b *Bulk) Run() (*BulkResult, error) {
 			panic("unknown bulk operation")
 		}
 
-		actionPool.Put(action)
 		if !ok {
 			failed = true
 			if b.ordered {
@@ -342,6 +355,11 @@ func (b *Bulk) Run() (*BulkResult, error) {
 	if failed {
 		sort.Sort(bulkErrorCases(berr.ecases))
 		return nil, &berr
+	}
+
+	// Return all the allocated actions to the pool as this run succeeded
+	for i := range b.actions {
+		actionPool.Put(b.actions[i])
 	}
 
 	b.actions = b.actions[:0]
