@@ -1634,6 +1634,37 @@ func (s *S) TestViewWithCollation(c *C) {
 	c.Assert(docs[1].Nm, Equals, "CaSe")
 }
 
+func (s *S) TestFindWithMinMax(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("depends on mongodb 3.4+")
+	}
+	// CreateView has to be run against mongos
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	db := session.DB("mydb")
+
+	coll := db.C("mycoll")
+
+	for i := 0; i < 4; i++ {
+		err = coll.Insert(bson.M{"_id": i, "nm": "a"})
+		c.Assert(err, IsNil)
+		err = coll.Insert(bson.M{"_id": fmt.Sprintf("x%d", i), "nm": "b"})
+		c.Assert(err, IsNil)
+	}
+
+	ids := []interface{}{}
+	iter := coll.Find(nil).Sort("_id").Min(bson.M{"_id": 2}).Max(bson.M{"_id": "x2"}).Iter()
+	var doc bson.M
+	for iter.Next(&doc) {
+		ids = append(ids, doc["_id"])
+	}
+	c.Assert(iter.Err(), IsNil)
+
+	c.Assert(ids, DeepEquals, []interface{}{2, 3, "x0", "x1"})
+}
+
 func (s *S) TestCountQuery(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
