@@ -89,6 +89,8 @@ type queryWrapper struct {
 	Query          interface{} `bson:"$query"`
 	OrderBy        interface{} `bson:"$orderby,omitempty"`
 	Hint           interface{} `bson:"$hint,omitempty"`
+	Min            interface{} `bson:"$min,omitempty"`
+	Max            interface{} `bson:"$max,omitempty"`
 	Explain        bool        `bson:"$explain,omitempty"`
 	Snapshot       bool        `bson:"$snapshot,omitempty"`
 	ReadPreference bson.D      `bson:"$readPreference,omitempty"`

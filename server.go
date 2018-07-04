@@ -55,7 +55,7 @@ type mongoServer struct {
 	sync.RWMutex
 	Addr          string
 	ResolvedAddr  string
-	tcpaddr       *net.TCPAddr
+	raddr         net.Addr
 	unusedSockets []*mongoSocket
 	liveSockets   []*mongoSocket
 	sync          chan bool
@@ -90,11 +90,11 @@ type mongoServerInfo struct {
 
 var defaultServerInfo mongoServerInfo
 
-func newServer(addr string, tcpaddr *net.TCPAddr, syncChan chan bool, dial dialer, info *DialInfo) *mongoServer {
+func newServer(addr string, raddr net.Addr, syncChan chan bool, dial dialer, info *DialInfo) *mongoServer {
 	server := &mongoServer{
 		Addr:         addr,
-		ResolvedAddr: tcpaddr.String(),
-		tcpaddr:      tcpaddr,
+		ResolvedAddr: raddr.String(),
+		raddr:        raddr,
 		sync:         syncChan,
 		dial:         dial,
 		info:         &defaultServerInfo,
@@ -236,16 +236,21 @@ func (server *mongoServer) Connect(info *DialInfo) (*mongoSocket, error) {
 	var err error
 	switch {
 	case !dial.isSet():
-		conn, err = net.DialTimeout("tcp", server.ResolvedAddr, info.Timeout)
-		if tcpconn, ok := conn.(*net.TCPConn); ok {
-			tcpconn.SetKeepAlive(true)
-		} else if err == nil {
-			panic("internal error: obtained TCP connection is not a *net.TCPConn!?")
+		conn, err = net.DialTimeout(server.raddr.Network(), server.ResolvedAddr, info.Timeout)
+
+		switch connImpl := conn.(type) {
+		case *net.UnixConn:
+		case *net.TCPConn:
+			connImpl.SetKeepAlive(true)
+		default:
+			if err == nil {
+				panic("internal error: obtained connection is not a *net.TCPConn or *net.UnixConn!?")
+			}
 		}
 	case dial.old != nil:
-		conn, err = dial.old(server.tcpaddr)
+		conn, err = dial.old(server.raddr)
 	case dial.new != nil:
-		conn, err = dial.new(&ServerAddr{server.Addr, server.tcpaddr})
+		conn, err = dial.new(&ServerAddr{server.Addr, server.raddr})
 	default:
 		panic("dialer is set, but both dial.old and dial.new are nil")
 	}

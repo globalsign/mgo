@@ -233,6 +233,27 @@ func (s *S) TestURLInvalidSafe(c *C) {
 	}
 }
 
+func (s *S) TestURLUnixSocket(c *C) {
+	type test struct {
+		url      string
+		socket   string
+		database string
+	}
+
+	tests := []test{
+		{"%2Fvar%2Frun%2Fmongodb%2Fmongod.sock", "/var/run/mongodb/mongod.sock", ""},
+		{"%2Fvar%2Frun%2Fmongodb%2Fmongod.sock/testing", "/var/run/mongodb/mongod.sock", "testing"},
+	}
+
+	for _, test := range tests {
+		info, err := mgo.ParseURL(test.url)
+		c.Assert(err, IsNil)
+		c.Assert(info.Addrs, NotNil)
+		c.Assert(info.Addrs[0], Equals, test.socket)
+		c.Assert(info.Database, Equals, test.database)
+	}
+}
+
 func (s *S) TestMinPoolSize(c *C) {
 	tests := []struct {
 		url  string
@@ -1611,6 +1632,37 @@ func (s *S) TestViewWithCollation(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(docs[0].Nm, Equals, "case")
 	c.Assert(docs[1].Nm, Equals, "CaSe")
+}
+
+func (s *S) TestFindWithMinMax(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("depends on mongodb 3.4+")
+	}
+	// CreateView has to be run against mongos
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	db := session.DB("mydb")
+
+	coll := db.C("mycoll")
+
+	for i := 0; i < 4; i++ {
+		err = coll.Insert(bson.M{"_id": i, "nm": "a"})
+		c.Assert(err, IsNil)
+		err = coll.Insert(bson.M{"_id": fmt.Sprintf("x%d", i), "nm": "b"})
+		c.Assert(err, IsNil)
+	}
+
+	ids := []interface{}{}
+	iter := coll.Find(nil).Sort("_id").Min(bson.M{"_id": 2}).Max(bson.M{"_id": "x2"}).Iter()
+	var doc bson.M
+	for iter.Next(&doc) {
+		ids = append(ids, doc["_id"])
+	}
+	c.Assert(iter.Err(), IsNil)
+
+	c.Assert(ids, DeepEquals, []interface{}{2, 3, "x0", "x1"})
 }
 
 func (s *S) TestCountQuery(c *C) {

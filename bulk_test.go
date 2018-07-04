@@ -51,6 +51,39 @@ func (s *S) TestBulkInsert(c *C) {
 	c.Assert(res, DeepEquals, []doc{{1}, {2}, {3}})
 }
 
+func (s *S) TestBulkInsertMultipleBulks(c *C) {
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll1 := session.DB("mydb").C("mycoll1")
+	coll2 := session.DB("mydb").C("mycoll2")
+	bulk1 := coll1.Bulk()
+	bulk2 := coll2.Bulk()
+
+	bulk1.Insert(M{"n": 1})
+	_, err = bulk1.Run()
+	c.Assert(err, IsNil)
+
+	bulk1.Insert(M{"n": 2})
+	bulk2.Insert(M{"n": 3})
+
+	_, err = bulk1.Run()
+	c.Assert(err, IsNil)
+
+	_, err = bulk2.Run()
+	c.Assert(err, IsNil)
+
+	var count1, count2 int
+	count1, err = coll1.Count()
+	c.Assert(err, IsNil)
+	c.Assert(count1, DeepEquals, 2)
+
+	count2, err = coll2.Count()
+	c.Assert(err, IsNil)
+	c.Assert(count2, DeepEquals, 1)
+}
+
 func (s *S) TestBulkInsertError(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
