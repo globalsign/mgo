@@ -35,6 +35,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -51,6 +52,7 @@ var (
 	typeDocElem        = reflect.TypeOf(DocElem{})
 	typeRawDocElem     = reflect.TypeOf(RawDocElem{})
 	typeRaw            = reflect.TypeOf(Raw{})
+	typeRawPtr         = reflect.PtrTo(reflect.TypeOf(Raw{}))
 	typeURL            = reflect.TypeOf(url.URL{})
 	typeTime           = reflect.TypeOf(time.Time{})
 	typeString         = reflect.TypeOf("")
@@ -58,15 +60,39 @@ var (
 	typeTimeDuration   = reflect.TypeOf(time.Duration(0))
 )
 
+var (
+	// spec for []uint8 or []byte encoding
+	arrayOps = map[string]bool{
+		"$in":  true,
+		"$nin": true,
+		"$all": true,
+	}
+)
+
 const itoaCacheSize = 32
 
+const (
+	getterUnknown = iota
+	getterNone
+	getterTypeVal
+	getterTypePtr
+	getterAddr
+)
+
 var itoaCache []string
+
+var getterStyles map[reflect.Type]int
+var getterIface reflect.Type
+var getterMutex sync.RWMutex
 
 func init() {
 	itoaCache = make([]string, itoaCacheSize)
 	for i := 0; i != itoaCacheSize; i++ {
 		itoaCache[i] = strconv.Itoa(i)
 	}
+	var iface Getter
+	getterIface = reflect.TypeOf(&iface).Elem()
+	getterStyles = make(map[reflect.Type]int)
 }
 
 func itoa(i int) string {
@@ -74,6 +100,52 @@ func itoa(i int) string {
 		return itoaCache[i]
 	}
 	return strconv.Itoa(i)
+}
+
+func getterStyle(outt reflect.Type) int {
+	getterMutex.RLock()
+	style := getterStyles[outt]
+	getterMutex.RUnlock()
+	if style != getterUnknown {
+		return style
+	}
+
+	getterMutex.Lock()
+	defer getterMutex.Unlock()
+	if outt.Implements(getterIface) {
+		vt := outt
+		for vt.Kind() == reflect.Ptr {
+			vt = vt.Elem()
+		}
+		if vt.Implements(getterIface) {
+			style = getterTypeVal
+		} else {
+			style = getterTypePtr
+		}
+	} else if reflect.PtrTo(outt).Implements(getterIface) {
+		style = getterAddr
+	} else {
+		style = getterNone
+	}
+	getterStyles[outt] = style
+	return style
+}
+
+func getGetter(outt reflect.Type, out reflect.Value) Getter {
+	style := getterStyle(outt)
+	if style == getterNone {
+		return nil
+	}
+	if style == getterAddr {
+		if !out.CanAddr() {
+			return nil
+		}
+		return out.Addr().Interface().(Getter)
+	}
+	if style == getterTypeVal && out.Kind() == reflect.Ptr && out.IsNil() {
+		return nil
+	}
+	return out.Interface().(Getter)
 }
 
 // --------------------------------------------------------------------------
@@ -131,7 +203,7 @@ func (e *encoder) addDoc(v reflect.Value) {
 
 func (e *encoder) addMap(v reflect.Value) {
 	for _, k := range v.MapKeys() {
-		e.addElem(k.String(), v.MapIndex(k), false)
+		e.addElem(fmt.Sprint(k), v.MapIndex(k), false)
 	}
 }
 
@@ -157,13 +229,46 @@ func (e *encoder) addStruct(v reflect.Value) {
 		if info.Inline == nil {
 			value = v.Field(info.Num)
 		} else {
-			value = v.FieldByIndex(info.Inline)
+			// as pointers to struct are allowed here,
+			// there is no guarantee that pointer won't be nil.
+			//
+			// It is expected allowed behaviour
+			// so info.Inline MAY consist index to a nil pointer
+			// and that is why we safely call v.FieldByIndex and just continue on panic
+			field, errField := safeFieldByIndex(v, info.Inline)
+			if errField != nil {
+				continue
+			}
+
+			value = field
 		}
 		if info.OmitEmpty && isZero(value) {
 			continue
 		}
+		if useRespectNilValues &&
+			(value.Kind() == reflect.Slice || value.Kind() == reflect.Map) &&
+			value.IsNil() {
+			e.addElem(info.Key, reflect.ValueOf(nil), info.MinSize)
+			continue
+		}
 		e.addElem(info.Key, value, info.MinSize)
 	}
+}
+
+func safeFieldByIndex(v reflect.Value, index []int) (result reflect.Value, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			switch r := recovered.(type) {
+			case string:
+				err = fmt.Errorf("%s", r)
+			case error:
+				err = r
+			}
+		}
+	}()
+
+	result = v.FieldByIndex(index)
+	return
 }
 
 func isZero(v reflect.Value) bool {
@@ -253,7 +358,7 @@ func (e *encoder) addElem(name string, v reflect.Value, minSize bool) {
 		return
 	}
 
-	if getter, ok := v.Interface().(Getter); ok {
+	if getter := getGetter(v.Type(), v); getter != nil {
 		getv, err := getter.GetBSON()
 		if err != nil {
 			panic(err)
@@ -331,7 +436,7 @@ func (e *encoder) addElem(name string, v reflect.Value, minSize bool) {
 			// Stored as int64
 			e.addElemName(0x12, name)
 
-			e.addInt64(int64(v.Int()/1e6))
+			e.addInt64(int64(v.Int() / 1e6))
 		default:
 			i := v.Int()
 			if (minSize || v.Type().Kind() != reflect.Int64) && i >= math.MinInt32 && i <= math.MaxInt32 {
@@ -360,8 +465,13 @@ func (e *encoder) addElem(name string, v reflect.Value, minSize bool) {
 		vt := v.Type()
 		et := vt.Elem()
 		if et.Kind() == reflect.Uint8 {
-			e.addElemName(0x05, name)
-			e.addBinary(0x00, v.Bytes())
+			if arrayOps[name] {
+				e.addElemName(0x04, name)
+				e.addDoc(v)
+			} else {
+				e.addElemName(0x05, name)
+				e.addBinary(0x00, v.Bytes())
+			}
 		} else if et == typeDocElem || et == typeRawDocElem {
 			e.addElemName(0x03, name)
 			e.addDoc(v)
@@ -373,16 +483,21 @@ func (e *encoder) addElem(name string, v reflect.Value, minSize bool) {
 	case reflect.Array:
 		et := v.Type().Elem()
 		if et.Kind() == reflect.Uint8 {
-			e.addElemName(0x05, name)
-			if v.CanAddr() {
-				e.addBinary(0x00, v.Slice(0, v.Len()).Interface().([]byte))
+			if arrayOps[name] {
+				e.addElemName(0x04, name)
+				e.addDoc(v)
 			} else {
-				n := v.Len()
-				e.addInt32(int32(n))
-				e.addBytes(0x00)
-				for i := 0; i < n; i++ {
-					el := v.Index(i)
-					e.addBytes(byte(el.Uint()))
+				e.addElemName(0x05, name)
+				if v.CanAddr() {
+					e.addBinary(0x00, v.Slice(0, v.Len()).Interface().([]byte))
+				} else {
+					n := v.Len()
+					e.addInt32(int32(n))
+					e.addBytes(0x00)
+					for i := 0; i < n; i++ {
+						el := v.Index(i)
+						e.addBytes(byte(el.Uint()))
+					}
 				}
 			}
 		} else {

@@ -4,5 +4,6 @@
 
 exec mongod $COMMONCOPTS \
 	--port 40101 \
-	--configsvr
+	--configsvr \
+	$CFG1OPTS
 

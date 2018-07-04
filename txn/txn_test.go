@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	mgo "github.com/domodwyer/mgo"
-	"github.com/domodwyer/mgo/bson"
-	"github.com/domodwyer/mgo/dbtest"
-	"github.com/domodwyer/mgo/txn"
+	mgo "github.com/globalsign/mgo"
+	"github.com/globalsign/mgo/bson"
+	"github.com/globalsign/mgo/dbtest"
+	"github.com/globalsign/mgo/txn"
 	. "gopkg.in/check.v1"
 )
 
@@ -121,7 +121,7 @@ func (s *S) TestInsert(c *C) {
 	c.Assert(account.Balance, Equals, 200)
 }
 
-func (s *S) TestInsertStructID(c *C) {
+func (s *S) TestInsertStructId(c *C) {
 	type id struct {
 		FirstName string
 		LastName  string
@@ -374,8 +374,8 @@ func (s *S) TestAssertNestedOr(c *C) {
 	ops := []txn.Op{{
 		C:      "accounts",
 		Id:     0,
-		Assert: bson.D{{"$or", []bson.D{{{"balance", 100}}, {{"balance", 300}}}}},
-		Update: bson.D{{"$inc", bson.D{{"balance", 100}}}},
+		Assert: bson.D{{Name: "$or", Value: []bson.D{{{Name: "balance", Value: 100}}, {{Name: "balance", Value: 300}}}}},
+		Update: bson.D{{Name: "$inc", Value: bson.D{{Name: "balance", Value: 100}}}},
 	}}
 
 	err = s.runner.Run(ops, "", nil)
@@ -390,7 +390,7 @@ func (s *S) TestAssertNestedOr(c *C) {
 func (s *S) TestVerifyFieldOrdering(c *C) {
 	// Used to have a map in certain operations, which means
 	// the ordering of fields would be messed up.
-	fields := bson.D{{"a", 1}, {"b", 2}, {"c", 3}}
+	fields := bson.D{{Name: "a", Value: 1}, {Name: "b", Value: 2}, {Name: "c", Value: 3}}
 	ops := []txn.Op{{
 		C:      "accounts",
 		Id:     0,
@@ -441,8 +441,8 @@ func (s *S) TestChangeLog(c *C) {
 
 	type IdList []interface{}
 	type Log struct {
-		Docs   IdList  "d"
-		Revnos []int64 "r"
+		Docs   IdList  `bson:"d"`
+		Revnos []int64 `bson:"r"`
 	}
 	var m map[string]*Log
 	err = chglog.FindId(id).One(&m)
@@ -567,7 +567,7 @@ func (s *S) TestPurgeMissing(c *C) {
 		err = s.accounts.FindId(want.Id).One(&got)
 		if want.Balance == -1 {
 			if err != mgo.ErrNotFound {
-				c.Errorf("Account %d should not exist, find got err=%#v", err)
+				c.Errorf("Account %d should not exist, find got err=%#v", got, err)
 			}
 		} else if err != nil {
 			c.Errorf("Account %d should have balance of %d, but wasn't found", want.Id, want.Balance)
@@ -619,6 +619,90 @@ func (s *S) TestTxnQueueStashStressTest(c *C) {
 		}
 		wg.Wait()
 	}
+}
+
+func (s *S) checkTxnQueueLength(c *C, expectedQueueLength int) {
+	txn.SetDebug(false)
+	txn.SetChaos(txn.Chaos{
+		KillChance: 1,
+		Breakpoint: "set-applying",
+	})
+	defer txn.SetChaos(txn.Chaos{})
+	err := s.accounts.Insert(M{"_id": 0, "balance": 100})
+	c.Assert(err, IsNil)
+	ops := []txn.Op{{
+		C:      "accounts",
+		Id:     0,
+		Update: M{"$inc": M{"balance": 100}},
+	}}
+	for i := 0; i < expectedQueueLength; i++ {
+		err := s.runner.Run(ops, "", nil)
+		c.Assert(err, Equals, txn.ErrChaos)
+	}
+	txn.SetDebug(true)
+	// Now that we've filled up the queue, we should see that there are 1000
+	// items in the queue, and the error applying a new one will change.
+	var doc bson.M
+	err = s.accounts.FindId(0).One(&doc)
+	c.Assert(err, IsNil)
+	c.Check(len(doc["txn-queue"].([]interface{})), Equals, expectedQueueLength)
+	err = s.runner.Run(ops, "", nil)
+	c.Check(err, ErrorMatches, `txn-queue for 0 in "accounts" has too many transactions \(\d+\)`)
+	// The txn-queue should not have grown
+	err = s.accounts.FindId(0).One(&doc)
+	c.Assert(err, IsNil)
+	c.Check(len(doc["txn-queue"].([]interface{})), Equals, expectedQueueLength)
+}
+
+func (s *S) TestTxnQueueDefaultMaxSize(c *C) {
+	s.runner.SetOptions(txn.DefaultRunnerOptions())
+	s.checkTxnQueueLength(c, 1000)
+}
+
+func (s *S) TestTxnQueueCustomMaxSize(c *C) {
+	opts := txn.DefaultRunnerOptions()
+	opts.MaxTxnQueueLength = 100
+	s.runner.SetOptions(opts)
+	s.checkTxnQueueLength(c, 100)
+}
+
+func (s *S) TestTxnQueueUnlimited(c *C) {
+	opts := txn.DefaultRunnerOptions()
+	// A value of 0 should mean 'unlimited'
+	opts.MaxTxnQueueLength = 0
+	s.runner.SetOptions(opts)
+	// it isn't possible to actually prove 'unlimited' but we can prove that
+	// we at least can insert more than the default number of transactions
+	// without getting a 'too many transactions' failure.
+	txn.SetDebug(false)
+	txn.SetChaos(txn.Chaos{
+		KillChance: 1,
+		// Use set-prepared because we are adding more transactions than
+		// other tests, and this speeds up setup time a bit
+		Breakpoint: "set-prepared",
+	})
+	defer txn.SetChaos(txn.Chaos{})
+	err := s.accounts.Insert(M{"_id": 0, "balance": 100})
+	c.Assert(err, IsNil)
+	ops := []txn.Op{{
+		C:      "accounts",
+		Id:     0,
+		Update: M{"$inc": M{"balance": 100}},
+	}}
+	for i := 0; i < 1100; i++ {
+		err := s.runner.Run(ops, "", nil)
+		c.Assert(err, Equals, txn.ErrChaos)
+	}
+	txn.SetDebug(true)
+	var doc bson.M
+	err = s.accounts.FindId(0).One(&doc)
+	c.Assert(err, IsNil)
+	c.Check(len(doc["txn-queue"].([]interface{})), Equals, 1100)
+	err = s.runner.Run(ops, "", nil)
+	c.Check(err, Equals, txn.ErrChaos)
+	err = s.accounts.FindId(0).One(&doc)
+	c.Assert(err, IsNil)
+	c.Check(len(doc["txn-queue"].([]interface{})), Equals, 1101)
 }
 
 func (s *S) TestPurgeMissingPipelineSizeLimit(c *C) {
@@ -692,7 +776,7 @@ func (s *S) TestPurgeMissingPipelineSizeLimit(c *C) {
 	// processing the txn-queue fields of stash documents so insert
 	// the large txn-queue there too to ensure that no longer happens.
 	err = s.sc.Insert(
-		bson.D{{"c", "accounts"}, {"id", 0}},
+		bson.D{{Name: "c", Value: "accounts"}, {Name: "id", Value: 0}},
 		bson.M{"txn-queue": fakeTxnQueue},
 	)
 	c.Assert(err, IsNil)
@@ -703,6 +787,7 @@ func (s *S) TestPurgeMissingPipelineSizeLimit(c *C) {
 }
 
 var flaky = flag.Bool("flaky", false, "Include flaky tests")
+var txnQueueLength = flag.Int("qlength", 100, "txn-queue length for tests")
 
 func (s *S) TestTxnQueueStressTest(c *C) {
 	// This fails about 20% of the time on Mongo 3.2 (I haven't tried
@@ -775,4 +860,112 @@ func (s *S) TestTxnQueueStressTest(c *C) {
 			c.Errorf("Account should have balance of %d, got %d", runners*changes, account.Balance)
 		}
 	}
+}
+
+type txnQueue struct {
+	Queue []string `bson:"txn-queue"`
+}
+
+func (s *S) TestTxnQueueAssertionGrowth(c *C) {
+	txn.SetDebug(false) // too much spam
+	err := s.accounts.Insert(M{"_id": 0, "balance": 0})
+	c.Assert(err, IsNil)
+	// Create many assertion only transactions.
+	t := time.Now()
+	ops := []txn.Op{{
+		C:      "accounts",
+		Id:     0,
+		Assert: M{"balance": 0},
+	}}
+	for n := 0; n < *txnQueueLength; n++ {
+		err = s.runner.Run(ops, "", nil)
+		c.Assert(err, IsNil)
+	}
+	var qdoc txnQueue
+	err = s.accounts.FindId(0).One(&qdoc)
+	c.Assert(err, IsNil)
+	c.Check(len(qdoc.Queue), Equals, *txnQueueLength)
+	c.Logf("%8.3fs to set up %d assertions", time.Since(t).Seconds(), *txnQueueLength)
+	t = time.Now()
+	txn.SetChaos(txn.Chaos{})
+	ops = []txn.Op{{
+		C:      "accounts",
+		Id:     0,
+		Update: M{"$inc": M{"balance": 100}},
+	}}
+	err = s.runner.Run(ops, "", nil)
+	c.Logf("%8.3fs to clear N=%d assertions and add one more txn",
+		time.Since(t).Seconds(), *txnQueueLength)
+	err = s.accounts.FindId(0).One(&qdoc)
+	c.Assert(err, IsNil)
+	c.Check(len(qdoc.Queue), Equals, 1)
+}
+
+func (s *S) TestTxnQueueBrokenPrepared(c *C) {
+	txn.SetDebug(false) // too much spam
+	badTxnToken := "123456789012345678901234_deadbeef"
+	err := s.accounts.Insert(M{"_id": 0, "balance": 0, "txn-queue": []string{badTxnToken}})
+	c.Assert(err, IsNil)
+	t := time.Now()
+	ops := []txn.Op{{
+		C:      "accounts",
+		Id:     0,
+		Update: M{"$set": M{"balance": 0}},
+	}}
+	errString := `cannot find transaction ObjectIdHex("123456789012345678901234")`
+	for n := 0; n < *txnQueueLength; n++ {
+		err = s.runner.Run(ops, "", nil)
+		c.Assert(err.Error(), Equals, errString)
+	}
+	var qdoc txnQueue
+	err = s.accounts.FindId(0).One(&qdoc)
+	c.Assert(err, IsNil)
+	c.Check(len(qdoc.Queue), Equals, *txnQueueLength+1)
+	c.Logf("%8.3fs to set up %d 'prepared' txns", time.Since(t).Seconds(), *txnQueueLength)
+	t = time.Now()
+	s.accounts.UpdateId(0, bson.M{"$pullAll": bson.M{"txn-queue": []string{badTxnToken}}})
+	err = s.runner.ResumeAll()
+	c.Assert(err, IsNil)
+	c.Logf("%8.3fs to ResumeAll N=%d 'prepared' txns",
+		time.Since(t).Seconds(), *txnQueueLength)
+	err = s.accounts.FindId(0).One(&qdoc)
+	c.Assert(err, IsNil)
+	c.Check(len(qdoc.Queue), Equals, 1)
+}
+
+func (s *S) TestTxnQueuePreparing(c *C) {
+	txn.SetDebug(false) // too much spam
+	err := s.accounts.Insert(M{"_id": 0, "balance": 0, "txn-queue": []string{}})
+	c.Assert(err, IsNil)
+	t := time.Now()
+	txn.SetChaos(txn.Chaos{
+		KillChance: 1.0,
+		Breakpoint: "set-prepared",
+	})
+	ops := []txn.Op{{
+		C:      "accounts",
+		Id:     0,
+		Update: M{"$set": M{"balance": 0}},
+	}}
+	for n := 0; n < *txnQueueLength; n++ {
+		err = s.runner.Run(ops, "", nil)
+		c.Assert(err, Equals, txn.ErrChaos)
+	}
+	var qdoc txnQueue
+	err = s.accounts.FindId(0).One(&qdoc)
+	c.Assert(err, IsNil)
+	c.Check(len(qdoc.Queue), Equals, *txnQueueLength)
+	c.Logf("%8.3fs to set up %d 'preparing' txns", time.Since(t).Seconds(), *txnQueueLength)
+	txn.SetChaos(txn.Chaos{})
+	t = time.Now()
+	err = s.runner.ResumeAll()
+	c.Logf("%8.3fs to ResumeAll N=%d 'preparing' txns",
+		time.Since(t).Seconds(), *txnQueueLength)
+	err = s.accounts.FindId(0).One(&qdoc)
+	c.Assert(err, IsNil)
+	expectedCount := 100
+	if *txnQueueLength <= expectedCount {
+		expectedCount = *txnQueueLength - 1
+	}
+	c.Check(len(qdoc.Queue), Equals, expectedCount)
 }

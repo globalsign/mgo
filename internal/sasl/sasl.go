@@ -8,6 +8,7 @@
 package sasl
 
 // #cgo LDFLAGS: -lsasl2
+// #cgo CFLAGS: -Wno-deprecated-declarations
 //
 // struct sasl_conn {};
 //
@@ -25,7 +26,8 @@ import (
 	"unsafe"
 )
 
-type saslStepper interface {
+// Stepper interface for saslSession
+type Stepper interface {
 	Step(serverData []byte) (clientData []byte, done bool, err error)
 	Close()
 }
@@ -49,7 +51,8 @@ func initSASL() {
 	}
 }
 
-func New(username, password, mechanism, service, host string) (saslStepper, error) {
+// New creates a new saslSession
+func New(username, password, mechanism, service, host string) (Stepper, error) {
 	initOnce.Do(initSASL)
 	if initError != nil {
 		return nil, initError
@@ -124,6 +127,7 @@ func (ss *saslSession) Step(serverData []byte) (clientData []byte, done bool, er
 	if rc == C.SASL_CONTINUE {
 		return clientData, false, nil
 	}
+
 	return nil, false, saslError(rc, ss.conn, "cannot establish SASL session")
 }
 

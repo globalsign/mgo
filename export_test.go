@@ -1,6 +1,7 @@
 package mgo
 
 import (
+	"net"
 	"time"
 )
 
@@ -18,16 +19,14 @@ func HackPingDelay(newDelay time.Duration) (restore func()) {
 	return
 }
 
-func HackSyncSocketTimeout(newTimeout time.Duration) (restore func()) {
-	globalMutex.Lock()
-	defer globalMutex.Unlock()
+func (s *Session) Cluster() *mongoCluster {
+	return s.cluster()
+}
 
-	oldTimeout := syncSocketTimeout
-	restore = func() {
-		globalMutex.Lock()
-		syncSocketTimeout = oldTimeout
-		globalMutex.Unlock()
+func (cluster *mongoCluster) Server(addr string) *mongoServer {
+	tcpaddr, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		panic(err)
 	}
-	syncSocketTimeout = newTimeout
-	return
+	return cluster.server(addr, tcpaddr)
 }

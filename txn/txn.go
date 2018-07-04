@@ -1,4 +1,4 @@
-// The txn package implements support for multi-document transactions.
+// Package txn implements support for multi-document transactions.
 //
 // For details check the following blog post:
 //
@@ -14,9 +14,9 @@ import (
 	"strings"
 	"sync"
 
-	mgo "github.com/domodwyer/mgo"
+	mgo "github.com/globalsign/mgo"
 
-	"github.com/domodwyer/mgo/bson"
+	"github.com/globalsign/mgo/bson"
 
 	crand "crypto/rand"
 	mrand "math/rand"
@@ -113,7 +113,7 @@ NextOp:
 }
 
 // tokenFor returns a unique transaction token that
-// is composed by t's id and a nonce. If t already has
+// is composed by t's Id and a nonce. If t already has
 // a nonce assigned to it, it will be used, otherwise
 // a new nonce will be generated.
 func tokenFor(t *transaction) token {
@@ -207,20 +207,26 @@ func (op *Op) name() string {
 }
 
 const (
-	// DocExists and DocMissing may be used on an operation's
+	// DocExists may be used on an operation's
 	// Assert value to assert that the document with the given
-	// Id exists or does not exist, respectively.
-	DocExists  = "d+"
+	// ID exists.
+	DocExists = "d+"
+	// DocMissing may be used on an operation's
+	// Assert value to assert that the document with the given
+	// ID does not exist.
 	DocMissing = "d-"
 )
 
 // A Runner applies operations as part of a transaction onto any number
 // of collections within a database. See the Run method for details.
 type Runner struct {
-	tc *mgo.Collection // txns
-	sc *mgo.Collection // stash
-	lc *mgo.Collection // log
+	tc   *mgo.Collection // txns
+	sc   *mgo.Collection // stash
+	lc   *mgo.Collection // log
+	opts RunnerOptions   // runtime options
 }
+
+const defaultMaxTxnQueueLength = 1000
 
 // NewRunner returns a new transaction runner that uses tc to hold its
 // transactions.
@@ -233,16 +239,47 @@ type Runner struct {
 // will be used for implementing the transactional behavior of insert
 // and remove operations.
 func NewRunner(tc *mgo.Collection) *Runner {
-	return &Runner{tc, tc.Database.C(tc.Name + ".stash"), nil}
+	return &Runner{
+		tc:   tc,
+		sc:   tc.Database.C(tc.Name + ".stash"),
+		lc:   nil,
+		opts: DefaultRunnerOptions(),
+	}
 }
 
+// RunnerOptions encapsulates ways you can tweak transaction Runner behavior.
+type RunnerOptions struct {
+	// MaxTxnQueueLength is a way to limit bad behavior. Many operations on
+	// transaction queues are O(N^2), and transaction queues growing too large
+	// are usually indicative of a bug in behavior. This should be larger
+	// than the maximum number of concurrent operations to a single document.
+	// Normal operations are likely to only ever hit 10 or so, we use a default
+	// maximum length of 1000.
+	MaxTxnQueueLength int
+}
+
+// SetOptions allows people to change some of the internal behavior of a Runner.
+func (r *Runner) SetOptions(opts RunnerOptions) {
+	r.opts = opts
+}
+
+// DefaultRunnerOptions defines default behavior for a Runner.
+// Users can use the DefaultRunnerOptions to only override specific behavior.
+func DefaultRunnerOptions() RunnerOptions {
+	return RunnerOptions{
+		MaxTxnQueueLength: defaultMaxTxnQueueLength,
+	}
+}
+
+// ErrAborted error returned if one or more operations
+// can't be applied.
 var ErrAborted = fmt.Errorf("transaction aborted")
 
 // Run creates a new transaction with ops and runs it immediately.
-// The id parameter specifies the transaction id, and may be written
+// The id parameter specifies the transaction Id, and may be written
 // down ahead of time to later verify the success of the change and
 // resume it, when the procedure is interrupted for any reason. If
-// empty, a random id will be generated.
+// empty, a random Id will be generated.
 // The info parameter, if not nil, is included under the "i"
 // field of the transaction document.
 //
@@ -259,7 +296,7 @@ var ErrAborted = fmt.Errorf("transaction aborted")
 // reason, it may be resumed explicitly or by attempting to apply
 // another transaction on any of the documents targeted by ops, as
 // long as the interruption was made after the transaction document
-// itself was inserted. Run Resume with the obtained transaction id
+// itself was inserted. Run Resume with the obtained transaction Id
 // to confirm whether the transaction was applied or not.
 //
 // Any number of transactions may be run concurrently, with one
@@ -317,7 +354,7 @@ func (r *Runner) Run(ops []Op, id bson.ObjectId, info interface{}) (err error) {
 // from individual transactions are ignored.
 func (r *Runner) ResumeAll() (err error) {
 	debugf("Resuming all unfinished transactions")
-	iter := r.tc.Find(bson.D{{"s", bson.D{{"$in", []state{tpreparing, tprepared, tapplying}}}}}).Iter()
+	iter := r.tc.Find(bson.D{{Name: "s", Value: bson.D{{Name: "$in", Value: []state{tpreparing, tprepared, tapplying}}}}}).Iter()
 	var t transaction
 	for iter.Next(&t) {
 		if t.State == tapplied || t.State == taborted {
@@ -334,7 +371,7 @@ func (r *Runner) ResumeAll() (err error) {
 	return nil
 }
 
-// Resume resumes the transaction with id. It returns mgo.ErrNotFound
+// Resume resumes the transaction with Id. It returns mgo.ErrNotFound
 // if the transaction is not found. Otherwise, it has the same semantics
 // of the Run method after the transaction is inserted.
 func (r *Runner) Resume(id bson.ObjectId) (err error) {
@@ -385,8 +422,8 @@ func (r *Runner) PurgeMissing(collections ...string) error {
 	type S []interface{}
 
 	type TDoc struct {
-		Id       interface{} "_id"
-		TxnQueue []string    "txn-queue"
+		Id       interface{} `bson:"_id"`
+		TxnQueue []string    `bson:"txn-queue"`
 	}
 
 	found := make(map[bson.ObjectId]bool)
@@ -419,8 +456,8 @@ func (r *Runner) PurgeMissing(collections ...string) error {
 	}
 
 	type StashTDoc struct {
-		Id       docKey   "_id"
-		TxnQueue []string "txn-queue"
+		Id       docKey   `bson:"_id"`
+		TxnQueue []string `bson:"txn-queue"`
 	}
 
 	iter := r.sc.Find(nil).Select(bson.M{"_id": 1, "txn-queue": 1}).Iter()
@@ -458,6 +495,25 @@ func (r *Runner) load(id bson.ObjectId) (*transaction, error) {
 		return nil, err
 	}
 	return &t, nil
+}
+
+func (r *Runner) loadMulti(ids []bson.ObjectId, preloaded map[bson.ObjectId]*transaction) error {
+	txns := make([]transaction, 0, len(ids))
+
+	query := r.tc.Find(bson.M{"_id": bson.M{"$in": ids}})
+	// Not sure that this actually has much of an effect when using All()
+	query.Batch(len(ids))
+	err := query.All(&txns)
+	if err == mgo.ErrNotFound {
+		return fmt.Errorf("could not find a transaction in batch: %v", ids)
+	} else if err != nil {
+		return err
+	}
+	for i := range txns {
+		t := &txns[i]
+		preloaded[t.Id] = t
+	}
+	return nil
 }
 
 type typeNature int
@@ -592,7 +648,6 @@ func structcmp(a, b interface{}) int {
 			return 1
 		}
 	}
-	panic("unreachable")
 }
 
 func isExported(name string) bool {

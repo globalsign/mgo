@@ -6,7 +6,7 @@ import (
 
 	"strings"
 
-	"github.com/domodwyer/mgo/internal/scram"
+	"github.com/globalsign/mgo/internal/scram"
 	. "gopkg.in/check.v1"
 )
 

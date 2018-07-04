@@ -28,6 +28,7 @@ package mgo_test
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -38,7 +39,7 @@ import (
 	"sync"
 	"time"
 
-	mgo "github.com/domodwyer/mgo"
+	"github.com/globalsign/mgo"
 	. "gopkg.in/check.v1"
 )
 
@@ -580,7 +581,7 @@ func (s *S) TestAuthLoginCachingWithNewSession(c *C) {
 }
 
 func (s *S) TestAuthLoginCachingAcrossPool(c *C) {
-	// Logins are cached even when the conenction goes back
+	// Logins are cached even when the connection goes back
 	// into the pool.
 
 	session, err := mgo.Dial("localhost:40002")
@@ -934,7 +935,7 @@ func (s *S) TestAuthX509Cred(c *C) {
 	x509Subject := "CN=localhost,OU=Client,O=MGO,L=MGO,ST=MGO,C=GO"
 
 	externalDB := session.DB("$external")
-	var x509User mgo.User = mgo.User{
+	var x509User = mgo.User{
 		Username:     x509Subject,
 		OtherDBRoles: map[string][]mgo.Role{"admin": {mgo.RoleRoot}},
 	}
@@ -961,6 +962,73 @@ func (s *S) TestAuthX509Cred(c *C) {
 	names, err = session.DatabaseNames()
 	c.Assert(err, IsNil)
 	c.Assert(len(names) > 0, Equals, true)
+}
+
+func (s *S) TestAuthX509CredRDNConstruction(c *C) {
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+	binfo, err := session.BuildInfo()
+	c.Assert(err, IsNil)
+	if binfo.OpenSSLVersion == "" {
+		c.Skip("server does not support SSL")
+	}
+
+	clientCertPEM, err := ioutil.ReadFile("harness/certs/client.pem")
+	c.Assert(err, IsNil)
+
+	clientCert, err := tls.X509KeyPair(clientCertPEM, clientCertPEM)
+	c.Assert(err, IsNil)
+
+	clientCert.Leaf, err = x509.ParseCertificate(clientCert.Certificate[0])
+	c.Assert(err, IsNil)
+
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,
+		Certificates:       []tls.Certificate{clientCert},
+	}
+
+	var host = "localhost:40003"
+	c.Logf("Connecting to %s...", host)
+	session, err = mgo.DialWithInfo(&mgo.DialInfo{
+		Addrs: []string{host},
+		DialServer: func(addr *mgo.ServerAddr) (net.Conn, error) {
+			return tls.Dial("tcp", addr.String(), tlsConfig)
+		},
+	})
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	cred := &mgo.Credential{
+		Username:    "root",
+		Mechanism:   "MONGODB-X509",
+		Source:      "$external",
+		Certificate: tlsConfig.Certificates[0].Leaf,
+	}
+	err = session.Login(cred)
+	c.Assert(err, NotNil)
+
+	err = session.Login(&mgo.Credential{Username: "root", Password: "rapadura"})
+	c.Assert(err, IsNil)
+
+	// This needs to be kept in sync with client.pem
+	x509Subject := "CN=localhost,OU=Client,O=MGO,L=MGO,ST=MGO,C=GO"
+
+	externalDB := session.DB("$external")
+	var x509User = mgo.User{
+		Username:     x509Subject,
+		OtherDBRoles: map[string][]mgo.Role{"admin": {mgo.RoleRoot}},
+	}
+	err = externalDB.UpsertUser(&x509User)
+	c.Assert(err, IsNil)
+
+	session.LogoutAll()
+
+	cred.Username = ""
+	c.Logf("Authenticating...")
+	err = session.Login(cred)
+	c.Assert(err, IsNil)
+	c.Logf("Authenticated!")
 }
 
 var (
@@ -1080,11 +1148,11 @@ func (kerberosSuite *KerberosSuite) TestAuthKerberosURL(c *C) {
 		c.Skip("no -kerberos")
 	}
 	c.Logf("Connecting to %s...", kerberosHost)
-	connectUri := url.QueryEscape(kerberosUser) + "@" + kerberosHost + "?authMechanism=GSSAPI"
+	connectURI := url.QueryEscape(kerberosUser) + "@" + kerberosHost + "?authMechanism=GSSAPI"
 	if runtime.GOOS == "windows" {
-		connectUri = url.QueryEscape(kerberosUser) + ":" + url.QueryEscape(getWindowsKerberosPassword()) + "@" + kerberosHost + "?authMechanism=GSSAPI"
+		connectURI = url.QueryEscape(kerberosUser) + ":" + url.QueryEscape(getWindowsKerberosPassword()) + "@" + kerberosHost + "?authMechanism=GSSAPI"
 	}
-	session, err := mgo.Dial(connectUri)
+	session, err := mgo.Dial(connectURI)
 	c.Assert(err, IsNil)
 	defer session.Close()
 	n, err := session.DB("kerberos").C("test").Find(M{}).Count()

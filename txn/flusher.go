@@ -3,9 +3,9 @@ package txn
 import (
 	"fmt"
 
-	mgo "github.com/domodwyer/mgo"
+	mgo "github.com/globalsign/mgo"
 
-	"github.com/domodwyer/mgo/bson"
+	"github.com/globalsign/mgo/bson"
 )
 
 func flush(r *Runner, t *transaction) error {
@@ -13,7 +13,7 @@ func flush(r *Runner, t *transaction) error {
 		Runner:   r,
 		goal:     t,
 		goalKeys: make(map[docKey]bool),
-		queue:    make(map[docKey][]token),
+		queue:    make(map[docKey][]tokenAndId),
 		debugId:  debugPrefix(),
 	}
 	for _, dkey := range f.goal.docKeys() {
@@ -26,8 +26,34 @@ type flusher struct {
 	*Runner
 	goal     *transaction
 	goalKeys map[docKey]bool
-	queue    map[docKey][]token
+	queue    map[docKey][]tokenAndId
 	debugId  string
+}
+
+type tokenAndId struct {
+	tt  token
+	bid bson.ObjectId
+}
+
+func (ti tokenAndId) Id() bson.ObjectId {
+	return ti.bid
+}
+
+func (ti tokenAndId) nonce() string {
+	return ti.tt.nonce()
+}
+
+func (ti tokenAndId) String() string {
+	return string(ti.tt)
+}
+
+func tokensWithIds(q []token) []tokenAndId {
+	out := make([]tokenAndId, len(q))
+	for i, tt := range q {
+		out[i].tt = tt
+		out[i].bid = tt.id()
+	}
+	return out
 }
 
 func (f *flusher) run() (err error) {
@@ -37,7 +63,8 @@ func (f *flusher) run() (err error) {
 
 	f.debugf("Processing %s", f.goal)
 	seen := make(map[bson.ObjectId]*transaction)
-	if err := f.recurse(f.goal, seen); err != nil {
+	preloaded := make(map[bson.ObjectId]*transaction)
+	if err := f.recurse(f.goal, seen, preloaded); err != nil {
 		return err
 	}
 	if f.goal.done() {
@@ -56,7 +83,7 @@ func (f *flusher) run() (err error) {
 	NextPair:
 		for i := 0; i < len(dqueue); i++ {
 			pred := dqueue[i]
-			predid := pred.id()
+			predid := pred.Id()
 			predt := seen[predid]
 			if predt == nil || predt.Nonce != pred.nonce() {
 				continue
@@ -68,7 +95,7 @@ func (f *flusher) run() (err error) {
 
 			for j := i + 1; j < len(dqueue); j++ {
 				succ := dqueue[j]
-				succid := succ.id()
+				succid := succ.Id()
 				succt := seen[succid]
 				if succt == nil || succt.Nonce != succ.nonce() {
 					continue
@@ -115,39 +142,65 @@ func (f *flusher) run() (err error) {
 		if len(scc) == 1 {
 			pull[scc[0]] = seen[scc[0]]
 		}
-		for _, id := range scc {
-			if err := f.advance(seen[id], pull, true); err != nil {
+		for _, Id := range scc {
+			if err := f.advance(seen[Id], pull, true); err != nil {
 				return err
 			}
 		}
 		if len(scc) > 1 {
-			for _, id := range scc {
-				pull[id] = seen[id]
+			for _, Id := range scc {
+				pull[Id] = seen[Id]
 			}
 		}
 	}
 	return nil
 }
 
-func (f *flusher) recurse(t *transaction, seen map[bson.ObjectId]*transaction) error {
+const preloadBatchSize = 100
+
+func (f *flusher) recurse(t *transaction, seen map[bson.ObjectId]*transaction, preloaded map[bson.ObjectId]*transaction) error {
 	seen[t.Id] = t
+	delete(preloaded, t.Id)
 	err := f.advance(t, nil, false)
 	if err != errPreReqs {
 		return err
 	}
 	for _, dkey := range t.docKeys() {
+		remaining := make([]bson.ObjectId, 0, len(f.queue[dkey]))
+		toPreload := make(map[bson.ObjectId]struct{}, len(f.queue[dkey]))
 		for _, dtt := range f.queue[dkey] {
-			id := dtt.id()
-			if seen[id] != nil {
+			Id := dtt.Id()
+			if _, scheduled := toPreload[Id]; seen[Id] != nil || scheduled || preloaded[Id] != nil {
 				continue
 			}
-			qt, err := f.load(id)
+			toPreload[Id] = struct{}{}
+			remaining = append(remaining, Id)
+		}
+		for len(remaining) > 0 {
+			batch := remaining
+			if len(batch) > preloadBatchSize {
+				batch = remaining[:preloadBatchSize]
+			}
+			remaining = remaining[len(batch):]
+			err := f.loadMulti(batch, preloaded)
 			if err != nil {
 				return err
 			}
-			err = f.recurse(qt, seen)
-			if err != nil {
-				return err
+			for _, Id := range batch {
+				if seen[Id] != nil {
+					continue
+				}
+				qt, ok := preloaded[Id]
+				if !ok {
+					qt, err = f.load(Id)
+					if err != nil {
+						return err
+					}
+				}
+				err = f.recurse(qt, seen, preloaded)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -184,7 +237,6 @@ func (f *flusher) advance(t *transaction, pull map[bson.ObjectId]*transaction, f
 			panic(fmt.Errorf("transaction in unknown state: %q", t.State))
 		}
 	}
-	panic("unreachable")
 }
 
 type stash string
@@ -209,11 +261,15 @@ const (
 	stashInserting stashState = "inserting"
 )
 
-var txnFields = bson.D{{"txn-queue", 1}, {"txn-revno", 1}, {"txn-remove", 1}, {"txn-insert", 1}}
+var txnFields = bson.D{
+	{Name: "txn-queue", Value: 1},
+	{Name: "txn-revno", Value: 1},
+	{Name: "txn-remove", Value: 1},
+	{Name: "txn-insert", Value: 1}}
 
 var errPreReqs = fmt.Errorf("transaction has pre-requisites and force is false")
 
-// prepare injects t's id onto txn-queue for all affected documents
+// prepare injects t's Id onto txn-queue for all affected documents
 // and collects the current txn-queue and txn-revno values during
 // the process. If the prepared txn-queue indicates that there are
 // pre-requisite transactions to be applied and the force parameter
@@ -235,7 +291,7 @@ func (f *flusher) prepare(t *transaction, force bool) (revnos []int64, err error
 NextDoc:
 	for _, dkey := range dkeys {
 		change := mgo.Change{
-			Update:    bson.D{{"$addToSet", bson.D{{"txn-queue", tt}}}},
+			Update:    bson.D{{Name: "$addToSet", Value: bson.D{{Name: "txn-queue", Value: tt}}}},
 			ReturnNew: true,
 		}
 		c := f.tc.Database.C(dkey.C)
@@ -245,10 +301,20 @@ NextDoc:
 		change.Upsert = false
 		chaos("")
 		if _, err := cquery.Apply(change, &info); err == nil {
+			if f.opts.MaxTxnQueueLength > 0 && len(info.Queue) > f.opts.MaxTxnQueueLength {
+				// abort with TXN Queue too long, but remove the entry we just added
+				innerErr := c.UpdateId(dkey.Id,
+					bson.D{{Name: "$pullAll", Value: bson.D{{Name: "txn-queue", Value: []token{tt}}}}})
+				if innerErr != nil {
+					f.debugf("error while backing out of queue-too-long: %v", innerErr)
+				}
+				return nil, fmt.Errorf("txn-queue for %v in %q has too many transactions (%d)",
+					dkey.Id, dkey.C, len(info.Queue))
+			}
 			if info.Remove == "" {
 				// Fast path, unless workload is insert/remove heavy.
 				revno[dkey] = info.Revno
-				f.queue[dkey] = info.Queue
+				f.queue[dkey] = tokensWithIds(info.Queue)
 				f.debugf("[A] Prepared document %v with revno %d and queue: %v", dkey, info.Revno, info.Queue)
 				continue NextDoc
 			} else {
@@ -310,7 +376,7 @@ NextDoc:
 					f.debugf("[B] Prepared document %v with revno %d and queue: %v", dkey, info.Revno, info.Queue)
 				}
 				revno[dkey] = info.Revno
-				f.queue[dkey] = info.Queue
+				f.queue[dkey] = tokensWithIds(info.Queue)
 				continue NextDoc
 			}
 		}
@@ -322,8 +388,8 @@ NextDoc:
 
 	// Save the prepared nonce onto t.
 	nonce := tt.nonce()
-	qdoc := bson.D{{"_id", t.Id}, {"s", tpreparing}}
-	udoc := bson.D{{"$set", bson.D{{"s", tprepared}, {"n", nonce}}}}
+	qdoc := bson.D{{Name: "_id", Value: t.Id}, {Name: "s", Value: tpreparing}}
+	udoc := bson.D{{Name: "$set", Value: bson.D{{Name: "s", Value: tprepared}, {Name: "n", Value: nonce}}}}
 	chaos("set-prepared")
 	err = f.tc.Update(qdoc, udoc)
 	if err == nil {
@@ -361,12 +427,12 @@ NextDoc:
 }
 
 func (f *flusher) unstashToken(tt token, dkey docKey) error {
-	qdoc := bson.D{{"_id", dkey}, {"txn-queue", tt}}
-	udoc := bson.D{{"$pull", bson.D{{"txn-queue", tt}}}}
+	qdoc := bson.D{{Name: "_id", Value: dkey}, {Name: "txn-queue", Value: tt}}
+	udoc := bson.D{{Name: "$pull", Value: bson.D{{Name: "txn-queue", Value: tt}}}}
 	chaos("")
 	if err := f.sc.Update(qdoc, udoc); err == nil {
 		chaos("")
-		err = f.sc.Remove(bson.D{{"_id", dkey}, {"txn-queue", bson.D{}}})
+		err = f.sc.Remove(bson.D{{Name: "_id", Value: dkey}, {Name: "txn-queue", Value: bson.D{}}})
 	} else if err != mgo.ErrNotFound {
 		return err
 	}
@@ -446,15 +512,15 @@ func (f *flusher) rescan(t *transaction, force bool) (revnos []int64, err error)
 		revno[dkey] = info.Revno
 
 		found := false
-		for _, id := range info.Queue {
-			if id == tt {
+		for _, Id := range info.Queue {
+			if Id == tt {
 				found = true
 				break
 			}
 		}
-		f.queue[dkey] = info.Queue
+		f.queue[dkey] = tokensWithIds(info.Queue)
 		if !found {
-			// Rescanned transaction id was not in the queue. This could mean one
+			// Rescanned transaction Id was not in the queue. This could mean one
 			// of three things:
 			//  1) The transaction was applied and popped by someone else. This is
 			//     the common case.
@@ -516,12 +582,13 @@ func assembledRevnos(ops []Op, revno map[docKey]int64) []int64 {
 
 func (f *flusher) hasPreReqs(tt token, dkeys docKeys) (prereqs, found bool) {
 	found = true
+	ttId := tt.id()
 NextDoc:
 	for _, dkey := range dkeys {
 		for _, dtt := range f.queue[dkey] {
-			if dtt == tt {
+			if dtt.tt == tt {
 				continue NextDoc
-			} else if dtt.id() != tt.id() {
+			} else if dtt.Id() != ttId {
 				prereqs = true
 			}
 		}
@@ -533,7 +600,7 @@ NextDoc:
 func (f *flusher) reload(t *transaction) error {
 	var newt transaction
 	query := f.tc.FindId(t.Id)
-	query.Select(bson.D{{"s", 1}, {"n", 1}, {"r", 1}})
+	query.Select(bson.D{{Name: "s", Value: 1}, {Name: "n", Value: 1}, {Name: "r", Value: 1}})
 	if err := query.One(&newt); err != nil {
 		return fmt.Errorf("failed to reload transaction: %v", err)
 	}
@@ -544,8 +611,8 @@ func (f *flusher) reload(t *transaction) error {
 	return nil
 }
 
-func (f *flusher) loadAndApply(id bson.ObjectId) error {
-	t, err := f.load(id)
+func (f *flusher) loadAndApply(Id bson.ObjectId) error {
+	t, err := f.load(Id)
 	if err != nil {
 		return err
 	}
@@ -577,28 +644,28 @@ func (f *flusher) assert(t *transaction, revnos []int64, pull map[bson.ObjectId]
 			continue
 		}
 		if op.Insert != nil {
-			return fmt.Errorf("Insert can only Assert txn.DocMissing", op.Assert)
+			return fmt.Errorf("Insert can only Assert txn.DocMissing, was %v", op.Assert)
 		}
 		// if revnos[i] < 0 { abort }?
 
-		qdoc = append(qdoc[:0], bson.DocElem{"_id", op.Id})
+		qdoc = append(qdoc[:0], bson.DocElem{Name: "_id", Value: op.Id})
 		if op.Assert != DocMissing {
 			var revnoq interface{}
 			if n := revno[dkey]; n == 0 {
-				revnoq = bson.D{{"$exists", false}}
+				revnoq = bson.D{{Name: "$exists", Value: false}}
 			} else {
 				revnoq = n
 			}
 			// XXX Add tt to the query here, once we're sure it's all working.
 			//     Not having it increases the chances of breaking on bad logic.
-			qdoc = append(qdoc, bson.DocElem{"txn-revno", revnoq})
+			qdoc = append(qdoc, bson.DocElem{Name: "txn-revno", Value: revnoq})
 			if op.Assert != DocExists {
-				qdoc = append(qdoc, bson.DocElem{"$or", []interface{}{op.Assert}})
+				qdoc = append(qdoc, bson.DocElem{Name: "$or", Value: []interface{}{op.Assert}})
 			}
 		}
 
 		c := f.tc.Database.C(op.C)
-		if err := c.Find(qdoc).Select(bson.D{{"_id", 1}}).One(nil); err == mgo.ErrNotFound {
+		if err := c.Find(qdoc).Select(bson.D{{Name: "_id", Value: 1}}).One(nil); err == mgo.ErrNotFound {
 			// Assertion failed or someone else started applying.
 			return f.abortOrReload(t, revnos, pull)
 		} else if err != nil {
@@ -612,8 +679,8 @@ func (f *flusher) assert(t *transaction, revnos []int64, pull map[bson.ObjectId]
 func (f *flusher) abortOrReload(t *transaction, revnos []int64, pull map[bson.ObjectId]*transaction) (err error) {
 	f.debugf("Aborting or reloading %s (was %q)", t, t.State)
 	if t.State == tprepared {
-		qdoc := bson.D{{"_id", t.Id}, {"s", tprepared}}
-		udoc := bson.D{{"$set", bson.D{{"s", taborting}}}}
+		qdoc := bson.D{{Name: "_id", Value: t.Id}, {Name: "s", Value: tprepared}}
+		udoc := bson.D{{Name: "$set", Value: bson.D{{Name: "s", Value: taborting}}}}
 		chaos("set-aborting")
 		if err = f.tc.Update(qdoc, udoc); err == nil {
 			t.State = taborting
@@ -645,7 +712,7 @@ func (f *flusher) abortOrReload(t *transaction, revnos []int64, pull map[bson.Ob
 			if len(pullAll) == 0 {
 				continue
 			}
-			udoc := bson.D{{"$pullAll", bson.D{{"txn-queue", pullAll}}}}
+			udoc := bson.D{{Name: "$pullAll", Value: bson.D{{Name: "txn-queue", Value: pullAll}}}}
 			chaos("")
 			if revnos[i] < 0 {
 				err = f.sc.UpdateId(dkey, udoc)
@@ -658,7 +725,7 @@ func (f *flusher) abortOrReload(t *transaction, revnos []int64, pull map[bson.Ob
 			}
 		}
 	}
-	udoc := bson.D{{"$set", bson.D{{"s", taborted}}}}
+	udoc := bson.D{{Name: "$set", Value: bson.D{{Name: "s", Value: taborted}}}}
 	chaos("set-aborted")
 	if err := f.tc.UpdateId(t.Id, udoc); err != nil && err != mgo.ErrNotFound {
 		return err
@@ -680,8 +747,8 @@ func (f *flusher) checkpoint(t *transaction, revnos []int64) error {
 	}
 
 	// Save in t the txn-revno values the transaction must run on.
-	qdoc := bson.D{{"_id", t.Id}, {"s", tprepared}}
-	udoc := bson.D{{"$set", bson.D{{"s", tapplying}, {"r", revnos}}}}
+	qdoc := bson.D{{Name: "_id", Value: t.Id}, {Name: "s", Value: tprepared}}
+	udoc := bson.D{{Name: "$set", Value: bson.D{{Name: "s", Value: tapplying}, {Name: "r", Value: revnos}}}}
 	chaos("set-applying")
 	err := f.tc.Update(qdoc, udoc)
 	if err == nil {
@@ -692,7 +759,7 @@ func (f *flusher) checkpoint(t *transaction, revnos []int64) error {
 		f.debugf("Ready to apply %s. Saving revnos %v: LOST RACE", t, debugRevnos)
 		return f.reload(t)
 	}
-	return nil
+	return err
 }
 
 func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) error {
@@ -705,7 +772,7 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 	}
 
 	logRevnos := append([]int64(nil), t.Revnos...)
-	logDoc := bson.D{{"_id", t.Id}}
+	logDoc := bson.D{{Name: "_id", Value: t.Id}}
 
 	tt := tokenFor(t)
 	for i := range t.Ops {
@@ -722,18 +789,18 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 
 		c := f.tc.Database.C(op.C)
 
-		qdoc := bson.D{{"_id", dkey.Id}, {"txn-revno", revno}, {"txn-queue", tt}}
+		qdoc := bson.D{{Name: "_id", Value: dkey.Id}, {Name: "txn-revno", Value: revno}, {Name: "txn-queue", Value: tt}}
 		if op.Insert != nil {
 			qdoc[0].Value = dkey
 			if revno == -1 {
-				qdoc[1].Value = bson.D{{"$exists", false}}
+				qdoc[1].Value = bson.D{{Name: "$exists", Value: false}}
 			}
 		} else if revno == 0 {
 			// There's no document with revno 0. The only way to see it is
 			// when an existent document participates in a transaction the
 			// first time. Txn-inserted documents get revno -1 while in the
 			// stash for the first time, and -revno-1 == 2 when they go live.
-			qdoc[1].Value = bson.D{{"$exists", false}}
+			qdoc[1].Value = bson.D{{Name: "$exists", Value: false}}
 		}
 
 		pullAll := tokensToPull(dqueue, pull, tt)
@@ -752,10 +819,10 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 				if d, err = objToDoc(op.Update); err != nil {
 					return err
 				}
-				if d, err = addToDoc(d, "$pullAll", bson.D{{"txn-queue", pullAll}}); err != nil {
+				if d, err = addToDoc(d, "$pullAll", bson.D{{Name: "txn-queue", Value: pullAll}}); err != nil {
 					return err
 				}
-				if d, err = addToDoc(d, "$set", bson.D{{"txn-revno", newRevno}}); err != nil {
+				if d, err = addToDoc(d, "$set", bson.D{{Name: "txn-revno", Value: newRevno}}); err != nil {
 					return err
 				}
 				chaos("")
@@ -770,7 +837,7 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 				nonce := newNonce()
 				stash := txnInfo{}
 				change := mgo.Change{
-					Update:    bson.D{{"$push", bson.D{{"n", nonce}}}},
+					Update:    bson.D{{Name: "$push", Value: bson.D{{Name: "n", Value: nonce}}}},
 					Upsert:    true,
 					ReturnNew: true,
 				}
@@ -778,7 +845,7 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 					return err
 				}
 				change = mgo.Change{
-					Update:    bson.D{{"$set", bson.D{{"txn-remove", t.Id}}}},
+					Update:    bson.D{{Name: "$set", Value: bson.D{{Name: "txn-remove", Value: t.Id}}}},
 					ReturnNew: true,
 				}
 				var info txnInfo
@@ -792,14 +859,14 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 						var set, unset bson.D
 						if revno == 0 {
 							// Missing revno in stash means -1.
-							set = bson.D{{"txn-queue", info.Queue}}
-							unset = bson.D{{"n", 1}, {"txn-revno", 1}}
+							set = bson.D{{Name: "txn-queue", Value: info.Queue}}
+							unset = bson.D{{Name: "n", Value: 1}, {Name: "txn-revno", Value: 1}}
 						} else {
-							set = bson.D{{"txn-queue", info.Queue}, {"txn-revno", newRevno}}
-							unset = bson.D{{"n", 1}}
+							set = bson.D{{Name: "txn-queue", Value: info.Queue}, {Name: "txn-revno", Value: newRevno}}
+							unset = bson.D{{Name: "n", Value: 1}}
 						}
-						qdoc := bson.D{{"_id", dkey}, {"n", nonce}}
-						udoc := bson.D{{"$set", set}, {"$unset", unset}}
+						qdoc := bson.D{{Name: "_id", Value: dkey}, {Name: "n", Value: nonce}}
+						udoc := bson.D{{Name: "$set", Value: set}, {Name: "$unset", Value: unset}}
 						if err = f.sc.Update(qdoc, udoc); err == nil {
 							updated = true
 						} else if err != mgo.ErrNotFound {
@@ -824,14 +891,14 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 					return err
 				}
 				change := mgo.Change{
-					Update:    bson.D{{"$set", bson.D{{"txn-insert", t.Id}}}},
+					Update:    bson.D{{Name: "$set", Value: bson.D{{Name: "txn-insert", Value: t.Id}}}},
 					ReturnNew: true,
 				}
 				chaos("")
 				var info txnInfo
 				if _, err = f.sc.Find(qdoc).Apply(change, &info); err == nil {
 					f.debugf("Stash for document %v has revno %d and queue: %v", dkey, info.Revno, info.Queue)
-					d = setInDoc(d, bson.D{{"_id", op.Id}, {"txn-revno", newRevno}, {"txn-queue", info.Queue}})
+					d = setInDoc(d, bson.D{{Name: "_id", Value: op.Id}, {Name: "txn-revno", Value: newRevno}, {Name: "txn-queue", Value: info.Queue}})
 					// Unlikely yet unfortunate race in here if this gets seriously
 					// delayed. If someone inserts+removes meanwhile, this will
 					// reinsert, and there's no way to avoid that while keeping the
@@ -881,7 +948,7 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 				}
 			}
 			if dr == nil {
-				logDoc = append(logDoc, bson.DocElem{op.C, bson.D{{"d", []interface{}{}}, {"r", []int64{}}}})
+				logDoc = append(logDoc, bson.DocElem{Name: op.C, Value: bson.D{{Name: "d", Value: []interface{}{}}, {Name: "r", Value: []int64{}}}})
 				dr = logDoc[len(logDoc)-1].Value.(bson.D)
 			}
 			dr[0].Value = append(dr[0].Value.([]interface{}), op.Id)
@@ -905,21 +972,23 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 	// it has been applied and mark it at such.
 	f.debugf("Marking %s as applied", t)
 	chaos("set-applied")
-	f.tc.Update(bson.D{{"_id", t.Id}, {"s", tapplying}}, bson.D{{"$set", bson.D{{"s", tapplied}}}})
+	f.tc.Update(
+		bson.D{{Name: "_id", Value: t.Id}, {Name: "s", Value: tapplying}},
+		bson.D{{Name: "$set", Value: bson.D{{Name: "s", Value: tapplied}}}})
 	return nil
 }
 
-func tokensToPull(dqueue []token, pull map[bson.ObjectId]*transaction, dontPull token) []token {
+func tokensToPull(dqueue []tokenAndId, pull map[bson.ObjectId]*transaction, dontPull token) []token {
 	var result []token
 	for j := len(dqueue) - 1; j >= 0; j-- {
 		dtt := dqueue[j]
-		if dtt == dontPull {
+		if dtt.tt == dontPull {
 			continue
 		}
-		if _, ok := pull[dtt.id()]; ok {
+		if _, ok := pull[dtt.Id()]; ok {
 			// It was handled before and this is a leftover invalid
 			// nonce in the queue. Cherry-pick it out.
-			result = append(result, dtt)
+			result = append(result, dtt.tt)
 		}
 	}
 	return result
@@ -943,14 +1012,14 @@ func addToDoc(doc bson.D, key string, add bson.D) (bson.D, error) {
 		if elem.Name != key {
 			continue
 		}
-		if old, ok := elem.Value.(bson.D); ok {
-			elem.Value = append(old, add...)
-			return doc, nil
-		} else {
+		old, ok := elem.Value.(bson.D)
+		if !ok {
 			return nil, fmt.Errorf("invalid %q value in change document: %#v", key, elem.Value)
 		}
+		elem.Value = append(old, add...)
+		return doc, nil
 	}
-	return append(doc, bson.DocElem{key, add}), nil
+	return append(doc, bson.DocElem{Name: key, Value: add}), nil
 }
 
 func setInDoc(doc bson.D, set bson.D) bson.D {

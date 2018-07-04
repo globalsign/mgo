@@ -4,4 +4,4 @@
 
 exec mongos $COMMONSOPTS \
 	--port 40201 \
-	--configdb 127.0.0.1:40101
+	$MONGOS1OPTS 

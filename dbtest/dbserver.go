@@ -6,10 +6,11 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"time"
 
-	mgo "github.com/domodwyer/mgo"
+	mgo "github.com/globalsign/mgo"
 	"gopkg.in/tomb.v2"
 )
 
@@ -69,6 +70,8 @@ func (dbs *DBServer) start() {
 	dbs.server.Stderr = &dbs.output
 	err = dbs.server.Start()
 	if err != nil {
+		// print error to facilitate troubleshooting as the panic will be caught in a panic handler
+		fmt.Fprintf(os.Stderr, "mongod failed to start: %v\n", err)
 		panic(err)
 	}
 	dbs.tomb.Go(dbs.monitor)
@@ -111,7 +114,12 @@ func (dbs *DBServer) Stop() {
 	}
 	if dbs.server != nil {
 		dbs.tomb.Kill(nil)
-		dbs.server.Process.Signal(os.Interrupt)
+		// Windows doesn't support Interrupt
+		if runtime.GOOS == "windows" {
+			dbs.server.Process.Signal(os.Kill)
+		} else {
+			dbs.server.Process.Signal(os.Interrupt)
+		}
 		select {
 		case <-dbs.tomb.Dead():
 		case <-time.After(5 * time.Second):
@@ -142,7 +150,7 @@ func (dbs *DBServer) Session() *mgo.Session {
 
 // checkSessions ensures all mgo sessions opened were properly closed.
 // For slightly faster tests, it may be disabled setting the
-// environmnet variable CHECK_SESSIONS to 0.
+// environment variable CHECK_SESSIONS to 0.
 func (dbs *DBServer) checkSessions() {
 	if check := os.Getenv("CHECK_SESSIONS"); check == "0" || dbs.server == nil || dbs.session == nil {
 		return

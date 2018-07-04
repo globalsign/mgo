@@ -16,26 +16,33 @@ for (var i in ports) {
 
     for (var j in auth) {
         if (auth[j] == port) {
-            admin.auth("root", "rapadura")
-            admin.system.users.find().forEach(function(u) {
-                if (u.user == "root" || u.user == "reader") {
-                        return;
+            print("removing user for port " + auth[j])
+            for (var k = 0; k < 10; k++) {
+                var ok = admin.auth("root", "rapadura")
+                if (ok) {
+                    admin.system.users.find().forEach(function (u) {
+                        if (u.user == "root" || u.user == "reader") {
+                            return;
+                        }
+                        if (typeof admin.dropUser == "function") {
+                            mongo.getDB(u.db).dropUser(u.user);
+                        } else {
+                            admin.removeUser(u.user);
+                        }
+                    })
+                    break
                 }
-                if (typeof admin.dropUser == "function") {
-                    mongo.getDB(u.db).dropUser(u.user);
-                } else {
-                    admin.removeUser(u.user);
-                }
-            })
-            break
+                print("failed to auth for port " + port + " retrying in 1s ")
+                sleep(1000)
+            }
         }
     }
-    var result = admin.runCommand({"listDatabases": 1})
+    var result = admin.runCommand({ "listDatabases": 1 })
     for (var j = 0; j != 100; j++) {
         if (typeof result.databases != "undefined" || notMaster(result)) {
             break
         }
-        result = admin.runCommand({"listDatabases": 1})
+        result = admin.runCommand({ "listDatabases": 1 })
     }
     if (notMaster(result)) {
         continue
@@ -49,18 +56,18 @@ for (var i in ports) {
     for (var j = 0; j != dbs.length; j++) {
         var db = dbs[j]
         switch (db.name) {
-        case "admin":
-        case "local":
-        case "config":
-            break
-        default:
-            mongo.getDB(db.name).dropDatabase()
+            case "admin":
+            case "local":
+            case "config":
+                break
+            default:
+                mongo.getDB(db.name).dropDatabase()
         }
     }
 }
 
 function notMaster(result) {
-        return typeof result.errmsg != "undefined" && (result.errmsg.indexOf("not master") >= 0 || result.errmsg.indexOf("no master found"))
+    return typeof result.errmsg != "undefined" && (result.errmsg.indexOf("not master") >= 0 || result.errmsg.indexOf("no master found"))
 }
 
 // vim:ts=4:sw=4:et
