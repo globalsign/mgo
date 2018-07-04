@@ -752,7 +752,7 @@ func getStructInfo(st reflect.Type) (*structInfo, error) {
 		fields := strings.Split(tag, ",")
 		if len(fields) > 1 {
 			for _, flag := range fields[1:] {
-				switch flag {
+				switch strings.TrimSpace(flag) {
 				case "omitempty":
 					info.OmitEmpty = true
 				case "minsize":
