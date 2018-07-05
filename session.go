@@ -2765,7 +2765,6 @@ func (p *Pipe) SetMaxTime(d time.Duration) *Pipe {
 	return p
 }
 
-
 // Collation allows to specify language-specific rules for string comparison,
 // such as rules for lettercase and accent marks.
 // When specifying collation, the locale field is mandatory; all other collation
@@ -2880,6 +2879,26 @@ func (c *Collection) Update(selector interface{}, update interface{}) error {
 		return ErrNotFound
 	}
 	return err
+}
+
+func (c *Collection) UpdateWithArrayFilters(selector, update, arrayFilters interface{}, multi bool) (*ChangeInfo, error) {
+	if selector == nil {
+		selector = bson.D{}
+	}
+	op := updateOp{
+		Collection:   c.FullName,
+		Selector:     selector,
+		Update:       update,
+		Flags:        2,
+		Multi:        multi,
+		ArrayFilters: arrayFilters,
+	}
+	lerr, err := c.writeOp(&op, true)
+	var info *ChangeInfo
+	if err == nil && lerr != nil {
+		info = &ChangeInfo{Updated: lerr.modified, Matched: lerr.N}
+	}
+	return info, err
 }
 
 // UpdateId is a convenience helper equivalent to:
