@@ -3063,6 +3063,26 @@ func (c *Collection) UpdateId(id interface{}, update interface{}) error {
 	return c.Update(bson.D{{Name: "_id", Value: id}}, update)
 }
 
+func (c *Collection) UpdateWithArrayFilters(selector, update, arrayFilters interface{}, multi bool) (*ChangeInfo, error) {
+	if selector == nil {
+		selector = bson.D{}
+	}
+	op := updateOp{
+		Collection:   c.FullName,
+		Selector:     selector,
+		Update:       update,
+		Flags:        2,
+		Multi:        multi,
+		ArrayFilters: arrayFilters,
+	}
+	lerr, err := c.writeOp(&op, true)
+	var info *ChangeInfo
+	if err == nil && lerr != nil {
+		info = &ChangeInfo{Updated: lerr.modified, Matched: lerr.N}
+	}
+	return info, err
+}
+
 // ChangeInfo holds details about the outcome of an update operation.
 type ChangeInfo struct {
 	// Updated reports the number of existing documents modified.
