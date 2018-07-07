@@ -742,7 +742,7 @@ func (s *S) TestUpdateNil(c *C) {
 }
 
 func (s *S) TestUpdateWithArrayFiltersMulti(c *C) {
-	if s.versionAtLeast(3, 6) {
+	if !s.versionAtLeast(3, 6) {
 		c.Skip("requires 3.6+")
 	}
 	session, err := mgo.Dial("localhost:40001")
@@ -785,7 +785,7 @@ func (s *S) TestUpdateWithArrayFiltersMulti(c *C) {
 }
 
 func (s *S) TestUpdateWithArrayFiltersSingle(c *C) {
-	if s.versionAtLeast(3, 6) {
+	if !s.versionAtLeast(3, 6) {
 		c.Skip("requires 3.6+")
 	}
 	session, err := mgo.Dial("localhost:40001")
