@@ -33,7 +33,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/globalsign/mgo/bson"
+	"github.com/afex/hystrix-go/hystrix"
+	"github.com/bukalapak/mgo/bson"
 )
 
 type replyFunc func(err error, reply *replyOp, docNum int, docData []byte)
@@ -419,7 +420,7 @@ var bytesBufferPool = sync.Pool{
 	},
 }
 
-func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
+func (socket *mongoSocket) queryOriginal(ops ...interface{}) (err error) {
 
 	if lops := socket.flushLogout(); len(lops) > 0 {
 		ops = append(lops, ops...)
@@ -437,7 +438,7 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 	requests := make([]requestInfo, len(ops))
 	requestCount := 0
 
-	for _, op := range ops {
+	for i, op := range ops {
 		debugf("Socket %p to %s: serializing op: %#v", socket, socket.addr, op)
 		if qop, ok := op.(*queryOp); ok {
 			if cmd, ok := qop.query.(*findCmd); ok {
@@ -522,6 +523,7 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 			}
 
 		default:
+			fmt.Println(len(ops), i)
 			panic("internal error: unknown operation type")
 		}
 
@@ -575,6 +577,28 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 	_, err = socket.conn.Write(buf)
 	if !wasWaiting && requestCount > 0 {
 		socket.updateDeadline(readDeadline)
+	}
+	return err
+}
+
+func (socket *mongoSocket) Query(ops ...interface{}) error {
+	var err error
+	for i := 0; i <= socket.dialInfo.MaxRetry; i++ {
+		if socket.dialInfo.EnableCB {
+			err = hystrix.Do("query", func() error {
+				return socket.queryOriginal(ops)
+			}, nil)
+		} else {
+			err = socket.queryOriginal(ops)
+		}
+
+		if err != nil {
+			sleep := socket.dialInfo.Intervaler.NextInterval(i)
+			time.Sleep(sleep)
+			continue
+		}
+
+		break
 	}
 	return err
 }
