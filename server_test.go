@@ -29,7 +29,7 @@ package mgo_test
 import (
 	"time"
 
-	"github.com/globalsign/mgo"
+	"github.com/bukalapak/mgo"
 	. "gopkg.in/check.v1"
 )
 
@@ -42,10 +42,10 @@ func (s *S) TestServerRecoversFromAbend(c *C) {
 	server := cluster.Server("127.0.0.1:40001")
 
 	info := &mgo.DialInfo{
-		Timeout: time.Second,
+		Timeout:   time.Second,
 		PoolLimit: 100,
 	}
-	
+
 	sock, abended, err := server.AcquireSocket(info)
 	c.Assert(err, IsNil)
 	c.Assert(sock, NotNil)
