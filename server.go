@@ -33,7 +33,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/globalsign/mgo/bson"
+	"github.com/bukalapak/mgo/bson"
 )
 
 // coarseTime is used to amortise the cost of querying the timecounter (possibly
@@ -434,7 +434,7 @@ func (server *mongoServer) pinger(loop bool) {
 
 func (server *mongoServer) poolShrinker() {
 	ticker := time.NewTicker(1 * time.Minute)
-	for _ = range ticker.C {
+	for range ticker.C {
 		if server.closed {
 			ticker.Stop()
 			return

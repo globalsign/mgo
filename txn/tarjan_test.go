@@ -3,7 +3,7 @@ package txn
 import (
 	"fmt"
 
-	"github.com/globalsign/mgo/bson"
+	"github.com/bukalapak/mgo/bson"
 	. "gopkg.in/check.v1"
 )
 

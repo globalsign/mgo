@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/globalsign/mgo/internal/json"
+	"github.com/bukalapak/mgo/internal/json"
 )
 
 func main() {
