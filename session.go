@@ -3063,6 +3063,12 @@ func (c *Collection) UpdateId(id interface{}, update interface{}) error {
 	return c.Update(bson.D{{Name: "_id", Value: id}}, update)
 }
 
+// UpdateWithArrayFilters allows passing an array of filter documents that determines
+// which array elements to modify for an update operation on an array field.
+//
+// ArrayFilters should be an array of mgo.M slices. The multi variable is passed
+// to the 'multi' update parameter and when true is like UpdateAll.
+// See example: https://docs.mongodb.com/manual/reference/method/db.collection.update/#update-arrayfilters
 func (c *Collection) UpdateWithArrayFilters(selector, update, arrayFilters interface{}, multi bool) (*ChangeInfo, error) {
 	if selector == nil {
 		selector = bson.D{}
