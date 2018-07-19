@@ -45,7 +45,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/afex/hystrix-go/hystrix"
 	"github.com/bukalapak/mgo/bson"
+	"github.com/indrasaputra/backoff"
 )
 
 // Mode read preference mode. See Eventual, Monotonic and Strong for details
@@ -308,6 +310,10 @@ const (
 func Dial(url string) (*Session, error) {
 	session, err := DialWithTimeout(url, 10*time.Second)
 	if err == nil {
+		session.dialInfo.Intervaler = &backoff.ConstantBackoff{
+			BackoffInterval: 500 * time.Millisecond,
+			JitterInterval:  200 * time.Millisecond,
+		}
 		session.SetSyncTimeout(1 * time.Minute)
 		session.SetSocketTimeout(1 * time.Minute)
 	}
@@ -596,6 +602,15 @@ type DialInfo struct {
 
 	// WARNING: This field is obsolete. See DialServer above.
 	Dial func(addr net.Addr) (net.Conn, error)
+
+	// flag to enable circuitbreaker
+	EnableCB bool
+
+	// maximum number to retry
+	MaxRetry int
+
+	// interval function for waiting to retry
+	Intervaler *backoff.ConstantBackoff
 }
 
 // Copy returns a deep-copy of i.
@@ -877,6 +892,25 @@ func copySession(session *Session, keepCreds bool) (s *Session) {
 	s = &scopy
 	debugf("New session %p on cluster %p (copy from %p)", s, cluster, session)
 	return s
+}
+
+// CircuitBreaker function to enable cb.
+// take int paramater to set custom timeout
+func (s *Session) CircuitBreaker(timeout int) {
+	s.dialInfo.EnableCB = true
+	hystrix.ConfigureCommand(s.dialInfo.Database, hystrix.CommandConfig{
+		Timeout:                timeout,
+		ErrorPercentThreshold:  10,
+		RequestVolumeThreshold: 1000,
+		SleepWindow:            3000,
+		MaxConcurrentRequests:  5000,
+	})
+}
+
+// MaxRetry function to set how many retry will be attempted if connection is failed.
+// default is 0
+func (s *Session) MaxRetry(retry int) {
+	s.dialInfo.MaxRetry = retry
 }
 
 // LiveServers returns a list of server addresses which are

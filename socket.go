@@ -33,6 +33,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/afex/hystrix-go/hystrix"
 	"github.com/bukalapak/mgo/bson"
 )
 
@@ -419,7 +420,7 @@ var bytesBufferPool = sync.Pool{
 	},
 }
 
-func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
+func (socket *mongoSocket) queryOriginal(ops ...interface{}) (err error) {
 
 	if lops := socket.flushLogout(); len(lops) > 0 {
 		ops = append(lops, ops...)
@@ -575,6 +576,57 @@ func (socket *mongoSocket) Query(ops ...interface{}) (err error) {
 	_, err = socket.conn.Write(buf)
 	if !wasWaiting && requestCount > 0 {
 		socket.updateDeadline(readDeadline)
+	}
+	return err
+}
+
+func (socket *mongoSocket) Query(ops ...interface{}) error {
+	var err error
+	if socket.dialInfo.EnableCB {
+		err = socket.queryWithCB(ops)
+	} else {
+		err = socket.queryWithRetry(ops)
+	}
+	return err
+}
+
+func (socket *mongoSocket) queryWithCB(ops ...interface{}) error {
+	var err error
+	for i := 0; i <= socket.dialInfo.MaxRetry; i++ {
+
+		cb, _, _ := hystrix.GetCircuit(socket.dialInfo.Database)
+		if cb.IsOpen() {
+			counter.WithLabelValues("mongo-driver-"+socket.dialInfo.Database, "open").Inc()
+		} else {
+			counter.WithLabelValues("mongo-driver-"+socket.dialInfo.Database, "close").Inc()
+		}
+
+		err = hystrix.Do(socket.dialInfo.Database, func() error {
+			return socket.queryOriginal(ops)
+		}, nil)
+
+		if err != nil && i != socket.dialInfo.MaxRetry {
+			sleep := socket.dialInfo.Intervaler.NextInterval()
+			time.Sleep(sleep)
+			continue
+		}
+		break
+	}
+	return err
+}
+
+func (socket *mongoSocket) queryWithRetry(ops ...interface{}) error {
+	var err error
+	for i := 0; i <= socket.dialInfo.MaxRetry; i++ {
+		sleep := socket.dialInfo.Intervaler.NextInterval()
+		time.Sleep(sleep)
+		err = socket.queryOriginal(ops)
+
+		if err != nil {
+			continue
+		}
+
+		break
 	}
 	return err
 }

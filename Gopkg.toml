@@ -26,6 +26,22 @@
 
 
 [[constraint]]
+  branch = "master"
+  name = "github.com/afex/hystrix-go"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/indrasaputra/backoff"
+
+[[constraint]]
+  name = "github.com/prometheus/client_golang"
+  version = "0.8.0"
+
+[[constraint]]
+  name = "github.com/stretchr/testify"
+  version = "1.2.2"
+
+[[constraint]]
   branch = "v1"
   name = "gopkg.in/check.v1"
 
