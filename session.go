@@ -310,10 +310,6 @@ const (
 func Dial(url string) (*Session, error) {
 	session, err := DialWithTimeout(url, 10*time.Second)
 	if err == nil {
-		session.dialInfo.Intervaler = &backoff.ConstantBackoff{
-			BackoffInterval: 500 * time.Millisecond,
-			JitterInterval:  200 * time.Millisecond,
-		}
 		session.SetSyncTimeout(1 * time.Minute)
 		session.SetSocketTimeout(1 * time.Minute)
 	}
@@ -333,6 +329,25 @@ func DialWithTimeout(url string, timeout time.Duration) (*Session, error) {
 	}
 	info.Timeout = timeout
 	return DialWithInfo(info)
+}
+
+// CircuitBreaker function to enable cb.
+// take int paramater to set custom timeout
+func (s *Session) CircuitBreaker(timeout int) {
+	s.dialInfo.EnableCB = true
+	hystrix.ConfigureCommand(s.dialInfo.Database, hystrix.CommandConfig{
+		Timeout:                timeout,
+		ErrorPercentThreshold:  10,
+		RequestVolumeThreshold: 1000,
+		SleepWindow:            3000,
+		MaxConcurrentRequests:  5000,
+	})
+}
+
+// MaxRetry function to set how many retry will be attempted if connection is failed.
+// default is 0
+func (s *Session) MaxRetry(retry int) {
+	s.dialInfo.MaxRetry = retry
 }
 
 // ParseURL parses a MongoDB URL as accepted by the Dial function and returns
@@ -624,6 +639,11 @@ func (i *DialInfo) Copy() *DialInfo {
 		copy(readPreference.TagSets, i.ReadPreference.TagSets)
 	}
 
+	i.Intervaler = &backoff.ConstantBackoff{
+		BackoffInterval: 500 * time.Millisecond,
+		JitterInterval:  200 * time.Millisecond,
+	}
+
 	info := &DialInfo{
 		Timeout:        i.Timeout,
 		Database:       i.Database,
@@ -646,6 +666,9 @@ func (i *DialInfo) Copy() *DialInfo {
 		MaxIdleTimeMS:  i.MaxIdleTimeMS,
 		DialServer:     i.DialServer,
 		Dial:           i.Dial,
+		EnableCB:       i.EnableCB,
+		MaxRetry:       i.MaxRetry,
+		Intervaler:     i.Intervaler,
 	}
 
 	info.Addrs = make([]string, len(i.Addrs))
@@ -892,25 +915,6 @@ func copySession(session *Session, keepCreds bool) (s *Session) {
 	s = &scopy
 	debugf("New session %p on cluster %p (copy from %p)", s, cluster, session)
 	return s
-}
-
-// CircuitBreaker function to enable cb.
-// take int paramater to set custom timeout
-func (s *Session) CircuitBreaker(timeout int) {
-	s.dialInfo.EnableCB = true
-	hystrix.ConfigureCommand(s.dialInfo.Database, hystrix.CommandConfig{
-		Timeout:                timeout,
-		ErrorPercentThreshold:  10,
-		RequestVolumeThreshold: 1000,
-		SleepWindow:            3000,
-		MaxConcurrentRequests:  5000,
-	})
-}
-
-// MaxRetry function to set how many retry will be attempted if connection is failed.
-// default is 0
-func (s *Session) MaxRetry(retry int) {
-	s.dialInfo.MaxRetry = retry
 }
 
 // LiveServers returns a list of server addresses which are
