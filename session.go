@@ -1217,7 +1217,10 @@ type User struct {
 	// and is now obsolete.
 	UserSource string `bson:"userSource,omitempty"`
 
-	// AuthenticationRestrictions ...
+	// AuthenticationRestrictions represents authentication restrictions
+	// the server enforces on the created user. Specifies a list of IP
+	// addresses and CIDR ranges from which the user is allowed to connect
+	// to the server or from which the server can accept users.
 	AuthenticationRestrictions []AuthenticationRestriction `bson:"authenticationRestrictions,omitempty"`
 }
 
