@@ -1171,6 +1171,11 @@ func (s *Session) LogoutAll() {
 // AuthenticationRestriction represents an authentication restriction
 // for a MongoDB User. Authentication Restrictions was added in version
 // 3.6.
+//
+// Relevant documentation:
+//
+//     https://docs.mongodb.com/manual/reference/method/db.createUser/#authentication-restrictions
+//
 type AuthenticationRestriction struct {
 	ClientSource  []string `bson:"clientSource,omitempty"`
 	ServerAddress []string `bson:"serverAddress,omitempty"`
