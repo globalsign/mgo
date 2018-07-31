@@ -1227,8 +1227,8 @@ type User struct {
 	// addresses and CIDR ranges from which the user is allowed to connect
 	// to the server or from which the server can accept users.
 	//
-	// WARNING Authentication Restrictions is only supported in version 3.6
-	// and above.
+	// WARNING: Authentication Restrictions is only supported in version
+	// 3.6 and above.
 	AuthenticationRestrictions []AuthenticationRestriction `bson:"authenticationRestrictions,omitempty"`
 }
 
