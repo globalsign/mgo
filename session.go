@@ -1169,8 +1169,8 @@ func (s *Session) LogoutAll() {
 }
 
 // AuthenticationRestriction represents an authentication restriction
-// for a MongoDB User. Authentication Restrictions is a new feature
-// since version 3.6
+// for a MongoDB User. Authentication Restrictions was added in version
+// 3.6.
 type AuthenticationRestriction struct {
 	ClientSource  []string `bson:"clientSource,omitempty"`
 	ServerAddress []string `bson:"serverAddress,omitempty"`
