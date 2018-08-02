@@ -343,7 +343,7 @@ func (s *S) TestAuthUpsertUserUpdates(c *C) {
 
 func (s *S) TestAuthUpsertUserAuthenticationRestrictions(c *C) {
 	if !s.versionAtLeast(3, 6) {
-		c.Skip("UpsertUser only works on 3.6+")
+		c.Skip("UpsertUser with user 'authenticationRestrictions' only works on 3.6+")
 	}
 	session, err := mgo.Dial("localhost:40002")
 	c.Assert(err, IsNil)
