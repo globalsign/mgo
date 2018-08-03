@@ -377,7 +377,7 @@ func (s *S) TestAuthUpsertUserAuthenticationRestrictions(c *C) {
 	c.Assert(err, IsNil)
 
 	// Dial again to ensure the authentication restriction blocks the connection
-	_, err := mgo.Dial("mongodb://authRestrictionUser:123456@127.0.0.1:40002/admin")
+	_, err = mgo.Dial("mongodb://authRestrictionUser:123456@127.0.0.1:40002/admin")
 	c.Assert(err, ErrorMatches, ".*Authentication failed.")
 }
 
