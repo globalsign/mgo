@@ -213,8 +213,8 @@ func (socket *mongoSocket) Server() *mongoServer {
 	return server
 }
 
-// ServerInfo returns details for the server at the time the socket
-// was initially acquired.
+// ServerInfo returns details for the server at the time the socket was
+// initially acquired.
 func (socket *mongoSocket) ServerInfo() *mongoServerInfo {
 	if socket == nil {
 		return &mongoServerInfo{}
@@ -223,6 +223,16 @@ func (socket *mongoSocket) ServerInfo() *mongoServerInfo {
 	serverInfo := socket.serverInfo
 	socket.Unlock()
 	return serverInfo
+}
+
+// Dead returns the internal status of the socket
+//
+// It will return nil or an error if the socket is dead
+func (socket *mongoSocket) Dead() error {
+	socket.Lock()
+	defer socket.Unlock()
+
+	return socket.dead
 }
 
 // InitialAcquire obtains the first reference to the socket, either

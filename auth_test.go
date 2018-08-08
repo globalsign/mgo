@@ -341,6 +341,57 @@ func (s *S) TestAuthUpsertUserUpdates(c *C) {
 	c.Assert(err, IsNil)
 }
 
+func (s *S) TestAuthUpsertUserAuthenticationRestrictions(c *C) {
+	if !s.versionAtLeast(3, 6) {
+		c.Skip("UpsertUser with user 'authenticationRestrictions' only works on 3.6+")
+	}
+	session, err := mgo.Dial("localhost:40002")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	admindb := session.DB("admin")
+	err = admindb.Login("root", "rapadura")
+
+	allowUser := &mgo.User{
+		Username: "authRestrictionUser",
+		Password: "123456",
+		Roles:    []mgo.Role{mgo.RoleReadWrite},
+		AuthenticationRestrictions: []mgo.AuthenticationRestriction{
+			{
+				ClientSource:  []string{"127.0.0.1"},
+				ServerAddress: []string{"127.0.0.1"},
+			},
+		},
+	}
+	err = admindb.UpsertUser(allowUser)
+	c.Assert(err, IsNil)
+
+	// Dial again to ensure the positive authentication restriction allows the connection
+	allowSession, err := mgo.Dial("mongodb://authRestrictionUser:123456@127.0.0.1:40002/admin")
+	c.Assert(err, IsNil)
+	c.Assert(allowSession.Ping(), IsNil)
+	defer allowSession.Close()
+
+	// this user should fail authentication restrictions
+	denyUser := &mgo.User{
+		Username: "denyUser",
+		Password: "123456",
+		Roles:    []mgo.Role{mgo.RoleReadWrite},
+		AuthenticationRestrictions: []mgo.AuthenticationRestriction{
+			{
+				ClientSource:  []string{"1.2.3.4"},
+				ServerAddress: []string{"4.3.2.1"},
+			},
+		},
+	}
+	err = admindb.UpsertUser(denyUser)
+	c.Assert(err, IsNil)
+
+	// Dial again to ensure the authentication restriction blocks the connections.
+	_, err = mgo.Dial("mongodb://denyUser:123456@127.0.0.1:40002/admin")
+	c.Assert(err, ErrorMatches, ".*Authentication failed.")
+}
+
 func (s *S) TestAuthAddUser(c *C) {
 	session, err := mgo.Dial("localhost:40002")
 	c.Assert(err, IsNil)

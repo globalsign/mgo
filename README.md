@@ -58,7 +58,7 @@ A [sub-package](https://godoc.org/github.com/globalsign/mgo/bson) that implement
 * Support setting `writeConcern` for `findAndModify` operations ([details](https://github.com/globalsign/mgo/pull/185))
 * Add `ssl` to the dial string options ([details](https://github.com/globalsign/mgo/pull/184))
 * Support connecting via Unix sockets ([details](https://github.com/globalsign/mgo/pull/129))
-
+* Support MongoDB User authenticationRestrictions ([details](https://github.com/globalsign/mgo/pull/229))
 
 ---
 
