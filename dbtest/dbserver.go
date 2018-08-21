@@ -24,12 +24,13 @@ import (
 // Before the DBServer is used the SetPath method must be called to define
 // the location for the database files to be stored.
 type DBServer struct {
-	session *mgo.Session
-	output  bytes.Buffer
-	server  *exec.Cmd
-	dbpath  string
-	host    string
-	tomb    tomb.Tomb
+	session    *mgo.Session
+	output     bytes.Buffer
+	server     *exec.Cmd
+	dbpath     string
+	mongodpath string
+	host       string
+	tomb       tomb.Tomb
 }
 
 // SetPath defines the path to the directory where the database files will be
@@ -39,7 +40,16 @@ func (dbs *DBServer) SetPath(dbpath string) {
 	dbs.dbpath = dbpath
 }
 
+// SetMongodPath defines the path the the mongod server executable to be used
+// when starting a server.
+func (dbs *DBServer) SetMongodPath(mongodpath string) {
+	dbs.mongodpath = mongodpath
+}
+
 func (dbs *DBServer) start() {
+	if dbs.mongodpath == "" {
+		dbs.mongodpath = "mongod"
+	}
 	if dbs.server != nil {
 		panic("DBServer already started")
 	}
@@ -65,7 +75,7 @@ func (dbs *DBServer) start() {
 		"--nojournal",
 	}
 	dbs.tomb = tomb.Tomb{}
-	dbs.server = exec.Command("mongod", args...)
+	dbs.server = exec.Command(dbs.mongodpath, args...)
 	dbs.server.Stdout = &dbs.output
 	dbs.server.Stderr = &dbs.output
 	err = dbs.server.Start()

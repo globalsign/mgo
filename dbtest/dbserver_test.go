@@ -106,3 +106,16 @@ func (s *S) TestCheckSessionsDisabled(c *C) {
 	defer session.Close()
 	server.Wipe()
 }
+
+func (s *S) TestSetMongodPath(c *C) {
+	var server dbtest.DBServer
+
+	// check that the default is "mongod"
+	session := server.Session()
+	defer session.Close()
+	c.Assert(server.dbpath, Equals, "mongod")
+
+	// check .SetMongodPath()
+	server.SetMongodPath("/opt/mongod/bin/mongod")
+	c.Assert(server.dbpath, Equals, "/opt/mongod/bin/mongod")
+}
