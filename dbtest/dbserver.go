@@ -40,7 +40,7 @@ func (dbs *DBServer) SetPath(dbpath string) {
 	dbs.dbpath = dbpath
 }
 
-// SetMongod defines the path that the mongod server executable to be used
+// SetMongod defines the path of the mongod server executable to be used
 // when starting a server.
 func (dbs *DBServer) SetMongod(mongodpath string) {
 	dbs.mongod = mongodpath
