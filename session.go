@@ -2661,7 +2661,7 @@ type Pipe struct {
 }
 
 type pipeCmd struct {
-	Aggregate string
+	Aggregate interface{}
 	Pipeline  interface{}
 	Cursor    *pipeCmdCursor `bson:",omitempty"`
 	Explain   bool           `bson:",omitempty"`
@@ -2702,6 +2702,19 @@ func (c *Collection) Pipe(pipeline interface{}) *Pipe {
 	}
 }
 
+func (s *Session) Pipe(pipeline interface{}) *Pipe {
+
+	s.m.RLock()
+	batchSize := int(s.queryConfig.op.limit)
+	s.m.RUnlock()
+	return &Pipe{
+		session:    s,
+		collection: nil,
+		pipeline:   pipeline,
+		batchSize:  batchSize,
+	}
+}
+
 // Iter executes the pipeline and returns an iterator capable of going
 // over all the generated results.
 func (p *Pipe) Iter() *Iter {
@@ -2710,34 +2723,53 @@ func (p *Pipe) Iter() *Iter {
 	// necessary for iteration when a cursor is received.
 	cloned := p.session.nonEventual()
 	defer cloned.Close()
-	c := p.collection.With(cloned)
-
+	var c *Collection
+	if p.collection != nil {
+		c = p.collection.With(cloned)
+	}
 	var result struct {
 		Result []bson.Raw // 2.4, no cursors.
 		Cursor cursorData // 2.6+, with cursors.
 	}
 
 	cmd := pipeCmd{
-		Aggregate: c.Name,
 		Pipeline:  p.pipeline,
 		AllowDisk: p.allowDisk,
 		Cursor:    &pipeCmdCursor{p.batchSize},
 		Collation: p.collation,
 	}
+
 	if p.maxTimeMS > 0 {
 		cmd.MaxTimeMS = p.maxTimeMS
 	}
-	err := c.Database.Run(cmd, &result)
+
+	var err error
+	if c != nil {
+		cmd.Aggregate = c.Name
+		err = c.Database.Run(cmd, &result)
+	} else {
+		cmd.Aggregate = 1
+		err = p.session.DB("admin").Run(cmd, &result)
+	}
 	if e, ok := err.(*QueryError); ok && e.Message == `unrecognized field "cursor` {
 		cmd.Cursor = nil
 		cmd.AllowDisk = false
-		err = c.Database.Run(cmd, &result)
+		if c != nil {
+			err = c.Database.Run(cmd, &result)
+		} else {
+			err = p.session.DB("admin").Run(cmd, &result)
+		}
 	}
 	firstBatch := result.Result
 	if firstBatch == nil {
 		firstBatch = result.Cursor.FirstBatch
 	}
-	it := c.NewIter(p.session, firstBatch, result.Cursor.Id, err)
+	var it *Iter
+	if c != nil {
+		it = c.NewIter(p.session, firstBatch, result.Cursor.Id, err)
+	} else {
+		it = p.session.NewIter(nil, firstBatch, result.Cursor.Id, result.Cursor.NS, err)
+	}
 	if p.maxTimeMS > 0 {
 		it.maxTimeMS = p.maxTimeMS
 	}
@@ -2816,6 +2848,82 @@ func (c *Collection) NewIter(session *Session, firstBatch []bson.Raw, cursorId i
 		}
 		iter.op.cursorId = cursorId
 		iter.op.collection = c.FullName
+		iter.op.replyFunc = iter.replyFunc()
+	}
+	return iter
+}
+
+// NewIter returns a newly created iterator with the provided parameters. Using
+// this method is not recommended unless the desired functionality is not yet
+// exposed via a more convenient interface (Find, Pipe, etc).
+//
+// The optional session parameter associates the lifetime of the returned
+// iterator to an arbitrary session. If nil, the iterator will be bound to c's
+// session.
+//
+// Documents in firstBatch will be individually provided by the returned
+// iterator before documents from cursorId are made available. If cursorId is
+// zero, only the documents in firstBatch are provided.
+//
+// If err is not nil, the iterator's Err method will report it after exhausting
+// documents in firstBatch.
+//
+// NewIter must not be called on a collection in Eventual mode, because the
+// cursor id is associated with the specific server that returned it. The
+// provided session parameter may be in any mode or state, though.
+//
+// The new Iter fetches documents in batches of the server defined default,
+// however this can be changed by setting the session Batch method.
+//
+// When using MongoDB 3.2+ NewIter supports re-using an existing cursor on the
+// server. Ensure the connection has been established (i.e. by calling
+// session.Ping()) before calling NewIter.
+func (s *Session) NewIter(session *Session, firstBatch []bson.Raw, cursorId int64, collectionName string, err error) *Iter {
+	var server *mongoServer
+	s.m.RLock()
+	socket := s.masterSocket
+	if socket == nil {
+		socket = s.slaveSocket
+	}
+	if socket != nil {
+		server = socket.Server()
+	}
+	s.m.RUnlock()
+
+	if server == nil {
+		if s.Mode() == Eventual {
+			panic("Collection.NewIter called in Eventual mode")
+		}
+		if err == nil {
+			err = errors.New("server not available")
+		}
+	}
+
+	if session == nil {
+		session = s
+	}
+
+	iter := &Iter{
+		session: session,
+		server:  server,
+		timeout: -1,
+		err:     err,
+	}
+
+	if socket.ServerInfo().MaxWireVersion >= 4 {
+		iter.isFindCmd = true
+	}
+
+	iter.gotReply.L = &iter.m
+	for _, doc := range firstBatch {
+		iter.docData.Push(doc.Data)
+	}
+	if cursorId != 0 {
+		if socket != nil && socket.ServerInfo().MaxWireVersion >= 4 {
+			iter.docsBeforeMore = len(firstBatch)
+		}
+		iter.op.cursorId = cursorId
+		iter.op.collection = collectionName
 		iter.op.replyFunc = iter.replyFunc()
 	}
 	return iter
@@ -2911,7 +3019,6 @@ func (p *Pipe) SetMaxTime(d time.Duration) *Pipe {
 	p.maxTimeMS = int64(d / time.Millisecond)
 	return p
 }
-
 
 // Collation allows to specify language-specific rules for string comparison,
 // such as rules for lettercase and accent marks.
