@@ -28,6 +28,7 @@ type DBServer struct {
 	output  bytes.Buffer
 	server  *exec.Cmd
 	dbpath  string
+	mongod  string
 	host    string
 	tomb    tomb.Tomb
 }
@@ -39,7 +40,16 @@ func (dbs *DBServer) SetPath(dbpath string) {
 	dbs.dbpath = dbpath
 }
 
+// SetMongod defines the path of the mongod server executable to be used
+// when starting a server.
+func (dbs *DBServer) SetMongod(mongodpath string) {
+	dbs.mongod = mongodpath
+}
+
 func (dbs *DBServer) start() {
+	if dbs.mongod == "" {
+		dbs.mongod = "mongod"
+	}
 	if dbs.server != nil {
 		panic("DBServer already started")
 	}
@@ -65,7 +75,7 @@ func (dbs *DBServer) start() {
 		"--nojournal",
 	}
 	dbs.tomb = tomb.Tomb{}
-	dbs.server = exec.Command("mongod", args...)
+	dbs.server = exec.Command(dbs.mongod, args...)
 	dbs.server.Stdout = &dbs.output
 	dbs.server.Stderr = &dbs.output
 	err = dbs.server.Start()
