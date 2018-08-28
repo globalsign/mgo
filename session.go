@@ -2653,6 +2653,7 @@ func (c *Collection) FindId(id interface{}) *Query {
 type Pipe struct {
 	session    *Session
 	collection *Collection
+	database   *Database
 	pipeline   interface{}
 	allowDisk  bool
 	batchSize  int
@@ -2703,12 +2704,26 @@ func (c *Collection) Pipe(pipeline interface{}) *Pipe {
 }
 
 func (s *Session) Pipe(pipeline interface{}) *Pipe {
-
 	s.m.RLock()
 	batchSize := int(s.queryConfig.op.limit)
 	s.m.RUnlock()
 	return &Pipe{
 		session:    s,
+		database:   nil,
+		collection: nil,
+		pipeline:   pipeline,
+		batchSize:  batchSize,
+	}
+}
+
+func (db *Database) Pipe(pipeline interface{}) *Pipe {
+	session := db.Session
+	session.m.RLock()
+	batchSize := int(session.queryConfig.op.limit)
+	session.m.RUnlock()
+	return &Pipe{
+		session:    session,
+		database:   db,
 		collection: nil,
 		pipeline:   pipeline,
 		batchSize:  batchSize,
@@ -2721,11 +2736,14 @@ func (p *Pipe) Iter() *Iter {
 	// Clone session and set it to Monotonic mode so that the server
 	// used for the query may be safely obtained afterwards, if
 	// necessary for iteration when a cursor is received.
-	cloned := p.session.nonEventual()
-	defer cloned.Close()
+	clonedSess := p.session.nonEventual()
+	defer clonedSess.Close()
 	var c *Collection
+	var db *Database
 	if p.collection != nil {
-		c = p.collection.With(cloned)
+		c = p.collection.With(clonedSess)
+	} else if p.database != nil {
+		db = p.database.With(clonedSess)
 	}
 	var result struct {
 		Result []bson.Raw // 2.4, no cursors.
@@ -2744,21 +2762,27 @@ func (p *Pipe) Iter() *Iter {
 	}
 
 	var err error
-	if c != nil {
-		cmd.Aggregate = c.Name
-		err = c.Database.Run(cmd, &result)
-	} else {
-		cmd.Aggregate = 1
-		err = p.session.DB("admin").Run(cmd, &result)
+
+	// We use this function to avoid duplicating code, it executes the command on the right
+	// object (collection, db, or admindb) depending on the requested changestream
+	var runCmd = func() {
+		if c != nil {
+			cmd.Aggregate = c.Name
+			err = c.Database.Run(cmd, &result)
+		} else {
+			cmd.Aggregate = 1
+			if db != nil {
+				err = db.Run(cmd, &result)
+			} else {
+				err = clonedSess.DB("admin").Run(cmd, &result)
+			}
+		}
 	}
+	runCmd()
 	if e, ok := err.(*QueryError); ok && e.Message == `unrecognized field "cursor` {
 		cmd.Cursor = nil
 		cmd.AllowDisk = false
-		if c != nil {
-			err = c.Database.Run(cmd, &result)
-		} else {
-			err = p.session.DB("admin").Run(cmd, &result)
-		}
+		runCmd()
 	}
 	firstBatch := result.Result
 	if firstBatch == nil {
@@ -2768,7 +2792,7 @@ func (p *Pipe) Iter() *Iter {
 	if c != nil {
 		it = c.NewIter(p.session, firstBatch, result.Cursor.Id, err)
 	} else {
-		it = p.session.NewIter(nil, firstBatch, result.Cursor.Id, result.Cursor.NS, err)
+		it = clonedSess.NewIter(p.session, firstBatch, result.Cursor.Id, result.Cursor.NS, err)
 	}
 	if p.maxTimeMS > 0 {
 		it.maxTimeMS = p.maxTimeMS

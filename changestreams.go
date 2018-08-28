@@ -38,6 +38,7 @@ type ChangeStream struct {
 	sessionCopied  bool
 	domainType     ChangeDomainType
 	session        *Session
+	database       *Database
 }
 
 type ChangeStreamOptions struct {
@@ -133,6 +134,44 @@ func (sess *Session) Watch(pipeline interface{},
 		pipeline:    pipeline,
 		domainType:  ChangeDomainCluster,
 		session:     sess,
+	}, nil
+}
+
+// Watch constructs a new ChangeStream capable of receiving continuing data
+// from the database.
+func (db *Database) Watch(pipeline interface{},
+	options ChangeStreamOptions) (*ChangeStream, error) {
+
+	if pipeline == nil {
+		pipeline = []bson.M{}
+	}
+
+	csPipe := constructChangeStreamPipeline(pipeline, options, ChangeDomainDatabase)
+	pipe := db.Pipe(&csPipe)
+	if options.MaxAwaitTimeMS > 0 {
+		pipe.SetMaxTime(options.MaxAwaitTimeMS)
+	}
+	if options.BatchSize > 0 {
+		pipe.Batch(options.BatchSize)
+	}
+	pIter := pipe.Iter()
+
+	// check that there was no issue creating the iterator.
+	// this will fail immediately with an error from the server if running against
+	// a standalone.
+	if err := pIter.Err(); err != nil {
+		return nil, err
+	}
+
+	pIter.isChangeStream = true
+	return &ChangeStream{
+		iter:        pIter,
+		resumeToken: nil,
+		options:     options,
+		pipeline:    pipeline,
+		domainType:  ChangeDomainDatabase,
+		session:     db.Session,
+		database:    db,
 	}, nil
 }
 
@@ -333,6 +372,8 @@ func (changeStream *ChangeStream) resume() error {
 		newPipe = changeStream.collection.Pipe(changeStreamPipeline)
 	} else if changeStream.domainType == ChangeDomainCluster {
 		newPipe = changeStream.session.Pipe(changeStreamPipeline)
+	} else if changeStream.domainType == ChangeDomainDatabase {
+		newPipe = changeStream.database.Pipe(changeStreamPipeline)
 	}
 
 	changeStream.iter = newPipe.Iter()
