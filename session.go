@@ -45,7 +45,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/globalsign/mgo/bson"
+	"github.homedepot.com/aether-foundation/mgo/bson"
 )
 
 // Mode read preference mode. See Eventual, Monotonic and Strong for details
@@ -110,6 +110,8 @@ type Session struct {
 	queryConfig      query
 	bypassValidation bool
 	slaveOk          bool
+	SessionID        bson.Binary
+	nextTxnNumber    int64
 
 	dialInfo *DialInfo
 }
@@ -2525,6 +2527,68 @@ func (s *Session) Ping() error {
 	return s.Run("ping", nil)
 }
 
+// Start creates a session and saves the ID for future use in transactions.
+func (s *Session) Start() error {
+	var r sessionResult
+	err := s.Run("startSession", &r)
+	if err != nil {
+		return err
+	}
+	imap := r.ID.(bson.M)
+	s.SessionID = imap["id"].(bson.Binary)
+	return nil
+}
+
+// End kills the session and resets the ID in the struct.
+// Probably also aborts any existing transactions.
+func (s *Session) End() error {
+	var r sessionResult
+	cmd := bson.D{
+		{Name: "endSessions", Value: bson.M{"id": s.SessionID}},
+	}
+	s.SessionID = bson.Binary{}
+	return s.Run(cmd, &r)
+}
+
+// CommitTransaction commits the currently running transaction.
+// There are two bits of necessary info here:  the Session ID
+// and the transaction number.  Both are required, even though
+// they are by necessity stored in different locations.
+func (s *Session) CommitTransaction(n int64) error {
+	if len(s.SessionID.Data) == 0 {
+		return nil
+	}
+	cmd := bson.D{
+		{Name: "commitTransaction", Value: 1},
+		{Name: "txnNumber", Value: n},
+		{Name: "autocommit", Value: false},
+		{Name: "lsid", Value: bson.M{"id": s.SessionID}},
+	}
+	err := s.Run(cmd, nil)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// AbortTransaction aborts the specified transaction.
+func (s *Session) AbortTransaction(n int64) error {
+	if len(s.SessionID.Data) == 0 {
+		return nil
+	}
+	cmd := bson.D{
+		{Name: "commitTransaction", Value: 1},
+		{Name: "txnNumber", Value: n},
+		{Name: "autocommit", Value: false},
+		{Name: "lsid", Value: bson.M{"id": s.SessionID}},
+	}
+	err := s.Run(cmd, nil)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // Fsync flushes in-memory writes to disk on the server the session
 // is established with. If async is true, the call returns immediately,
 // otherwise it returns after the flush has been made.
@@ -2912,7 +2976,6 @@ func (p *Pipe) SetMaxTime(d time.Duration) *Pipe {
 	return p
 }
 
-
 // Collation allows to specify language-specific rules for string comparison,
 // such as rules for lettercase and accent marks.
 // When specifying collation, the locale field is mandatory; all other collation
@@ -2998,8 +3061,14 @@ func IsDup(err error) bool {
 // happens while inserting the provided documents, the returned error will
 // be of type *LastError.
 func (c *Collection) Insert(docs ...interface{}) error {
-	_, err := c.writeOp(&insertOp{c.FullName, docs, 0}, true)
+	_, err := c.writeOp(&insertOp{c.FullName, docs, 0, nil}, true)
 	return err
+}
+
+func (c *Collection) InsertTransaction(t *Transaction, docs ...interface{}) error {
+	_, err := c.writeOp(&insertOp{c.FullName, docs, 0, t}, true)
+	return err
+
 }
 
 // Update finds a single document matching the provided selector document
@@ -3013,7 +3082,13 @@ func (c *Collection) Insert(docs ...interface{}) error {
 //     http://www.mongodb.org/display/DOCS/Updating
 //     http://www.mongodb.org/display/DOCS/Atomic+Operations
 //
+
 func (c *Collection) Update(selector interface{}, update interface{}) error {
+	err := c.UpdateTransaction(nil, selector, update)
+	return err
+}
+
+func (c *Collection) UpdateTransaction(t *Transaction, selector interface{}, update interface{}) error {
 	if selector == nil {
 		selector = bson.D{}
 	}
@@ -3021,6 +3096,7 @@ func (c *Collection) Update(selector interface{}, update interface{}) error {
 		Collection: c.FullName,
 		Selector:   selector,
 		Update:     update,
+		Txn:        t,
 	}
 	lerr, err := c.writeOp(&op, true)
 	if err == nil && lerr != nil && !lerr.UpdatedExisting {
@@ -3036,6 +3112,10 @@ func (c *Collection) Update(selector interface{}, update interface{}) error {
 // See the Update method for more details.
 func (c *Collection) UpdateId(id interface{}, update interface{}) error {
 	return c.Update(bson.D{{Name: "_id", Value: id}}, update)
+}
+
+func (c *Collection) UpdateIdTransaction(t *Transaction, id interface{}, update interface{}) error {
+	return c.UpdateTransaction(t, bson.D{{Name: "_id", Value: id}}, update)
 }
 
 // ChangeInfo holds details about the outcome of an update operation.
@@ -3061,7 +3141,12 @@ type ChangeInfo struct {
 //     http://www.mongodb.org/display/DOCS/Updating
 //     http://www.mongodb.org/display/DOCS/Atomic+Operations
 //
+
 func (c *Collection) UpdateAll(selector interface{}, update interface{}) (info *ChangeInfo, err error) {
+	return c.UpdateAllTransaction(nil, selector, update)
+}
+
+func (c *Collection) UpdateAllTransaction(t *Transaction, selector interface{}, update interface{}) (info *ChangeInfo, err error) {
 	if selector == nil {
 		selector = bson.D{}
 	}
@@ -3071,6 +3156,7 @@ func (c *Collection) UpdateAll(selector interface{}, update interface{}) (info *
 		Update:     update,
 		Flags:      2,
 		Multi:      true,
+		Txn:        t,
 	}
 	lerr, err := c.writeOp(&op, true)
 	if err == nil && lerr != nil {
@@ -3093,6 +3179,10 @@ func (c *Collection) UpdateAll(selector interface{}, update interface{}) (info *
 //     http://www.mongodb.org/display/DOCS/Atomic+Operations
 //
 func (c *Collection) Upsert(selector interface{}, update interface{}) (info *ChangeInfo, err error) {
+	return c.UpsertTransaction(nil, selector, update)
+}
+
+func (c *Collection) UpsertTransaction(t *Transaction, selector interface{}, update interface{}) (info *ChangeInfo, err error) {
 	if selector == nil {
 		selector = bson.D{}
 	}
@@ -3102,6 +3192,7 @@ func (c *Collection) Upsert(selector interface{}, update interface{}) (info *Cha
 		Update:     update,
 		Flags:      1,
 		Upsert:     true,
+		Txn:        t,
 	}
 	var lerr *LastError
 	for i := 0; i < maxUpsertRetries; i++ {
@@ -3133,6 +3224,10 @@ func (c *Collection) UpsertId(id interface{}, update interface{}) (info *ChangeI
 	return c.Upsert(bson.D{{Name: "_id", Value: id}}, update)
 }
 
+func (c *Collection) UpsertIdTransaction(t *Transaction, id interface{}, update interface{}) (info *ChangeInfo, err error) {
+	return c.UpsertTransaction(t, bson.D{{Name: "_id", Value: id}}, update)
+}
+
 // Remove finds a single document matching the provided selector document
 // and removes it from the database.
 // If the session is in safe mode (see SetSafe) a ErrNotFound error is
@@ -3144,10 +3239,14 @@ func (c *Collection) UpsertId(id interface{}, update interface{}) (info *ChangeI
 //     http://www.mongodb.org/display/DOCS/Removing
 //
 func (c *Collection) Remove(selector interface{}) error {
+	return c.RemoveTransaction(nil, selector)
+}
+
+func (c *Collection) RemoveTransaction(t *Transaction, selector interface{}) error {
 	if selector == nil {
 		selector = bson.D{}
 	}
-	lerr, err := c.writeOp(&deleteOp{c.FullName, selector, 1, 1}, true)
+	lerr, err := c.writeOp(&deleteOp{c.FullName, selector, 1, 1, t}, true)
 	if err == nil && lerr != nil && lerr.N == 0 {
 		return ErrNotFound
 	}
@@ -3163,6 +3262,10 @@ func (c *Collection) RemoveId(id interface{}) error {
 	return c.Remove(bson.D{{Name: "_id", Value: id}})
 }
 
+func (c *Collection) RemoveIdTransaction(t *Transaction, id interface{}) error {
+	return c.RemoveTransaction(t, bson.D{{Name: "_id", Value: id}})
+}
+
 // RemoveAll finds all documents matching the provided selector document
 // and removes them from the database.  In case the session is in safe mode
 // (see the SetSafe method) and an error happens when attempting the change,
@@ -3173,10 +3276,14 @@ func (c *Collection) RemoveId(id interface{}) error {
 //     http://www.mongodb.org/display/DOCS/Removing
 //
 func (c *Collection) RemoveAll(selector interface{}) (info *ChangeInfo, err error) {
+	return c.RemoveAllTransaction(nil, selector)
+}
+
+func (c *Collection) RemoveAllTransaction(t *Transaction, selector interface{}) (info *ChangeInfo, err error) {
 	if selector == nil {
 		selector = bson.D{}
 	}
-	lerr, err := c.writeOp(&deleteOp{c.FullName, selector, 0, 0}, true)
+	lerr, err := c.writeOp(&deleteOp{c.FullName, selector, 0, 0, t}, true)
 	if err == nil && lerr != nil {
 		info = &ChangeInfo{Removed: lerr.N, Matched: lerr.N}
 	}
@@ -4011,6 +4118,11 @@ func (db *Database) CollectionNames() (names []string, err error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+type sessionResult struct {
+	ID             interface{} `bson:"id"`
+	TimeoutMinutes string      `bson:"timeoutMinutes"`
 }
 
 type dbNames struct {
@@ -5503,16 +5615,48 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 		cmd = bson.D{
 			{Name: "insert", Value: c.Name},
 			{Name: "documents", Value: op.documents},
-			{Name: "writeConcern", Value: writeConcern},
 			{Name: "ordered", Value: op.flags&1 == 0},
+		}
+		if op.txn != nil {
+			if op.txn.Finished == true {
+				err := errors.New("transaction already completed")
+				return nil, err
+			}
+			if op.txn.Started == false {
+				cmd = append(cmd, bson.DocElem{Name: "startTransaction", Value: true})
+				cmd = append(cmd, bson.DocElem{Name: "autocommit", Value: op.txn.AutoCommit})
+				op.txn.TxnNumber = op.txn.Session.nextTxnNumber
+				op.txn.Session.nextTxnNumber++
+				op.txn.Started = true
+			}
+			cmd = append(cmd, bson.DocElem{Name: "txnNumber", Value: op.txn.TxnNumber})
+			cmd = append(cmd, bson.DocElem{Name: "lsid", Value: bson.M{"id": op.txn.Session.SessionID}})
+		} else {
+			cmd = append(cmd, bson.DocElem{Name: "writeConcern", Value: writeConcern})
 		}
 	case *updateOp:
 		// http://docs.mongodb.org/manual/reference/command/update
 		cmd = bson.D{
 			{Name: "update", Value: c.Name},
 			{Name: "updates", Value: []interface{}{op}},
-			{Name: "writeConcern", Value: writeConcern},
 			{Name: "ordered", Value: ordered},
+		}
+		if op.Txn != nil {
+			if op.Txn.Finished == true {
+				err := errors.New("transaction already completed")
+				return nil, err
+			}
+			if op.Txn.Started == false {
+				cmd = append(cmd, bson.DocElem{Name: "startTransaction", Value: 1})
+				cmd = append(cmd, bson.DocElem{Name: "autocommit", Value: op.Txn.AutoCommit})
+				op.Txn.Started = true
+				op.Txn.TxnNumber = op.Txn.Session.nextTxnNumber
+				op.Txn.Session.nextTxnNumber++
+			}
+			cmd = append(cmd, bson.DocElem{Name: "txnNumber", Value: op.Txn.TxnNumber})
+			cmd = append(cmd, bson.DocElem{Name: "lsid", Value: bson.M{"id": op.Txn.Session.SessionID}})
+		} else {
+			cmd = append(cmd, bson.DocElem{Name: "writeConcern", Value: writeConcern})
 		}
 	case bulkUpdateOp:
 		// http://docs.mongodb.org/manual/reference/command/update
@@ -5527,8 +5671,24 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 		cmd = bson.D{
 			{Name: "delete", Value: c.Name},
 			{Name: "deletes", Value: []interface{}{op}},
-			{Name: "writeConcern", Value: writeConcern},
 			{Name: "ordered", Value: ordered},
+		}
+		if op.Txn != nil {
+			if op.Txn.Finished == true {
+				err := errors.New("transaction already completed")
+				return nil, err
+			}
+			if op.Txn.Started == false {
+				cmd = append(cmd, bson.DocElem{Name: "startTransaction", Value: 1})
+				cmd = append(cmd, bson.DocElem{Name: "autocommit", Value: op.Txn.AutoCommit})
+				op.Txn.Started = true
+				op.Txn.TxnNumber = op.Txn.Session.nextTxnNumber
+				op.Txn.Session.nextTxnNumber++
+			}
+			cmd = append(cmd, bson.DocElem{Name: "txnNumber", Value: op.Txn.TxnNumber})
+			cmd = append(cmd, bson.DocElem{Name: "lsid", Value: bson.M{"id": op.Txn.Session.SessionID}})
+		} else {
+			cmd = append(cmd, bson.DocElem{Name: "writeConcern", Value: writeConcern})
 		}
 	case bulkDeleteOp:
 		// http://docs.mongodb.org/manual/reference/command/delete

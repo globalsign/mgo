@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	mgo "github.com/globalsign/mgo"
+	mgo "github.homedepot.com/aether-foundation/mgo"
 	"gopkg.in/tomb.v2"
 )
 
@@ -62,7 +62,7 @@ func (dbs *DBServer) start() {
 		"--nssize", "1",
 		"--noprealloc",
 		"--smallfiles",
-		"--nojournal",
+		"--replSet=rs0",
 	}
 	dbs.tomb = tomb.Tomb{}
 	dbs.server = exec.Command("mongod", args...)
@@ -74,8 +74,18 @@ func (dbs *DBServer) start() {
 		fmt.Fprintf(os.Stderr, "mongod failed to start: %v\n", err)
 		panic(err)
 	}
+	dbs.initiateRepl(addr.Port)
 	dbs.tomb.Go(dbs.monitor)
 	dbs.Wipe()
+}
+
+func (dbs *DBServer) initiateRepl(port int) {
+	args := []string{
+		"localhost:" + strconv.Itoa(port),
+		"--eval", "rs.initiate()",
+	}
+	shell := exec.Command("mongo", args...)
+	shell.Start()
 }
 
 func (dbs *DBServer) monitor() error {

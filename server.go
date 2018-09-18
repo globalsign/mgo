@@ -28,12 +28,12 @@ package mgo
 
 import (
 	"errors"
+	"github.homedepot.com/aether-foundation/mgo/bson"
 	"net"
 	"sort"
 	"sync"
 	"time"
-
-	"github.com/globalsign/mgo/bson"
+	//"github.com/globalsign/mgo/bson"
 )
 
 // coarseTime is used to amortise the cost of querying the timecounter (possibly

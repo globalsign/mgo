@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/globalsign/mgo/bson"
+	"github.homedepot.com/aether-foundation/mgo/bson"
 )
 
 // Bulk represents an operation that can be prepared with several
@@ -318,7 +318,7 @@ func (b *Bulk) Run() (*BulkResult, error) {
 }
 
 func (b *Bulk) runInsert(action *bulkAction, result *BulkResult, berr *BulkError) bool {
-	op := &insertOp{b.c.FullName, action.docs, 0}
+	op := &insertOp{b.c.FullName, action.docs, 0, nil}
 	if !b.ordered {
 		op.flags = 1 // ContinueOnError
 	}
