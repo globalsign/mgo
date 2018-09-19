@@ -37,32 +37,33 @@ package mgo
 // The only field that should be actively modified by the user is AutoCommit.  Set this field
 // to true if you want "autocommit" to be set when writes are done through the transaction.
 type Transaction struct {
-	Session    *Session
-	Started    bool
-	Finished   bool
-	TxnNumber  int64
-	AutoCommit bool
+	session    *Session
+	started    bool
+	finished   bool
+	txnNumber  int64
+	autoCommit bool
 }
 
 // NewTransaction creates a new Transaction object.
-func NewTransaction(s *Session) Transaction {
+func NewTransaction(s *Session, ac bool) Transaction {
 	return Transaction{
-		Session: s,
+		session:    s,
+		autoCommit: ac,
 	}
 }
 
 // Commit commits and finalizes the transaction.
 func (t *Transaction) Commit() error {
 	// check errors
-	err := t.Session.CommitTransaction(t.TxnNumber)
-	t.Finished = true
+	err := t.session.CommitTransaction(t.txnNumber)
+	t.finished = true
 	return err
 }
 
 // Abort aborts and closes the transaction.
 func (t *Transaction) Abort() error {
 	// check errors
-	err := t.Session.AbortTransaction(t.TxnNumber)
-	t.Finished = true
+	err := t.session.AbortTransaction(t.txnNumber)
+	t.finished = true
 	return err
 }

@@ -16,28 +16,33 @@ If you need to use transaction support, do the following:
 - Create a Transaction object
 
 ```
-    err := m.Session.Start()
-	if err != nil {
-		panic(err.Error())
-	}
-	tr := mgo.NewTransaction(m.Session)
-	m.Transaction = &tr
+// This populates the Session object with a Session ID.
+// This is required for transactions, but not in other cases.
+err := m.Session.Start()
+err != nil {
+    panic(err.Error())
+}
+// Create a new transaction object
+// set autocommit to true or false depending on what you want
+// the behavior to be
+tr := mgo.NewTransaction(m.Session, <autocommit>)
+m.Transaction = &tr
 ```
 
 - Use the provided update functions
 
 ```
-    c.UpsertTransaction(tr, ...)
-    c.InsertTransaction(tr, ...)
-    c.RemoveTransaction(tr, ...)
-    c.UpdateTransaction(tr, ...)
+c.UpsertTransaction(tr, ...)
+c.InsertTransaction(tr, ...)
+c.RemoveTransaction(tr, ...)
+c.UpdateTransaction(tr, ...)
 ```
 
 - Commit or abort the transactions when you are finished.
 
 ```
-    tr.Commit()
-    tr.Abort()
+tr.Commit()
+tr.Abort()
 ```
 
 Currently there are no tests, but we will be working on those before
