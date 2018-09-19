@@ -662,6 +662,37 @@ func (s *S) TestUpdate(c *C) {
 	c.Assert(err, Equals, mgo.ErrNotFound)
 }
 
+func (s *S) TestUpdateWithCompletedTransaction(c *C) {
+	session, err := mgo.Dial("localhost:40011")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	tr := mgo.NewTransaction(session, false)
+	coll := session.DB("mydb").C("mycoll")
+
+	ns := []int{40, 41, 42, 43, 44, 45, 46}
+	for _, n := range ns {
+		err := coll.Insert(M{"k": n, "n": n})
+		c.Assert(err, IsNil)
+	}
+
+	// No changes is a no-op and shouldn't return an error.
+	err = coll.UpdateTransaction(&tr, M{"k": 42}, M{"$set": M{"n": 42}})
+	c.Assert(err, IsNil)
+
+	err = coll.UpdateTransaction(&tr, M{"k": 42}, M{"$inc": M{"n": 1}})
+	c.Assert(err, IsNil)
+
+	result := make(M)
+	err = coll.Find(M{"k": 43}).One(result)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+
+	tr.Commit()
+
+	err = coll.Find(M{"k": 43}).One(result)
+	c.Assert(err, Equals, 43)
+}
+
 func (s *S) TestUpdateId(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)

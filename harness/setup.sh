@@ -29,7 +29,7 @@ start() {
     for i in $(seq 30); do
         UP=$(svstat daemons/* | grep ' up ' | grep -v ' [0-3] seconds' | wc -l)
         echo "$UP processes up..."
-        if [ x$COUNT = x$UP ]; then
+        if [[ x$COUNT = x$UP ]]; then
             echo "Running init.js with mongo..."
             mongo --nodb ../harness/mongojs/init.js
             exit 0
@@ -62,7 +62,7 @@ stop() {
             while true; do
                 DOWN=$(svstat daemons/* | grep 'supervise not running' | wc -l)
                 echo "$DOWN processes down..."
-                if [ x$DOWN = x$COUNT ]; then
+                if [[ x$DOWN = x$COUNT ]]; then
                     break
                 fi
                 sleep 1
