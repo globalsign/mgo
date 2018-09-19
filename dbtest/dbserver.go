@@ -39,12 +39,7 @@ func (dbs *DBServer) SetPath(dbpath string) {
 	dbs.dbpath = dbpath
 }
 
-// Start a DB server without replication support.
-func (dbs *DBServer) start() {
-	dbs.startDB(false)
-}
-
-func (dbs *DBServer) startDB(repl bool) {
+func (dbs *DBServer) start(repl bool) {
 	if dbs.server != nil {
 		panic("DBServer already started")
 	}
@@ -155,8 +150,12 @@ func (dbs *DBServer) Stop() {
 //
 // The first Session obtained from a DBServer will start it.
 func (dbs *DBServer) Session() *mgo.Session {
+	return dbs.SessionRepl(false)
+}
+
+func (dbs *DBServer) SessionRepl(repl bool) *mgo.Session {
 	if dbs.server == nil {
-		dbs.start()
+		dbs.start(repl)
 	}
 	if dbs.session == nil {
 		mgo.ResetStats()
