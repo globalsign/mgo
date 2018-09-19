@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	mgo "github.homedepot.com/aether-foundation/mgo"
+	mgo "github.com/homedepot/mgo"
 	"gopkg.in/tomb.v2"
 )
 

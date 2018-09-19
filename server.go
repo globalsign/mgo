@@ -28,7 +28,7 @@ package mgo
 
 import (
 	"errors"
-	"github.homedepot.com/aether-foundation/mgo/bson"
+	"github.com/homedepot/mgo/bson"
 	"net"
 	"sort"
 	"sync"

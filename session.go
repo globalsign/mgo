@@ -45,7 +45,7 @@ import (
 	"sync"
 	"time"
 
-	"github.homedepot.com/aether-foundation/mgo/bson"
+	"github.com/homedepot/mgo/bson"
 )
 
 // Mode read preference mode. See Eventual, Monotonic and Strong for details

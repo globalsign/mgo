@@ -32,11 +32,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.homedepot.com/aether-foundation/mgo/bson"
+	"github.com/homedepot/mgo/bson"
 	"sync"
 
-	//"github.com/globalsign/mgo/bson"
-	"github.homedepot.com/aether-foundation/mgo/internal/scram"
+	"github.com/homedepot/mgo/internal/scram"
 )
 
 type authCmd struct {

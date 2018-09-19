@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.homedepot.com/aether-foundation/mgo/bson"
+	"github.com/homedepot/mgo/bson"
 )
 
 type FullDocument string
