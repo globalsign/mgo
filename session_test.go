@@ -40,8 +40,8 @@ import (
 	"testing"
 	"time"
 
-	mgo "github.com/globalsign/mgo"
-	"github.com/globalsign/mgo/bson"
+	mgo "github.com/homedepot/mgo"
+	"github.com/homedepot/mgo/bson"
 	. "gopkg.in/check.v1"
 )
 
@@ -62,7 +62,7 @@ func (s *S) TestRunValue(c *C) {
 	defer session.Close()
 
 	result := struct{ Ok int }{}
-	err = session.Run(M{"ping": 1}, &result)
+	err = session.Run(bson.M{"ping": 1}, &result)
 	c.Assert(err, IsNil)
 	c.Assert(result.Ok, Equals, 1)
 }
@@ -366,11 +366,11 @@ func (s *S) TestURLWithAppName(c *C) {
 	c.Assert(err, IsNil)
 
 	coll := db.C("mycoll")
-	err = coll.Insert(M{"a": 1, "b": 2})
+	err = coll.Insert(bson.M{"a": 1, "b": 2})
 	c.Assert(err, IsNil)
 
 	result := struct{ A, B int }{}
-	err = coll.Find(M{"a": 1}).One(&result)
+	err = coll.Find(bson.M{"a": 1}).One(&result)
 	c.Assert(err, IsNil)
 
 	profileResult := struct {
@@ -401,19 +401,19 @@ func (s *S) TestInsertFindOne(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	err = coll.Insert(M{"a": 1, "b": 2})
+	err = coll.Insert(bson.M{"a": 1, "b": 2})
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{"a": 1, "b": 3})
+	err = coll.Insert(bson.M{"a": 1, "b": 3})
 	c.Assert(err, IsNil)
 
 	result := struct{ A, B int }{}
 
-	err = coll.Find(M{"a": 1}).Sort("b").One(&result)
+	err = coll.Find(bson.M{"a": 1}).Sort("b").One(&result)
 	c.Assert(err, IsNil)
 	c.Assert(result.A, Equals, 1)
 	c.Assert(result.B, Equals, 2)
 
-	err = coll.Find(M{"a": 1}).Sort("-b").One(&result)
+	err = coll.Find(bson.M{"a": 1}).Sort("-b").One(&result)
 	c.Assert(err, IsNil)
 	c.Assert(result.A, Equals, 1)
 	c.Assert(result.B, Equals, 3)
@@ -435,10 +435,10 @@ func (s *S) TestInsertFindOneMap(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	err = coll.Insert(M{"a": 1, "b": 2})
+	err = coll.Insert(bson.M{"a": 1, "b": 2})
 	c.Assert(err, IsNil)
-	result := make(M)
-	err = coll.Find(M{"a": 1}).One(result)
+	result := make(bson.M)
+	err = coll.Find(bson.M{"a": 1}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["a"], Equals, 1)
 	c.Assert(result["b"], Equals, 2)
@@ -450,9 +450,9 @@ func (s *S) TestInsertFindAll(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	err = coll.Insert(M{"a": 1, "b": 2})
+	err = coll.Insert(bson.M{"a": 1, "b": 2})
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{"a": 3, "b": 4})
+	err = coll.Insert(bson.M{"a": 3, "b": 4})
 	c.Assert(err, IsNil)
 
 	type R struct{ A, B int }
@@ -513,11 +513,11 @@ func (s *S) TestFindRef(c *C) {
 	db2 := session.DB("db2")
 	db2col1 := db2.C("col1")
 
-	err = db1col1.Insert(M{"_id": 1, "n": 1})
+	err = db1col1.Insert(bson.M{"_id": 1, "n": 1})
 	c.Assert(err, IsNil)
-	err = db1col1.Insert(M{"_id": 2, "n": 2})
+	err = db1col1.Insert(bson.M{"_id": 2, "n": 2})
 	c.Assert(err, IsNil)
-	err = db2col1.Insert(M{"_id": 2, "n": 3})
+	err = db2col1.Insert(bson.M{"_id": 2, "n": 3})
 	c.Assert(err, IsNil)
 
 	result := struct{ N int }{}
@@ -560,11 +560,11 @@ func (s *S) TestDatabaseAndCollectionNames(c *C) {
 	db2 := session.DB("db2")
 	db2col1 := db2.C("col3")
 
-	err = db1col1.Insert(M{"_id": 1})
+	err = db1col1.Insert(bson.M{"_id": 1})
 	c.Assert(err, IsNil)
-	err = db1col2.Insert(M{"_id": 1})
+	err = db1col2.Insert(bson.M{"_id": 1})
 	c.Assert(err, IsNil)
-	err = db2col1.Insert(M{"_id": 1})
+	err = db2col1.Insert(bson.M{"_id": 1})
 	c.Assert(err, IsNil)
 
 	names, err := session.DatabaseNames()
@@ -589,11 +589,11 @@ func (s *S) TestSelect(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	coll.Insert(M{"a": 1, "b": 2})
+	coll.Insert(bson.M{"a": 1, "b": 2})
 
 	result := struct{ A, B int }{}
 
-	err = coll.Find(M{"a": 1}).Select(M{"b": 1}).One(&result)
+	err = coll.Find(bson.M{"a": 1}).Select(bson.M{"b": 1}).One(&result)
 	c.Assert(err, IsNil)
 	c.Assert(result.A, Equals, 0)
 	c.Assert(result.B, Equals, 2)
@@ -616,7 +616,7 @@ func (s *S) TestInlineMap(c *C) {
 	err = coll.Insert(v)
 	c.Assert(err, IsNil)
 
-	noId := M{"_id": 0}
+	noId := bson.M{"_id": 0}
 
 	err = coll.Find(nil).Select(noId).One(&result1)
 	c.Assert(err, IsNil)
@@ -626,7 +626,7 @@ func (s *S) TestInlineMap(c *C) {
 	var result2 M
 	err = coll.Find(nil).Select(noId).One(&result2)
 	c.Assert(err, IsNil)
-	c.Assert(result2, DeepEquals, M{"a": 1, "b": 2})
+	c.Assert(result2, DeepEquals, bson.M{"a": 1, "b": 2})
 
 }
 
@@ -639,26 +639,26 @@ func (s *S) TestUpdate(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		err := coll.Insert(M{"k": n, "n": n})
+		err := coll.Insert(bson.M{"k": n, "n": n})
 		c.Assert(err, IsNil)
 	}
 
 	// No changes is a no-op and shouldn't return an error.
-	err = coll.Update(M{"k": 42}, M{"$set": M{"n": 42}})
+	err = coll.Update(bson.M{"k": 42}, bson.M{"$set": bson.M{"n": 42}})
 	c.Assert(err, IsNil)
 
-	err = coll.Update(M{"k": 42}, M{"$inc": M{"n": 1}})
+	err = coll.Update(bson.M{"k": 42}, bson.M{"$inc": bson.M{"n": 1}})
 	c.Assert(err, IsNil)
 
-	result := make(M)
-	err = coll.Find(M{"k": 42}).One(result)
+	result := make(bson.M)
+	err = coll.Find(bson.M{"k": 42}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 43)
 
-	err = coll.Update(M{"k": 47}, M{"k": 47, "n": 47})
+	err = coll.Update(bson.M{"k": 47}, bson.M{"k": 47, "n": 47})
 	c.Assert(err, Equals, mgo.ErrNotFound)
 
-	err = coll.Find(M{"k": 47}).One(result)
+	err = coll.Find(bson.M{"k": 47}).One(result)
 	c.Assert(err, Equals, mgo.ErrNotFound)
 }
 
@@ -671,19 +671,19 @@ func (s *S) TestUpdateId(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		err := coll.Insert(M{"_id": n, "n": n})
+		err := coll.Insert(bson.M{"_id": n, "n": n})
 		c.Assert(err, IsNil)
 	}
 
-	err = coll.UpdateId(42, M{"$inc": M{"n": 1}})
+	err = coll.UpdateId(42, bson.M{"$inc": bson.M{"n": 1}})
 	c.Assert(err, IsNil)
 
-	result := make(M)
+	result := make(bson.M)
 	err = coll.FindId(42).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 43)
 
-	err = coll.UpdateId(47, M{"k": 47, "n": 47})
+	err = coll.UpdateId(47, bson.M{"k": 47, "n": 47})
 	c.Assert(err, Equals, mgo.ErrNotFound)
 
 	err = coll.FindId(47).One(result)
@@ -697,25 +697,25 @@ func (s *S) TestUpdateNil(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	err = coll.Insert(M{"k": 42, "n": 42})
+	err = coll.Insert(bson.M{"k": 42, "n": 42})
 	c.Assert(err, IsNil)
-	err = coll.Update(nil, M{"$inc": M{"n": 1}})
+	err = coll.Update(nil, bson.M{"$inc": bson.M{"n": 1}})
 	c.Assert(err, IsNil)
 
-	result := make(M)
-	err = coll.Find(M{"k": 42}).One(result)
+	result := make(bson.M)
+	err = coll.Find(bson.M{"k": 42}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 43)
 
-	err = coll.Insert(M{"k": 45, "n": 45})
+	err = coll.Insert(bson.M{"k": 45, "n": 45})
 	c.Assert(err, IsNil)
-	_, err = coll.UpdateAll(nil, M{"$inc": M{"n": 1}})
+	_, err = coll.UpdateAll(nil, bson.M{"$inc": bson.M{"n": 1}})
 	c.Assert(err, IsNil)
 
-	err = coll.Find(M{"k": 42}).One(result)
+	err = coll.Find(bson.M{"k": 42}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 44)
-	err = coll.Find(M{"k": 45}).One(result)
+	err = coll.Find(bson.M{"k": 45}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 46)
 }
@@ -733,42 +733,42 @@ func (s *S) TestUpsert(c *C) {
 		c.Assert(err, IsNil)
 	}
 
-	info, err := coll.Upsert(M{"k": 42}, bson.D{{Name: "k", Value: 42}, {Name: "n", Value: 24}})
+	info, err := coll.Upsert(bson.M{"k": 42}, bson.D{{Name: "k", Value: 42}, {Name: "n", Value: 24}})
 	c.Assert(err, IsNil)
 	c.Assert(info.Updated, Equals, 1)
 	c.Assert(info.Matched, Equals, 1)
 	c.Assert(info.UpsertedId, IsNil)
 
-	result := M{}
-	err = coll.Find(M{"k": 42}).One(result)
+	result := bson.M{}
+	err = coll.Find(bson.M{"k": 42}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 24)
 
 	// Match but do not change.
-	info, err = coll.Upsert(M{"k": 42}, bson.D{{Name: "k", Value: 42}, {Name: "n", Value: 24}})
+	info, err = coll.Upsert(bson.M{"k": 42}, bson.D{{Name: "k", Value: 42}, {Name: "n", Value: 24}})
 	c.Assert(err, IsNil)
 	c.Assert(info.Updated, Equals, 1) // On 2.6+ this feels like a server mistake.
 	c.Assert(info.Matched, Equals, 1)
 	c.Assert(info.UpsertedId, IsNil)
 
 	// Insert with internally created id.
-	info, err = coll.Upsert(M{"k": 47}, M{"k": 47, "n": 47})
+	info, err = coll.Upsert(bson.M{"k": 47}, bson.M{"k": 47, "n": 47})
 	c.Assert(err, IsNil)
 	c.Assert(info.Updated, Equals, 0)
 	c.Assert(info.Matched, Equals, 0)
 	c.Assert(info.UpsertedId, NotNil)
 
-	err = coll.Find(M{"k": 47}).One(result)
+	err = coll.Find(bson.M{"k": 47}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 47)
 
-	result = M{}
-	err = coll.Find(M{"_id": info.UpsertedId}).One(result)
+	result = bson.M{}
+	err = coll.Find(bson.M{"_id": info.UpsertedId}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 47)
 
 	// Insert with provided id.
-	info, err = coll.Upsert(M{"k": 48}, M{"k": 48, "n": 48, "_id": 48})
+	info, err = coll.Upsert(bson.M{"k": 48}, bson.M{"k": 48, "n": 48, "_id": 48})
 	c.Assert(err, IsNil)
 	c.Assert(info.Updated, Equals, 0)
 	c.Assert(info.Matched, Equals, 0)
@@ -778,7 +778,7 @@ func (s *S) TestUpsert(c *C) {
 		c.Assert(info.UpsertedId, IsNil) // Unfortunate, but that's what Mongo gave us.
 	}
 
-	err = coll.Find(M{"k": 48}).One(result)
+	err = coll.Find(bson.M{"k": 48}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 48)
 }
@@ -792,21 +792,21 @@ func (s *S) TestUpsertId(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		err := coll.Insert(M{"_id": n, "n": n})
+		err := coll.Insert(bson.M{"_id": n, "n": n})
 		c.Assert(err, IsNil)
 	}
 
-	info, err := coll.UpsertId(42, M{"n": 24})
+	info, err := coll.UpsertId(42, bson.M{"n": 24})
 	c.Assert(err, IsNil)
 	c.Assert(info.Updated, Equals, 1)
 	c.Assert(info.UpsertedId, IsNil)
 
-	result := M{}
+	result := bson.M{}
 	err = coll.FindId(42).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 24)
 
-	info, err = coll.UpsertId(47, M{"_id": 47, "n": 47})
+	info, err = coll.UpsertId(47, bson.M{"_id": 47, "n": 47})
 	c.Assert(err, IsNil)
 	c.Assert(info.Updated, Equals, 0)
 	if s.versionAtLeast(2, 6) {
@@ -829,11 +829,11 @@ func (s *S) TestUpdateAll(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		err := coll.Insert(M{"k": n, "n": n})
+		err := coll.Insert(bson.M{"k": n, "n": n})
 		c.Assert(err, IsNil)
 	}
 
-	info, err := coll.UpdateAll(M{"k": M{"$gt": 42}}, M{"$unset": M{"missing": 1}})
+	info, err := coll.UpdateAll(bson.M{"k": bson.M{"$gt": 42}}, bson.M{"$unset": bson.M{"missing": 1}})
 	c.Assert(err, IsNil)
 	if s.versionAtLeast(2, 6) {
 		c.Assert(info.Updated, Equals, 0)
@@ -843,27 +843,27 @@ func (s *S) TestUpdateAll(c *C) {
 		c.Assert(info.Matched, Equals, 4)
 	}
 
-	info, err = coll.UpdateAll(M{"k": M{"$gt": 42}}, M{"$inc": M{"n": 1}})
+	info, err = coll.UpdateAll(bson.M{"k": bson.M{"$gt": 42}}, bson.M{"$inc": bson.M{"n": 1}})
 	c.Assert(err, IsNil)
 	c.Assert(info.Updated, Equals, 4)
 	c.Assert(info.Matched, Equals, 4)
 
-	result := make(M)
-	err = coll.Find(M{"k": 42}).One(result)
+	result := make(bson.M)
+	err = coll.Find(bson.M{"k": 42}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 42)
 
-	err = coll.Find(M{"k": 43}).One(result)
+	err = coll.Find(bson.M{"k": 43}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 44)
 
-	err = coll.Find(M{"k": 44}).One(result)
+	err = coll.Find(bson.M{"k": 44}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 45)
 
 	if !s.versionAtLeast(2, 6) {
 		// 2.6 made this invalid.
-		info, err = coll.UpdateAll(M{"k": 47}, M{"k": 47, "n": 47})
+		info, err = coll.UpdateAll(bson.M{"k": 47}, bson.M{"k": 47, "n": 47})
 		c.Assert(err, Equals, nil)
 		c.Assert(info.Updated, Equals, 0)
 	}
@@ -878,22 +878,22 @@ func (s *S) TestRemove(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
-	err = coll.Remove(M{"n": M{"$gt": 42}})
+	err = coll.Remove(bson.M{"n": bson.M{"$gt": 42}})
 	c.Assert(err, IsNil)
 
 	result := &struct{ N int }{}
-	err = coll.Find(M{"n": 42}).One(result)
+	err = coll.Find(bson.M{"n": 42}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result.N, Equals, 42)
 
-	err = coll.Find(M{"n": 43}).One(result)
+	err = coll.Find(bson.M{"n": 43}).One(result)
 	c.Assert(err, Equals, mgo.ErrNotFound)
 
-	err = coll.Find(M{"n": 44}).One(result)
+	err = coll.Find(bson.M{"n": 44}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result.N, Equals, 44)
 }
@@ -905,7 +905,7 @@ func (s *S) TestRemoveId(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	err = coll.Insert(M{"_id": 40}, M{"_id": 41}, M{"_id": 42})
+	err = coll.Insert(bson.M{"_id": 40}, bson.M{"_id": 41}, bson.M{"_id": 42})
 	c.Assert(err, IsNil)
 
 	err = coll.RemoveId(41)
@@ -925,7 +925,7 @@ func (s *S) TestRemoveUnsafe(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	err = coll.Insert(M{"_id": 40}, M{"_id": 41}, M{"_id": 42})
+	err = coll.Insert(bson.M{"_id": 40}, bson.M{"_id": 41}, bson.M{"_id": 42})
 	c.Assert(err, IsNil)
 
 	err = coll.RemoveId(41)
@@ -945,11 +945,11 @@ func (s *S) TestRemoveAll(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
-	info, err := coll.RemoveAll(M{"n": M{"$gt": 42}})
+	info, err := coll.RemoveAll(bson.M{"n": bson.M{"$gt": 42}})
 	c.Assert(err, IsNil)
 	c.Assert(info.Updated, Equals, 0)
 	c.Assert(info.Removed, Equals, 4)
@@ -957,14 +957,14 @@ func (s *S) TestRemoveAll(c *C) {
 	c.Assert(info.UpsertedId, IsNil)
 
 	result := &struct{ N int }{}
-	err = coll.Find(M{"n": 42}).One(result)
+	err = coll.Find(bson.M{"n": 42}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result.N, Equals, 42)
 
-	err = coll.Find(M{"n": 43}).One(result)
+	err = coll.Find(bson.M{"n": 43}).One(result)
 	c.Assert(err, Equals, mgo.ErrNotFound)
 
-	err = coll.Find(M{"n": 44}).One(result)
+	err = coll.Find(bson.M{"n": 44}).One(result)
 	c.Assert(err, Equals, mgo.ErrNotFound)
 
 	info, err = coll.RemoveAll(nil)
@@ -985,10 +985,10 @@ func (s *S) TestDropDatabase(c *C) {
 	defer session.Close()
 
 	db1 := session.DB("db1")
-	db1.C("col").Insert(M{"_id": 1})
+	db1.C("col").Insert(bson.M{"_id": 1})
 
 	db2 := session.DB("db2")
-	db2.C("col").Insert(M{"_id": 1})
+	db2.C("col").Insert(bson.M{"_id": 1})
 
 	err = db1.DropDatabase()
 	c.Assert(err, IsNil)
@@ -1027,8 +1027,8 @@ func (s *S) TestDropCollection(c *C) {
 	defer session.Close()
 
 	db := session.DB("db1")
-	db.C("col1").Insert(M{"_id": 1})
-	db.C("col2").Insert(M{"_id": 1})
+	db.C("col1").Insert(bson.M{"_id": 1})
+	db.C("col2").Insert(bson.M{"_id": 1})
 
 	err = db.C("col1").DropCollection()
 	c.Assert(err, IsNil)
@@ -1062,7 +1062,7 @@ func (s *S) TestCreateCollectionCapped(c *C) {
 
 	ns := []int{1, 2, 3, 4, 5}
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
@@ -1084,7 +1084,7 @@ func (s *S) TestCreateCollectionNoIndex(c *C) {
 	err = coll.Create(info)
 	c.Assert(err, IsNil)
 
-	err = coll.Insert(M{"n": 1})
+	err = coll.Insert(bson.M{"n": 1})
 	c.Assert(err, IsNil)
 
 	indexes, err := coll.Indexes()
@@ -1106,7 +1106,7 @@ func (s *S) TestCreateCollectionForceIndex(c *C) {
 	err = coll.Create(info)
 	c.Assert(err, IsNil)
 
-	err = coll.Insert(M{"n": 1})
+	err = coll.Insert(bson.M{"n": 1})
 	c.Assert(err, IsNil)
 
 	indexes, err := coll.Indexes()
@@ -1127,40 +1127,40 @@ func (s *S) TestCreateCollectionValidator(c *C) {
 
 	// Test Validator.
 	info := &mgo.CollectionInfo{
-		Validator: M{"b": M{"$exists": true}},
+		Validator: bson.M{"b": bson.M{"$exists": true}},
 	}
 	err = coll.Create(info)
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{"a": 1})
+	err = coll.Insert(bson.M{"a": 1})
 	c.Assert(err, ErrorMatches, "Document failed validation")
 	err = coll.DropCollection()
 	c.Assert(err, IsNil)
 
 	// Test ValidatorAction.
 	info = &mgo.CollectionInfo{
-		Validator:        M{"b": M{"$exists": true}},
+		Validator:        bson.M{"b": bson.M{"$exists": true}},
 		ValidationAction: "warn",
 	}
 	err = coll.Create(info)
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{"a": 1})
+	err = coll.Insert(bson.M{"a": 1})
 	c.Assert(err, IsNil)
 	err = coll.DropCollection()
 	c.Assert(err, IsNil)
 
 	// Test ValidationLevel.
 	info = &mgo.CollectionInfo{
-		Validator:       M{"a": M{"$exists": true}},
+		Validator:       bson.M{"a": bson.M{"$exists": true}},
 		ValidationLevel: "moderate",
 	}
 	err = coll.Create(info)
-	err = coll.Insert(M{"a": 1})
+	err = coll.Insert(bson.M{"a": 1})
 	c.Assert(err, IsNil)
-	err = db.Run(bson.D{{Name: "collMod", Value: "mycoll"}, {Name: "validator", Value: M{"b": M{"$exists": true}}}}, nil)
+	err = db.Run(bson.D{{Name: "collMod", Value: "mycoll"}, {Name: "validator", Value: bson.M{"b": bson.M{"$exists": true}}}}, nil)
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{"a": 2})
+	err = coll.Insert(bson.M{"a": 2})
 	c.Assert(err, ErrorMatches, "Document failed validation")
-	err = coll.Update(M{"a": 1}, M{"c": 1})
+	err = coll.Update(bson.M{"a": 1}, bson.M{"c": 1})
 	c.Assert(err, IsNil)
 	err = coll.DropCollection()
 	c.Assert(err, IsNil)
@@ -1178,7 +1178,7 @@ func (s *S) TestCreateCollectionStorageEngine(c *C) {
 	coll := db.C("mycoll")
 
 	info := &mgo.CollectionInfo{
-		StorageEngine: M{"test": M{}},
+		StorageEngine: bson.M{"test": bson.M{}},
 	}
 	err = coll.Create(info)
 	c.Assert(err, ErrorMatches, "test is not a registered storage engine for this server")
@@ -1201,10 +1201,10 @@ func (s *S) TestCreateCollectionWithCollation(c *C) {
 	err = coll.Create(info)
 	c.Assert(err, IsNil)
 
-	err = coll.Insert(M{"a": "case"})
+	err = coll.Insert(bson.M{"a": "case"})
 	c.Assert(err, IsNil)
 
-	err = coll.Insert(M{"a": "CaSe"})
+	err = coll.Insert(bson.M{"a": "CaSe"})
 	c.Assert(err, IsNil)
 
 	var docs []struct {
@@ -1238,9 +1238,9 @@ func (s *S) TestIsDupPrimary(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	err = coll.Insert(M{"_id": 1})
+	err = coll.Insert(bson.M{"_id": 1})
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{"_id": 1})
+	err = coll.Insert(bson.M{"_id": 1})
 	c.Assert(err, ErrorMatches, ".*duplicate key error.*")
 	c.Assert(mgo.IsDup(err), Equals, true)
 }
@@ -1260,9 +1260,9 @@ func (s *S) TestIsDupUnique(c *C) {
 	err = coll.EnsureIndex(index)
 	c.Assert(err, IsNil)
 
-	err = coll.Insert(M{"a": 1, "b": 1})
+	err = coll.Insert(bson.M{"a": 1, "b": 1})
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{"a": 1, "b": 1})
+	err = coll.Insert(bson.M{"a": 1, "b": 1})
 	c.Assert(err, ErrorMatches, ".*duplicate key error.*")
 	c.Assert(mgo.IsDup(err), Equals, true)
 }
@@ -1282,9 +1282,9 @@ func (s *S) TestIsDupCapped(c *C) {
 	err = coll.Create(info)
 	c.Assert(err, IsNil)
 
-	err = coll.Insert(M{"_id": 1})
+	err = coll.Insert(bson.M{"_id": 1})
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{"_id": 1})
+	err = coll.Insert(bson.M{"_id": 1})
 	// The error was different for capped collections before 2.6.
 	c.Assert(err, ErrorMatches, ".*duplicate key.*")
 	// The issue is reduced by using IsDup.
@@ -1301,11 +1301,11 @@ func (s *S) TestIsDupFindAndModify(c *C) {
 	err = coll.EnsureIndex(mgo.Index{Key: []string{"n"}, Unique: true})
 	c.Assert(err, IsNil)
 
-	err = coll.Insert(M{"n": 1})
+	err = coll.Insert(bson.M{"n": 1})
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{"n": 2})
+	err = coll.Insert(bson.M{"n": 2})
 	c.Assert(err, IsNil)
-	_, err = coll.Find(M{"n": 1}).Apply(mgo.Change{Update: M{"$inc": M{"n": 1}}}, bson.M{})
+	_, err = coll.Find(bson.M{"n": 1}).Apply(mgo.Change{Update: bson.M{"$inc": bson.M{"n": 1}}}, bson.M{})
 	c.Assert(err, ErrorMatches, ".*duplicate key error.*")
 	c.Assert(mgo.IsDup(err), Equals, true)
 }
@@ -1337,12 +1337,12 @@ func (s *S) TestFindAndModify(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	err = coll.Insert(M{"n": 42})
+	err = coll.Insert(bson.M{"n": 42})
 
 	session.SetMode(mgo.Monotonic, true)
 
-	result := M{}
-	info, err := coll.Find(M{"n": 42}).Apply(mgo.Change{Update: M{"$inc": M{"n": 1}}}, result)
+	result := bson.M{}
+	info, err := coll.Find(bson.M{"n": 42}).Apply(mgo.Change{Update: bson.M{"$inc": bson.M{"n": 1}}}, result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 42)
 	c.Assert(info.Updated, Equals, 1)
@@ -1351,39 +1351,39 @@ func (s *S) TestFindAndModify(c *C) {
 	c.Assert(info.UpsertedId, IsNil)
 
 	// A nil result parameter should be acceptable.
-	info, err = coll.Find(M{"n": 43}).Apply(mgo.Change{Update: M{"$unset": M{"missing": 1}}}, nil)
+	info, err = coll.Find(bson.M{"n": 43}).Apply(mgo.Change{Update: bson.M{"$unset": bson.M{"missing": 1}}}, nil)
 	c.Assert(err, IsNil)
 	c.Assert(info.Updated, Equals, 1) // On 2.6+ this feels like a server mistake.
 	c.Assert(info.Matched, Equals, 1)
 	c.Assert(info.Removed, Equals, 0)
 	c.Assert(info.UpsertedId, IsNil)
 
-	result = M{}
-	info, err = coll.Find(M{"n": 43}).Apply(mgo.Change{Update: M{"$inc": M{"n": 1}}, ReturnNew: true}, result)
+	result = bson.M{}
+	info, err = coll.Find(bson.M{"n": 43}).Apply(mgo.Change{Update: bson.M{"$inc": bson.M{"n": 1}}, ReturnNew: true}, result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 44)
 	c.Assert(info.Updated, Equals, 1)
 	c.Assert(info.Removed, Equals, 0)
 	c.Assert(info.UpsertedId, IsNil)
 
-	result = M{}
-	info, err = coll.Find(M{"n": 50}).Apply(mgo.Change{Upsert: true, Update: M{"n": 51, "o": 52}}, result)
+	result = bson.M{}
+	info, err = coll.Find(bson.M{"n": 50}).Apply(mgo.Change{Upsert: true, Update: bson.M{"n": 51, "o": 52}}, result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], IsNil)
 	c.Assert(info.Updated, Equals, 0)
 	c.Assert(info.Removed, Equals, 0)
 	c.Assert(info.UpsertedId, NotNil)
 
-	result = M{}
-	info, err = coll.Find(nil).Sort("-n").Apply(mgo.Change{Update: M{"$inc": M{"n": 1}}, ReturnNew: true}, result)
+	result = bson.M{}
+	info, err = coll.Find(nil).Sort("-n").Apply(mgo.Change{Update: bson.M{"$inc": bson.M{"n": 1}}, ReturnNew: true}, result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 52)
 	c.Assert(info.Updated, Equals, 1)
 	c.Assert(info.Removed, Equals, 0)
 	c.Assert(info.UpsertedId, IsNil)
 
-	result = M{}
-	info, err = coll.Find(M{"n": 52}).Select(M{"o": 1}).Apply(mgo.Change{Remove: true}, result)
+	result = bson.M{}
+	info, err = coll.Find(bson.M{"n": 52}).Select(bson.M{"o": 1}).Apply(mgo.Change{Remove: true}, result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], IsNil)
 	c.Assert(result["o"], Equals, 52)
@@ -1391,8 +1391,8 @@ func (s *S) TestFindAndModify(c *C) {
 	c.Assert(info.Removed, Equals, 1)
 	c.Assert(info.UpsertedId, IsNil)
 
-	result = M{}
-	info, err = coll.Find(M{"n": 60}).Apply(mgo.Change{Remove: true}, result)
+	result = bson.M{}
+	info, err = coll.Find(bson.M{"n": 60}).Apply(mgo.Change{Remove: true}, result)
 	c.Assert(err, Equals, mgo.ErrNotFound)
 	c.Assert(len(result), Equals, 0)
 	c.Assert(info, IsNil)
@@ -1404,7 +1404,7 @@ func (s *S) TestFindAndModifyWriteConcern(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	err = coll.Insert(M{"id": 42})
+	err = coll.Insert(bson.M{"id": 42})
 	c.Assert(err, IsNil)
 
 	// Tweak the safety parameters to something unachievable.
@@ -1415,10 +1415,10 @@ func (s *S) TestFindAndModifyWriteConcern(c *C) {
 	}
 
 	change := mgo.Change{
-		Update:    M{"$inc": M{"id": 8}},
+		Update:    bson.M{"$inc": bson.M{"id": 8}},
 		ReturnNew: false,
 	}
-	info, err := coll.Find(M{"id": M{"$exists": true}}).Apply(change, &ret)
+	info, err := coll.Find(bson.M{"id": bson.M{"$exists": true}}).Apply(change, &ret)
 	c.Assert(info.Updated, Equals, 1)
 	c.Assert(info.Matched, Equals, 1)
 	c.Assert(ret.Id, Equals, uint64(42))
@@ -1436,10 +1436,10 @@ func (s *S) TestFindAndModifyBug997828(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	err = coll.Insert(M{"n": "not-a-number"})
+	err = coll.Insert(bson.M{"n": "not-a-number"})
 
-	result := make(M)
-	_, err = coll.Find(M{"n": "not-a-number"}).Apply(mgo.Change{Update: M{"$inc": M{"n": 1}}}, result)
+	result := make(bson.M)
+	_, err = coll.Find(bson.M{"n": "not-a-number"}).Apply(mgo.Change{Update: bson.M{"$inc": bson.M{"n": 1}}}, result)
 	c.Assert(err, ErrorMatches, `(exception: )?Cannot apply \$inc .*`)
 	qerr, _ := err.(*mgo.QueryError)
 	c.Assert(qerr, NotNil, Commentf("err: %#v", err))
@@ -1458,10 +1458,10 @@ func (s *S) TestFindAndModifyErrmsgDoc(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	err = coll.Insert(M{"errmsg": "an error"})
+	err = coll.Insert(bson.M{"errmsg": "an error"})
 
 	var result M
-	_, err = coll.Find(M{}).Apply(mgo.Change{Update: M{"$set": M{"n": 1}}}, &result)
+	_, err = coll.Find(bson.M{}).Apply(mgo.Change{Update: bson.M{"$set": bson.M{"n": 1}}}, &result)
 	c.Assert(err, IsNil)
 }
 
@@ -1474,7 +1474,7 @@ func (s *S) TestCountCollection(c *C) {
 
 	ns := []int{40, 41, 42}
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
@@ -1622,11 +1622,11 @@ func (s *S) TestCountQuery(c *C) {
 
 	ns := []int{40, 41, 42}
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
-	n, err := coll.Find(M{"n": M{"$gt": 40}}).Count()
+	n, err := coll.Find(bson.M{"n": bson.M{"$gt": 40}}).Count()
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, 2)
 }
@@ -1654,11 +1654,11 @@ func (s *S) TestCountQueryWithCollation(c *C) {
 
 	ns := []string{"hello", "Hello", "hEllO"}
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
-	n, err := coll.Find(M{"n": "hello"}).Collation(collation).Count()
+	n, err := coll.Find(bson.M{"n": "hello"}).Collation(collation).Count()
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, 3)
 }
@@ -1672,11 +1672,11 @@ func (s *S) TestCountQuerySorted(c *C) {
 
 	ns := []int{40, 41, 42}
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
-	n, err := coll.Find(M{"n": M{"$gt": 40}}).Sort("n").Count()
+	n, err := coll.Find(bson.M{"n": bson.M{"$gt": 40}}).Sort("n").Count()
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, 2)
 }
@@ -1690,7 +1690,7 @@ func (s *S) TestCountSkipLimit(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44}
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
@@ -1716,10 +1716,10 @@ func (s *S) TestCountMaxTimeMS(c *C) {
 
 	ns := make([]int, 100000)
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
-	_, err = coll.Find(M{"n": M{"$gt": 1}}).SetMaxTime(1 * time.Millisecond).Count()
+	_, err = coll.Find(bson.M{"n": bson.M{"$gt": 1}}).SetMaxTime(1 * time.Millisecond).Count()
 	e := err.(*mgo.QueryError)
 	// We hope this query took longer than 1 ms, which triggers an error code 50
 	c.Assert(e.Code, Equals, 50)
@@ -1736,10 +1736,10 @@ func (s *S) TestCountHint(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	err = coll.Insert(M{"n": 1})
+	err = coll.Insert(bson.M{"n": 1})
 	c.Assert(err, IsNil)
 
-	_, err = coll.Find(M{"n": M{"$gt": 1}}).Hint("does_not_exists").Count()
+	_, err = coll.Find(bson.M{"n": bson.M{"$gt": 1}}).Hint("does_not_exists").Count()
 	e := err.(*mgo.QueryError)
 	// If Hint wasn't doing anything, then Count would ignore the non existent index hint
 	// and return the normal ount. But we instead get an error code 2: bad hint
@@ -1755,16 +1755,16 @@ func (s *S) TestQueryExplain(c *C) {
 
 	ns := []int{40, 41, 42}
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
-	m := M{}
+	m := bson.M{}
 	query := coll.Find(nil).Limit(2)
 	err = query.Explain(m)
 	c.Assert(err, IsNil)
 	if m["queryPlanner"] != nil {
-		c.Assert(m["executionStats"].(M)["totalDocsExamined"], Equals, 2)
+		c.Assert(m["executionStats"].(bson.M)["totalDocsExamined"], Equals, 2)
 	} else {
 		c.Assert(m["cursor"], Equals, "BasicCursor")
 		c.Assert(m["nscanned"], Equals, 2)
@@ -1789,7 +1789,7 @@ func (s *S) TestQuerySetMaxScan(c *C) {
 
 	ns := []int{40, 41, 42}
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
@@ -1811,7 +1811,7 @@ func (s *S) TestQuerySetMaxTime(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	for i := 0; i < 1000; i++ {
-		err := coll.Insert(M{"n": i})
+		err := coll.Insert(bson.M{"n": i})
 		c.Assert(err, IsNil)
 	}
 
@@ -1831,18 +1831,18 @@ func (s *S) TestQueryHint(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 	coll.EnsureIndexKey("a")
 
-	m := M{}
+	m := bson.M{}
 	err = coll.Find(nil).Hint("a").Explain(m)
 	c.Assert(err, IsNil)
 
 	if m["queryPlanner"] != nil {
-		m = m["queryPlanner"].(M)
-		m = m["winningPlan"].(M)
-		m = m["inputStage"].(M)
+		m = m["queryPlanner"].(bson.M)
+		m = m["winningPlan"].(bson.M)
+		m = m["inputStage"].(bson.M)
 		c.Assert(m["indexName"], Equals, "a_1")
 	} else {
 		c.Assert(m["indexBounds"], NotNil)
-		c.Assert(m["indexBounds"].(M)["a"], NotNil)
+		c.Assert(m["indexBounds"].(bson.M)["a"], NotNil)
 	}
 }
 
@@ -1859,7 +1859,7 @@ func (s *S) TestQueryComment(c *C) {
 
 	ns := []int{40, 41, 42}
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
@@ -1900,7 +1900,7 @@ func (s *S) TestFindOneNotFound(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	result := struct{ A, B int }{}
-	err = coll.Find(M{"a": 1}).One(&result)
+	err = coll.Find(bson.M{"a": 1}).One(&result)
 	c.Assert(err, Equals, mgo.ErrNotFound)
 	c.Assert(err, ErrorMatches, "not found")
 	c.Assert(err == mgo.ErrNotFound, Equals, true)
@@ -1914,7 +1914,7 @@ func (s *S) TestFindIterNotFound(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	result := struct{ A, B int }{}
-	iter := coll.Find(M{"a": 1}).Iter()
+	iter := coll.Find(bson.M{"a": 1}).Iter()
 	ok := iter.Next(&result)
 	c.Assert(ok, Equals, false)
 	c.Assert(iter.Err(), IsNil)
@@ -1926,7 +1926,7 @@ func (s *S) TestFindNil(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	err = coll.Insert(M{"n": 1})
+	err = coll.Insert(bson.M{"n": 1})
 	c.Assert(err, IsNil)
 
 	result := struct{ N int }{}
@@ -1942,9 +1942,9 @@ func (s *S) TestFindId(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	err = coll.Insert(M{"_id": 41, "n": 41})
+	err = coll.Insert(bson.M{"_id": 41, "n": 41})
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{"_id": 42, "n": 42})
+	err = coll.Insert(bson.M{"_id": 42, "n": 42})
 	c.Assert(err, IsNil)
 
 	result := struct{ N int }{}
@@ -1963,14 +1963,14 @@ func (s *S) TestFindIterAll(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		coll.Insert(M{"n": n})
+		coll.Insert(bson.M{"n": n})
 	}
 
 	session.Refresh() // Release socket.
 
 	mgo.ResetStats()
 
-	iter := coll.Find(M{"n": M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2).Iter()
+	iter := coll.Find(bson.M{"n": bson.M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2).Iter()
 	result := struct{ N int }{}
 	for i := 2; i < 7; i++ {
 		ok := iter.Next(&result)
@@ -2008,11 +2008,11 @@ func (s *S) TestFindIterTwiceWithSameQuery(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	for i := 40; i != 47; i++ {
-		err := coll.Insert(M{"n": i})
+		err := coll.Insert(bson.M{"n": i})
 		c.Assert(err, IsNil)
 	}
 
-	query := coll.Find(M{}).Sort("n")
+	query := coll.Find(bson.M{}).Sort("n")
 
 	iter1 := query.Skip(1).Iter()
 	iter2 := query.Skip(2).Iter()
@@ -2032,9 +2032,9 @@ func (s *S) TestFindIterWithoutResults(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	coll.Insert(M{"n": 42})
+	coll.Insert(bson.M{"n": 42})
 
-	iter := coll.Find(M{"n": 0}).Iter()
+	iter := coll.Find(bson.M{"n": 0}).Iter()
 
 	result := struct{ N int }{}
 	ok := iter.Next(&result)
@@ -2052,7 +2052,7 @@ func (s *S) TestFindIterLimit(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
@@ -2060,7 +2060,7 @@ func (s *S) TestFindIterLimit(c *C) {
 
 	mgo.ResetStats()
 
-	query := coll.Find(M{"n": M{"$gte": 42}}).Sort("$natural").Limit(3)
+	query := coll.Find(bson.M{"n": bson.M{"$gte": 42}}).Sort("$natural").Limit(3)
 	iter := query.Iter()
 
 	result := struct{ N int }{}
@@ -2105,7 +2105,7 @@ func (s *S) TestResumeIter(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 	for i := 0; i < numDocuments; i++ {
-		coll.Insert(M{"n": i})
+		coll.Insert(bson.M{"n": i})
 	}
 
 	got := struct {
@@ -2404,7 +2404,7 @@ func (s *S) TestFindIterLimitWithBatch(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		coll.Insert(M{"n": n})
+		coll.Insert(bson.M{"n": n})
 	}
 
 	// Ping the database to ensure the nonce has been received already.
@@ -2414,7 +2414,7 @@ func (s *S) TestFindIterLimitWithBatch(c *C) {
 
 	mgo.ResetStats()
 
-	query := coll.Find(M{"n": M{"$gte": 42}}).Sort("$natural").Limit(3).Batch(2)
+	query := coll.Find(bson.M{"n": bson.M{"$gte": 42}}).Sort("$natural").Limit(3).Batch(2)
 	iter := query.Iter()
 	result := struct{ N int }{}
 	for i := 2; i < 5; i++ {
@@ -2463,7 +2463,7 @@ func (s *S) TestFindIterSortWithBatch(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		coll.Insert(M{"n": n})
+		coll.Insert(bson.M{"n": n})
 	}
 
 	// Without this, the logic above breaks because Mongo refuses to
@@ -2477,7 +2477,7 @@ func (s *S) TestFindIterSortWithBatch(c *C) {
 
 	mgo.ResetStats()
 
-	query := coll.Find(M{"n": M{"$lte": 44}}).Sort("-n").Batch(2)
+	query := coll.Find(bson.M{"n": bson.M{"$lte": 44}}).Sort("-n").Batch(2)
 	iter := query.Iter()
 	ns = []int{46, 45, 44, 43, 42, 41, 40}
 	result := struct{ N int }{}
@@ -2536,7 +2536,7 @@ func (s *S) TestFindTailTimeoutWithSleep(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		coll.Insert(M{"n": n})
+		coll.Insert(bson.M{"n": n})
 	}
 
 	session.Refresh() // Release socket.
@@ -2545,7 +2545,7 @@ func (s *S) TestFindTailTimeoutWithSleep(c *C) {
 
 	timeout := 5 * time.Second
 
-	query := coll.Find(M{"n": M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2)
+	query := coll.Find(bson.M{"n": bson.M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2)
 	iter := query.Tail(timeout)
 
 	n := len(ns)
@@ -2576,7 +2576,7 @@ func (s *S) TestFindTailTimeoutWithSleep(c *C) {
 		c.Logf("[GOROUTINE] Woke up...")
 		session := session.New()
 		c.Logf("[GOROUTINE] Session created and will insert...")
-		err := coll.Insert(M{"n": 47})
+		err := coll.Insert(bson.M{"n": 47})
 		c.Logf("[GOROUTINE] Insert attempted, err=%v...", err)
 		session.Close()
 		c.Logf("[GOROUTINE] Session closed.")
@@ -2605,7 +2605,7 @@ func (s *S) TestFindTailTimeoutWithSleep(c *C) {
 
 	c.Log("Will now reuse the timed out tail cursor...")
 
-	coll.Insert(M{"n": 48})
+	coll.Insert(bson.M{"n": 48})
 	ok = iter.Next(&result)
 	c.Assert(ok, Equals, true)
 	c.Assert(iter.Close(), IsNil)
@@ -2630,7 +2630,7 @@ func (s *S) TestFindTailTimeoutNoSleep(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		coll.Insert(M{"n": n})
+		coll.Insert(bson.M{"n": n})
 	}
 
 	session.Refresh() // Release socket.
@@ -2639,7 +2639,7 @@ func (s *S) TestFindTailTimeoutNoSleep(c *C) {
 
 	timeout := 1 * time.Second
 
-	query := coll.Find(M{"n": M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2)
+	query := coll.Find(bson.M{"n": bson.M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2)
 	iter := query.Tail(timeout)
 
 	n := len(ns)
@@ -2664,7 +2664,7 @@ func (s *S) TestFindTailTimeoutNoSleep(c *C) {
 		session := session.New()
 		defer session.Close()
 		coll := session.DB("mydb").C("mycoll")
-		coll.Insert(M{"n": 47})
+		coll.Insert(bson.M{"n": 47})
 	}()
 
 	c.Log("Will wait for Next with N=47...")
@@ -2686,7 +2686,7 @@ func (s *S) TestFindTailTimeoutNoSleep(c *C) {
 
 	c.Log("Will now reuse the timed out tail cursor...")
 
-	coll.Insert(M{"n": 48})
+	coll.Insert(bson.M{"n": 48})
 	ok = iter.Next(&result)
 	c.Assert(ok, Equals, true)
 	c.Assert(iter.Close(), IsNil)
@@ -2715,14 +2715,14 @@ func (s *S) TestFindTailNoTimeout(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		coll.Insert(M{"n": n})
+		coll.Insert(bson.M{"n": n})
 	}
 
 	session.Refresh() // Release socket.
 
 	mgo.ResetStats()
 
-	query := coll.Find(M{"n": M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2)
+	query := coll.Find(bson.M{"n": bson.M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2)
 	iter := query.Tail(-1)
 	c.Assert(err, IsNil)
 
@@ -2746,7 +2746,7 @@ func (s *S) TestFindTailNoTimeout(c *C) {
 		session := session.New()
 		defer session.Close()
 		coll := session.DB("mydb").C("mycoll")
-		coll.Insert(M{"n": 47})
+		coll.Insert(bson.M{"n": 47})
 	}()
 
 	c.Log("Will wait for Next with N=47...")
@@ -2794,7 +2794,7 @@ func (s *S) TestIterNextResetsResult(c *C) {
 
 	ns := []int{1, 2, 3}
 	for _, n := range ns {
-		coll.Insert(M{"n" + strconv.Itoa(n): n})
+		coll.Insert(bson.M{"n" + strconv.Itoa(n): n})
 	}
 
 	query := coll.Find(nil).Sort("$natural")
@@ -2825,11 +2825,11 @@ func (s *S) TestIterNextResetsResult(c *C) {
 		delete(mresult, "_id")
 		switch i {
 		case 0:
-			c.Assert(mresult, DeepEquals, M{"n1": 1})
+			c.Assert(mresult, DeepEquals, bson.M{"n1": 1})
 		case 1:
-			c.Assert(mresult, DeepEquals, M{"n2": 2})
+			c.Assert(mresult, DeepEquals, bson.M{"n2": 2})
 		case 2:
-			c.Assert(mresult, DeepEquals, M{"n3": 3})
+			c.Assert(mresult, DeepEquals, bson.M{"n3": 3})
 		}
 		i++
 	}
@@ -2864,14 +2864,14 @@ func (s *S) TestFindForOnIter(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		coll.Insert(M{"n": n})
+		coll.Insert(bson.M{"n": n})
 	}
 
 	session.Refresh() // Release socket.
 
 	mgo.ResetStats()
 
-	query := coll.Find(M{"n": M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2)
+	query := coll.Find(bson.M{"n": bson.M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2)
 	iter := query.Iter()
 
 	i := 2
@@ -2916,14 +2916,14 @@ func (s *S) TestFindFor(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		coll.Insert(M{"n": n})
+		coll.Insert(bson.M{"n": n})
 	}
 
 	session.Refresh() // Release socket.
 
 	mgo.ResetStats()
 
-	query := coll.Find(M{"n": M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2)
+	query := coll.Find(bson.M{"n": bson.M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2)
 
 	i := 2
 	var result *struct{ N int }
@@ -2968,10 +2968,10 @@ func (s *S) TestFindForStopOnError(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		coll.Insert(M{"n": n})
+		coll.Insert(bson.M{"n": n})
 	}
 
-	query := coll.Find(M{"n": M{"$gte": 42}})
+	query := coll.Find(bson.M{"n": bson.M{"$gte": 42}})
 	i := 2
 	var result *struct{ N int }
 	err = query.For(&result, func() error {
@@ -2995,7 +2995,7 @@ func (s *S) TestFindForResetsResult(c *C) {
 
 	ns := []int{1, 2, 3}
 	for _, n := range ns {
-		coll.Insert(M{"n" + strconv.Itoa(n): n})
+		coll.Insert(bson.M{"n" + strconv.Itoa(n): n})
 	}
 
 	query := coll.Find(nil).Sort("$natural")
@@ -3025,11 +3025,11 @@ func (s *S) TestFindForResetsResult(c *C) {
 		delete(mresult, "_id")
 		switch i {
 		case 0:
-			c.Assert(mresult, DeepEquals, M{"n1": 1})
+			c.Assert(mresult, DeepEquals, bson.M{"n1": 1})
 		case 1:
-			c.Assert(mresult, DeepEquals, M{"n2": 2})
+			c.Assert(mresult, DeepEquals, bson.M{"n2": 2})
 		case 2:
-			c.Assert(mresult, DeepEquals, M{"n3": 3})
+			c.Assert(mresult, DeepEquals, bson.M{"n3": 3})
 		}
 		i++
 		return nil
@@ -3072,11 +3072,11 @@ func (s *S) TestFindIterSnapshot(c *C) {
 	var a [1024000]byte
 
 	for n := 0; n < 10; n++ {
-		err := coll.Insert(M{"_id": n, "n": n, "a1": &a})
+		err := coll.Insert(bson.M{"_id": n, "n": n, "a1": &a})
 		c.Assert(err, IsNil)
 	}
 
-	query := coll.Find(M{"n": M{"$gt": -1}}).Batch(2).Prefetch(0)
+	query := coll.Find(bson.M{"n": bson.M{"$gt": -1}}).Batch(2).Prefetch(0)
 	query.Snapshot()
 	iter := query.Iter()
 
@@ -3089,7 +3089,7 @@ func (s *S) TestFindIterSnapshot(c *C) {
 			// Grow all entries so that they have to move.
 			// Backwards so that the order is inverted.
 			for n := 10; n >= 0; n-- {
-				_, err := coll.Upsert(M{"_id": n}, M{"$set": M{"a2": &a}})
+				_, err := coll.Upsert(bson.M{"_id": n}, bson.M{"$set": bson.M{"a2": &a}})
 				c.Assert(err, IsNil)
 			}
 		}
@@ -3108,17 +3108,17 @@ func (s *S) TestSort(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	coll.Insert(M{"a": 1, "b": 1})
-	coll.Insert(M{"a": 2, "b": 2})
-	coll.Insert(M{"a": 2, "b": 1})
-	coll.Insert(M{"a": 0, "b": 1})
-	coll.Insert(M{"a": 2, "b": 0})
-	coll.Insert(M{"a": 0, "b": 2})
-	coll.Insert(M{"a": 1, "b": 2})
-	coll.Insert(M{"a": 0, "b": 0})
-	coll.Insert(M{"a": 1, "b": 0})
+	coll.Insert(bson.M{"a": 1, "b": 1})
+	coll.Insert(bson.M{"a": 2, "b": 2})
+	coll.Insert(bson.M{"a": 2, "b": 1})
+	coll.Insert(bson.M{"a": 0, "b": 1})
+	coll.Insert(bson.M{"a": 2, "b": 0})
+	coll.Insert(bson.M{"a": 0, "b": 2})
+	coll.Insert(bson.M{"a": 1, "b": 2})
+	coll.Insert(bson.M{"a": 0, "b": 0})
+	coll.Insert(bson.M{"a": 1, "b": 0})
 
-	query := coll.Find(M{})
+	query := coll.Find(bson.M{})
 	query.Sort("-a") // Should be ignored.
 	query.Sort("-b", "a")
 	iter := query.Iter()
@@ -3172,30 +3172,30 @@ func (s *S) TestSortScoreText(c *C) {
 	}
 	c.Assert(err, IsNil)
 
-	err = coll.Insert(M{
+	err = coll.Insert(bson.M{
 		"a": "none",
 		"b": "twice: foo foo",
 	})
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{
+	err = coll.Insert(bson.M{
 		"a": "just once: foo",
 		"b": "none",
 	})
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{
+	err = coll.Insert(bson.M{
 		"a": "many: foo foo foo",
 		"b": "none",
 	})
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{
+	err = coll.Insert(bson.M{
 		"a": "none",
 		"b": "none",
 		"c": "ignore: foo",
 	})
 	c.Assert(err, IsNil)
 
-	query := coll.Find(M{"$text": M{"$search": "foo"}})
-	query.Select(M{"score": M{"$meta": "textScore"}})
+	query := coll.Find(bson.M{"$text": bson.M{"$search": "foo"}})
+	query.Select(bson.M{"score": bson.M{"$meta": "textScore"}})
 	query.Sort("$textScore:score")
 	iter := query.Iter()
 
@@ -3238,25 +3238,25 @@ func (s *S) TestPrefetching(c *C) {
 		switch testi {
 		case 0: // The default session value.
 			session.SetBatch(batch)
-			iter = coll.Find(M{}).Iter()
+			iter = coll.Find(bson.M{}).Iter()
 			beforeMore = 75
 
 		case 2: // Changing the session value.
 			session.SetBatch(batch)
 			session.SetPrefetch(0.27)
-			iter = coll.Find(M{}).Iter()
+			iter = coll.Find(bson.M{}).Iter()
 			beforeMore = 73
 
 		case 1: // Changing via query methods.
-			iter = coll.Find(M{}).Prefetch(0.27).Batch(batch).Iter()
+			iter = coll.Find(bson.M{}).Prefetch(0.27).Batch(batch).Iter()
 			beforeMore = 73
 
 		case 3: // With prefetch on first document.
-			iter = coll.Find(M{}).Prefetch(1.0).Batch(batch).Iter()
+			iter = coll.Find(bson.M{}).Prefetch(1.0).Batch(batch).Iter()
 			beforeMore = 0
 
 		case 4: // Without prefetch.
-			iter = coll.Find(M{}).Prefetch(0).Batch(batch).Iter()
+			iter = coll.Find(bson.M{}).Prefetch(0).Batch(batch).Iter()
 			beforeMore = 100
 		}
 
@@ -3422,13 +3422,13 @@ func (s *S) TestSafeInsert(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	// Insert an element with a predefined key.
-	err = coll.Insert(M{"_id": 1})
+	err = coll.Insert(bson.M{"_id": 1})
 	c.Assert(err, IsNil)
 
 	mgo.ResetStats()
 
 	// Session should be safe by default, so inserting it again must fail.
-	err = coll.Insert(M{"_id": 1})
+	err = coll.Insert(bson.M{"_id": 1})
 	c.Assert(err, ErrorMatches, ".*E11000 duplicate.*")
 	c.Assert(err.(*mgo.LastError).Code, Equals, 11000)
 
@@ -3445,7 +3445,7 @@ func (s *S) TestSafeInsert(c *C) {
 
 	// If we disable safety, though, it won't complain.
 	session.SetSafe(nil)
-	err = coll.Insert(M{"_id": 1})
+	err = coll.Insert(bson.M{"_id": 1})
 	c.Assert(err, IsNil)
 
 	// Must have sent a single operation this time (just the INSERT_OP)
@@ -3462,7 +3462,7 @@ func (s *S) TestSafeParameters(c *C) {
 
 	// Tweak the safety parameters to something unachievable.
 	session.SetSafe(&mgo.Safe{W: 4, WTimeout: 100})
-	err = coll.Insert(M{"_id": 1})
+	err = coll.Insert(bson.M{"_id": 1})
 	c.Assert(err, ErrorMatches, "timeout|timed out waiting for slaves|Not enough data-bearing nodes|waiting for replication timed out") // :-(
 	if !s.versionAtLeast(2, 6) {
 		// 2.6 turned it into a query error.
@@ -3477,7 +3477,7 @@ func (s *S) TestQueryErrorOne(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	err = coll.Find(M{"a": 1}).Select(M{"a": M{"b": 1}}).One(nil)
+	err = coll.Find(bson.M{"a": 1}).Select(bson.M{"a": bson.M{"b": 1}}).One(nil)
 	c.Assert(err, ErrorMatches, ".*Unsupported projection option:.*")
 	c.Assert(err.(*mgo.QueryError).Message, Matches, ".*Unsupported projection option:.*")
 	// Oh, the dance of error codes. :-(
@@ -3497,7 +3497,7 @@ func (s *S) TestQueryErrorNext(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	iter := coll.Find(M{"a": 1}).Select(M{"a": M{"b": 1}}).Iter()
+	iter := coll.Find(bson.M{"a": 1}).Select(bson.M{"a": bson.M{"b": 1}}).Iter()
 
 	var result struct{}
 	ok := iter.Next(&result)
@@ -3519,15 +3519,15 @@ func (s *S) TestQueryErrorNext(c *C) {
 
 var indexTests = []struct {
 	index    mgo.Index
-	expected M
+	expected bson.M
 }{{
 	mgo.Index{
 		Key:        []string{"a"},
 		Background: true,
 	},
-	M{
+	bson.M{
 		"name":       "a_1",
-		"key":        M{"a": 1},
+		"key":        bson.M{"a": 1},
 		"ns":         "mydb.mycoll",
 		"background": true,
 	},
@@ -3537,9 +3537,9 @@ var indexTests = []struct {
 		Unique:   true,
 		DropDups: true,
 	},
-	M{
+	bson.M{
 		"name":     "a_1_b_-1",
-		"key":      M{"a": 1, "b": -1},
+		"key":      bson.M{"a": 1, "b": -1},
 		"ns":       "mydb.mycoll",
 		"unique":   true,
 		"dropDups": true,
@@ -3551,9 +3551,9 @@ var indexTests = []struct {
 		Max:  500,
 		Bits: 32,
 	},
-	M{
+	bson.M{
 		"name": "loc_old_2d",
-		"key":  M{"loc_old": "2d"},
+		"key":  bson.M{"loc_old": "2d"},
 		"ns":   "mydb.mycoll",
 		"min":  -500.0,
 		"max":  500.0,
@@ -3566,9 +3566,9 @@ var indexTests = []struct {
 		Max:  500,
 		Bits: 32,
 	},
-	M{
+	bson.M{
 		"name": "loc_2d",
-		"key":  M{"loc": "2d"},
+		"key":  bson.M{"loc": "2d"},
 		"ns":   "mydb.mycoll",
 		"min":  -500.0,
 		"max":  500.0,
@@ -3583,9 +3583,9 @@ var indexTests = []struct {
 		Max:  2,
 		Bits: 32,
 	},
-	M{
+	bson.M{
 		"name": "loc_2d",
-		"key":  M{"loc": "2d"},
+		"key":  bson.M{"loc": "2d"},
 		"ns":   "mydb.mycoll",
 		"min":  -500.1,
 		"max":  500.1,
@@ -3596,9 +3596,9 @@ var indexTests = []struct {
 		Key:        []string{"$geoHaystack:loc", "type"},
 		BucketSize: 1,
 	},
-	M{
+	bson.M{
 		"name":       "loc_geoHaystack_type_1",
-		"key":        M{"loc": "geoHaystack", "type": 1},
+		"key":        bson.M{"loc": "geoHaystack", "type": 1},
 		"ns":         "mydb.mycoll",
 		"bucketSize": 1.0,
 	},
@@ -3607,11 +3607,11 @@ var indexTests = []struct {
 		Key:     []string{"$text:a", "$text:b"},
 		Weights: map[string]int{"b": 42},
 	},
-	M{
+	bson.M{
 		"name":              "a_text_b_text",
-		"key":               M{"_fts": "text", "_ftsx": 1},
+		"key":               bson.M{"_fts": "text", "_ftsx": 1},
 		"ns":                "mydb.mycoll",
-		"weights":           M{"a": 1, "b": 42},
+		"weights":           bson.M{"a": 1, "b": 42},
 		"default_language":  "english",
 		"language_override": "language",
 		"textIndexVersion":  2,
@@ -3622,11 +3622,11 @@ var indexTests = []struct {
 		DefaultLanguage:  "portuguese",
 		LanguageOverride: "idioma",
 	},
-	M{
+	bson.M{
 		"name":              "a_text",
-		"key":               M{"_fts": "text", "_ftsx": 1},
+		"key":               bson.M{"_fts": "text", "_ftsx": 1},
 		"ns":                "mydb.mycoll",
-		"weights":           M{"a": 1},
+		"weights":           bson.M{"a": 1},
 		"default_language":  "portuguese",
 		"language_override": "idioma",
 		"textIndexVersion":  2,
@@ -3635,11 +3635,11 @@ var indexTests = []struct {
 	mgo.Index{
 		Key: []string{"$text:$**"},
 	},
-	M{
+	bson.M{
 		"name":              "$**_text",
-		"key":               M{"_fts": "text", "_ftsx": 1},
+		"key":               bson.M{"_fts": "text", "_ftsx": 1},
 		"ns":                "mydb.mycoll",
-		"weights":           M{"$**": 1},
+		"weights":           bson.M{"$**": 1},
 		"default_language":  "english",
 		"language_override": "language",
 		"textIndexVersion":  2,
@@ -3649,9 +3649,9 @@ var indexTests = []struct {
 		Key:  []string{"cn"},
 		Name: "CustomName",
 	},
-	M{
+	bson.M{
 		"name": "CustomName",
-		"key":  M{"cn": 1},
+		"key":  bson.M{"cn": 1},
 		"ns":   "mydb.mycoll",
 	},
 }, {
@@ -3661,13 +3661,13 @@ var indexTests = []struct {
 			"b": bson.M{"$gt": 42},
 		},
 	},
-	M{
+	bson.M{
 		"name": "partial_1",
 		"ns":   "mydb.mycoll",
-		"partialFilterExpression": M{
-			"b": M{"$gt": 42},
+		"partialFilterExpression": bson.M{
+			"b": bson.M{"$gt": 42},
 		},
-		"key": M{"partial": 1},
+		"key": bson.M{"partial": 1},
 	},
 }}
 
@@ -3677,14 +3677,14 @@ var indexTests = []struct {
 //
 // The default "_id_" index is never returned, and the "v" field is removed from
 // the response.
-func getIndex34(session *mgo.Session, db, collection, name string) M {
+func getIndex34(session *mgo.Session, db, collection, name string) bson.M {
 	cmd := bson.M{"listIndexes": collection}
-	result := M{}
+	result := bson.M{}
 	session.DB(db).Run(cmd, result)
 
-	var obtained = M{}
-	for _, v := range result["cursor"].(M)["firstBatch"].([]interface{}) {
-		index := v.(M)
+	var obtained = bson.M{}
+	for _, v := range result["cursor"].(bson.M)["firstBatch"].([]interface{}) {
+		index := v.(bson.M)
 		if index["name"] == name {
 			delete(index, "v")
 			obtained = index
@@ -3741,8 +3741,8 @@ func (s *S) TestEnsureIndex(c *C) {
 			c.Assert(getIndex34(session, "mydb", "mycoll", test.expected["name"].(string)), DeepEquals, test.expected)
 		} else {
 			idxs := session.DB("mydb").C("system.indexes")
-			obtained := M{}
-			err = idxs.Find(M{"name": expectedName}).One(obtained)
+			obtained := bson.M{}
+			err = idxs.Find(bson.M{"name": expectedName}).One(obtained)
 			c.Assert(err, IsNil)
 
 			delete(obtained, "v")
@@ -3821,10 +3821,10 @@ func (s *S) TestEnsureIndexWithUnsafeSession(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	err = coll.Insert(M{"a": 1})
+	err = coll.Insert(bson.M{"a": 1})
 	c.Assert(err, IsNil)
 
-	err = coll.Insert(M{"a": 1})
+	err = coll.Insert(bson.M{"a": 1})
 	c.Assert(err, IsNil)
 
 	// Should fail since there are duplicated entries.
@@ -3848,9 +3848,9 @@ func (s *S) TestEnsureIndexKey(c *C) {
 	c.Assert(err, IsNil)
 
 	if s.versionAtLeast(3, 2, 17) {
-		expected := M{
+		expected := bson.M{
 			"name": "a_1",
-			"key":  M{"a": 1},
+			"key":  bson.M{"a": 1},
 			"ns":   "mydb.mycoll",
 		}
 		c.Assert(getIndex34(session, "mydb", "mycoll", "a_1"), DeepEquals, expected)
@@ -3858,9 +3858,9 @@ func (s *S) TestEnsureIndexKey(c *C) {
 		err = coll.EnsureIndexKey("a", "-b")
 		c.Assert(err, IsNil)
 
-		expected = M{
+		expected = bson.M{
 			"name": "a_1_b_-1",
-			"key":  M{"a": 1, "b": -1},
+			"key":  bson.M{"a": 1, "b": -1},
 			"ns":   "mydb.mycoll",
 		}
 		c.Assert(getIndex34(session, "mydb", "mycoll", "a_1_b_-1"), DeepEquals, expected)
@@ -3870,26 +3870,26 @@ func (s *S) TestEnsureIndexKey(c *C) {
 
 		sysidx := session.DB("mydb").C("system.indexes")
 
-		result1 := M{}
-		err = sysidx.Find(M{"name": "a_1"}).One(result1)
+		result1 := bson.M{}
+		err = sysidx.Find(bson.M{"name": "a_1"}).One(result1)
 		c.Assert(err, IsNil)
 
-		result2 := M{}
-		err = sysidx.Find(M{"name": "a_1_b_-1"}).One(result2)
+		result2 := bson.M{}
+		err = sysidx.Find(bson.M{"name": "a_1_b_-1"}).One(result2)
 		c.Assert(err, IsNil)
 
 		delete(result1, "v")
-		expected1 := M{
+		expected1 := bson.M{
 			"name": "a_1",
-			"key":  M{"a": 1},
+			"key":  bson.M{"a": 1},
 			"ns":   "mydb.mycoll",
 		}
 		c.Assert(result1, DeepEquals, expected1)
 
 		delete(result2, "v")
-		expected2 := M{
+		expected2 := bson.M{
 			"name": "a_1_b_-1",
-			"key":  M{"a": 1, "b": -1},
+			"key":  bson.M{"a": 1, "b": -1},
 			"ns":   "mydb.mycoll",
 		}
 		c.Assert(result2, DeepEquals, expected2)
@@ -3918,16 +3918,16 @@ func (s *S) TestEnsureIndexDropIndex(c *C) {
 		// instead
 
 		// Assert it exists
-		c.Assert(getIndex34(session, "mydb", "mycoll", "a_1"), DeepEquals, M{"key": M{"a": 1}, "name": "a_1", "ns": "mydb.mycoll"})
+		c.Assert(getIndex34(session, "mydb", "mycoll", "a_1"), DeepEquals, bson.M{"key": bson.M{"a": 1}, "name": "a_1", "ns": "mydb.mycoll"})
 
-		// Assert a missing index returns an empty M{}
-		c.Assert(getIndex34(session, "mydb", "mycoll", "b_1"), DeepEquals, M{})
+		// Assert a missing index returns an empty bson.M{}
+		c.Assert(getIndex34(session, "mydb", "mycoll", "b_1"), DeepEquals, bson.M{})
 
 		err = coll.DropIndex("a")
 		c.Assert(err, IsNil)
 
 		// Ensure missing
-		c.Assert(getIndex34(session, "mydb", "mycoll", "a_1"), DeepEquals, M{})
+		c.Assert(getIndex34(session, "mydb", "mycoll", "a_1"), DeepEquals, bson.M{})
 
 		// Try to drop it again
 		err = coll.DropIndex("a")
@@ -3935,16 +3935,16 @@ func (s *S) TestEnsureIndexDropIndex(c *C) {
 	} else {
 		sysidx := session.DB("mydb").C("system.indexes")
 
-		err = sysidx.Find(M{"name": "a_1"}).One(nil)
+		err = sysidx.Find(bson.M{"name": "a_1"}).One(nil)
 		c.Assert(err, IsNil)
 
-		err = sysidx.Find(M{"name": "b_1"}).One(nil)
+		err = sysidx.Find(bson.M{"name": "b_1"}).One(nil)
 		c.Assert(err, Equals, mgo.ErrNotFound)
 
 		err = coll.DropIndex("a")
 		c.Assert(err, IsNil)
 
-		err = sysidx.Find(M{"name": "a_1"}).One(nil)
+		err = sysidx.Find(bson.M{"name": "a_1"}).One(nil)
 		c.Assert(err, Equals, mgo.ErrNotFound)
 
 		err = coll.DropIndex("a")
@@ -3973,16 +3973,16 @@ func (s *S) TestEnsureIndexDropIndexName(c *C) {
 		// instead
 
 		// Assert it exists
-		c.Assert(getIndex34(session, "mydb", "mycoll", "a_1"), DeepEquals, M{"ns": "mydb.mycoll", "key": M{"a": 1}, "name": "a_1"})
+		c.Assert(getIndex34(session, "mydb", "mycoll", "a_1"), DeepEquals, bson.M{"ns": "mydb.mycoll", "key": bson.M{"a": 1}, "name": "a_1"})
 
-		// Assert M{} is returned for a missing index
-		c.Assert(getIndex34(session, "mydb", "mycoll", "a"), DeepEquals, M{})
+		// Assert bson.M{} is returned for a missing index
+		c.Assert(getIndex34(session, "mydb", "mycoll", "a"), DeepEquals, bson.M{})
 
 		err = coll.DropIndexName("a_1")
 		c.Assert(err, IsNil)
 
 		// Ensure it's gone
-		c.Assert(getIndex34(session, "mydb", "mycoll", "a_1"), DeepEquals, M{})
+		c.Assert(getIndex34(session, "mydb", "mycoll", "a_1"), DeepEquals, bson.M{})
 
 		err = coll.DropIndexName("a_1")
 		c.Assert(err, ErrorMatches, "index not found.*")
@@ -3990,16 +3990,16 @@ func (s *S) TestEnsureIndexDropIndexName(c *C) {
 	} else {
 		sysidx := session.DB("mydb").C("system.indexes")
 
-		err = sysidx.Find(M{"name": "a_1"}).One(nil)
+		err = sysidx.Find(bson.M{"name": "a_1"}).One(nil)
 		c.Assert(err, IsNil)
 
-		err = sysidx.Find(M{"name": "a"}).One(nil)
+		err = sysidx.Find(bson.M{"name": "a"}).One(nil)
 		c.Assert(err, Equals, mgo.ErrNotFound)
 
 		err = coll.DropIndexName("a_1")
 		c.Assert(err, IsNil)
 
-		err = sysidx.Find(M{"name": "a_1"}).One(nil)
+		err = sysidx.Find(bson.M{"name": "a_1"}).One(nil)
 		c.Assert(err, Equals, mgo.ErrNotFound)
 
 		err = coll.DropIndexName("a_1")
@@ -4027,15 +4027,15 @@ func (s *S) TestEnsureIndexDropAllIndexes(c *C) {
 		// system.indexes is deprecated since 3.0, use
 		// db.runCommand({"listIndexes": <collectionName>})
 		// instead
-		c.Assert(getIndex34(session, "mydb", "mycoll", "a_1"), DeepEquals, M{})
-		c.Assert(getIndex34(session, "mydb", "mycoll", "b_1"), DeepEquals, M{})
+		c.Assert(getIndex34(session, "mydb", "mycoll", "a_1"), DeepEquals, bson.M{})
+		c.Assert(getIndex34(session, "mydb", "mycoll", "b_1"), DeepEquals, bson.M{})
 	} else {
 		sysidx := session.DB("mydb").C("system.indexes")
 
-		err = sysidx.Find(M{"name": "a_1"}).One(nil)
+		err = sysidx.Find(bson.M{"name": "a_1"}).One(nil)
 		c.Assert(err, Equals, mgo.ErrNotFound)
 
-		err = sysidx.Find(M{"name": "b_1"}).One(nil)
+		err = sysidx.Find(bson.M{"name": "b_1"}).One(nil)
 		c.Assert(err, Equals, mgo.ErrNotFound)
 	}
 }
@@ -4208,9 +4208,9 @@ func (s *S) TestEnsureIndexExpireAfter(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	err = coll.Insert(M{"n": 1, "t": time.Now().Add(-120 * time.Second)})
+	err = coll.Insert(bson.M{"n": 1, "t": time.Now().Add(-120 * time.Second)})
 	c.Assert(err, IsNil)
-	err = coll.Insert(M{"n": 2, "t": time.Now()})
+	err = coll.Insert(bson.M{"n": 2, "t": time.Now()})
 	c.Assert(err, IsNil)
 
 	// Should fail since there are duplicated entries.
@@ -4255,11 +4255,11 @@ func (s *S) TestDistinct(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	for _, i := range []int{1, 4, 6, 2, 2, 3, 4} {
-		coll.Insert(M{"n": i})
+		coll.Insert(bson.M{"n": i})
 	}
 
 	var result []int
-	err = coll.Find(M{"n": M{"$gt": 2}}).Sort("n").Distinct("n", &result)
+	err = coll.Find(bson.M{"n": bson.M{"$gt": 2}}).Sort("n").Distinct("n", &result)
 	c.Assert(err, IsNil)
 	sort.IntSlice(result).Sort()
 	c.Assert(result, DeepEquals, []int{3, 4, 6})
@@ -4273,7 +4273,7 @@ func (s *S) TestMapReduce(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	for _, i := range []int{1, 4, 6, 2, 2, 3, 4} {
-		coll.Insert(M{"n": i})
+		coll.Insert(bson.M{"n": i})
 	}
 
 	job := &mgo.MapReduce{
@@ -4285,7 +4285,7 @@ func (s *S) TestMapReduce(c *C) {
 		Value int
 	}
 
-	info, err := coll.Find(M{"n": M{"$gt": 2}}).MapReduce(job, &result)
+	info, err := coll.Find(bson.M{"n": bson.M{"$gt": 2}}).MapReduce(job, &result)
 	c.Assert(err, IsNil)
 	c.Assert(info.InputCount, Equals, 4)
 	c.Assert(info.EmitCount, Equals, 4)
@@ -4308,7 +4308,7 @@ func (s *S) TestMapReduceFinalize(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	for _, i := range []int{1, 4, 6, 2, 2, 3, 4} {
-		coll.Insert(M{"n": i})
+		coll.Insert(bson.M{"n": i})
 	}
 
 	job := &mgo.MapReduce{
@@ -4339,7 +4339,7 @@ func (s *S) TestMapReduceToCollection(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	for _, i := range []int{1, 4, 6, 2, 2, 3, 4} {
-		coll.Insert(M{"n": i})
+		coll.Insert(bson.M{"n": i})
 	}
 
 	job := &mgo.MapReduce{
@@ -4379,7 +4379,7 @@ func (s *S) TestMapReduceToOtherDb(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	for _, i := range []int{1, 4, 6, 2, 2, 3, 4} {
-		coll.Insert(M{"n": i})
+		coll.Insert(bson.M{"n": i})
 	}
 
 	job := &mgo.MapReduce{
@@ -4419,7 +4419,7 @@ func (s *S) TestMapReduceOutOfOrder(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	for _, i := range []int{1, 4, 6, 2, 2, 3, 4} {
-		coll.Insert(M{"n": i})
+		coll.Insert(bson.M{"n": i})
 	}
 
 	job := &mgo.MapReduce{
@@ -4441,12 +4441,12 @@ func (s *S) TestMapReduceScope(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	coll.Insert(M{"n": 1})
+	coll.Insert(bson.M{"n": 1})
 
 	job := &mgo.MapReduce{
 		Map:    "function() { emit(this.n, x); }",
 		Reduce: "function(key, values) { return Array.sum(values); }",
-		Scope:  M{"x": 42},
+		Scope:  bson.M{"x": 42},
 	}
 
 	var result []bson.M
@@ -4464,7 +4464,7 @@ func (s *S) TestMapReduceVerbose(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	for i := 0; i < 100; i++ {
-		err = coll.Insert(M{"n": i})
+		err = coll.Insert(bson.M{"n": i})
 		c.Assert(err, IsNil)
 	}
 
@@ -4487,7 +4487,7 @@ func (s *S) TestMapReduceLimit(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	for _, i := range []int{1, 4, 6, 2, 2, 3, 4} {
-		coll.Insert(M{"n": i})
+		coll.Insert(bson.M{"n": i})
 	}
 
 	job := &mgo.MapReduce{
@@ -4623,7 +4623,7 @@ func (s *S) TestRepairCursor(c *C) {
 	}
 	ns := []int{0, 10, 20, 30, 40, 50}
 	for _, n := range ns {
-		coll.Insert(M{"n": n})
+		coll.Insert(bson.M{"n": n})
 	}
 
 	repairIter := coll.Repair()
@@ -4663,10 +4663,10 @@ func (s *S) TestPipeIter(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		coll.Insert(M{"n": n})
+		coll.Insert(bson.M{"n": n})
 	}
 
-	pipe := coll.Pipe([]M{{"$match": M{"n": M{"$gte": 42}}}})
+	pipe := coll.Pipe([]bson.M{{"$match": bson.M{"n": bson.M{"$gte": 42}}}})
 
 	// Ensure cursor logic is working by forcing a small batch.
 	pipe.Batch(2)
@@ -4699,12 +4699,12 @@ func (s *S) TestPipeAll(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		err := coll.Insert(M{"n": n})
+		err := coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
 	var result []struct{ N int }
-	err = coll.Pipe([]M{{"$match": M{"n": M{"$gte": 42}}}}).All(&result)
+	err = coll.Pipe([]bson.M{{"$match": bson.M{"n": bson.M{"$gte": 42}}}}).All(&result)
 	c.Assert(err, IsNil)
 	for i := 2; i < 7; i++ {
 		c.Assert(result[i-2].N, Equals, ns[i])
@@ -4721,17 +4721,17 @@ func (s *S) TestPipeOne(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	coll.Insert(M{"a": 1, "b": 2})
+	coll.Insert(bson.M{"a": 1, "b": 2})
 
 	result := struct{ A, B int }{}
 
-	pipe := coll.Pipe([]M{{"$project": M{"a": 1, "b": M{"$add": []interface{}{"$b", 1}}}}})
+	pipe := coll.Pipe([]bson.M{{"$project": bson.M{"a": 1, "b": bson.M{"$add": []interface{}{"$b", 1}}}}})
 	err = pipe.One(&result)
 	c.Assert(err, IsNil)
 	c.Assert(result.A, Equals, 1)
 	c.Assert(result.B, Equals, 3)
 
-	pipe = coll.Pipe([]M{{"$match": M{"a": 2}}})
+	pipe = coll.Pipe([]bson.M{{"$match": bson.M{"a": 2}}})
 	err = pipe.One(&result)
 	c.Assert(err, Equals, mgo.ErrNotFound)
 }
@@ -4746,9 +4746,9 @@ func (s *S) TestPipeExplain(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	coll.Insert(M{"a": 1, "b": 2})
+	coll.Insert(bson.M{"a": 1, "b": 2})
 
-	pipe := coll.Pipe([]M{{"$project": M{"a": 1, "b": M{"$add": []interface{}{"$b", 1}}}}})
+	pipe := coll.Pipe([]bson.M{{"$project": bson.M{"a": 1, "b": bson.M{"$add": []interface{}{"$b", 1}}}}})
 
 	// The explain command result changes across versions.
 	var result struct{ Ok int }
@@ -4772,7 +4772,7 @@ func (s *S) TestPipeCollation(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 	beatles := []string{"John", "RINGO", "George", "Paul"}
 	for _, n := range beatles {
-		err := coll.Insert(M{"name": n})
+		err := coll.Insert(bson.M{"name": n})
 		c.Assert(err, IsNil)
 	}
 
@@ -4781,7 +4781,7 @@ func (s *S) TestPipeCollation(c *C) {
 		Strength: 1, // ignore case/diacritics
 	}
 	var result []struct{ Name string }
-	err = coll.Pipe([]M{{"$match": M{"name": "ringo"}}}).Collation(collation).All(&result)
+	err = coll.Pipe([]bson.M{{"$match": bson.M{"name": "ringo"}}}).Collation(collation).All(&result)
 	c.Assert(err, IsNil)
 	c.Assert(len(result), Equals, 1)
 	c.Assert(result[0].Name, Equals, "RINGO")
@@ -4795,7 +4795,7 @@ func (s *S) TestBatch1Bug(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	for i := 0; i < 3; i++ {
-		err := coll.Insert(M{"n": i})
+		err := coll.Insert(bson.M{"n": i})
 		c.Assert(err, IsNil)
 	}
 
@@ -4818,7 +4818,7 @@ func (s *S) TestInterfaceIterBug(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	for i := 0; i < 3; i++ {
-		err := coll.Insert(M{"n": i})
+		err := coll.Insert(bson.M{"n": i})
 		c.Assert(err, IsNil)
 	}
 
@@ -4843,7 +4843,7 @@ func (s *S) TestFindIterCloseKillsCursor(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		err = coll.Insert(M{"n": n})
+		err = coll.Insert(bson.M{"n": n})
 		c.Assert(err, IsNil)
 	}
 
@@ -4863,10 +4863,10 @@ func (s *S) TestFindIterDoneWithBatches(c *C) {
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		coll.Insert(M{"n": n})
+		coll.Insert(bson.M{"n": n})
 	}
 
-	iter := coll.Find(M{"n": M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2).Iter()
+	iter := coll.Find(bson.M{"n": bson.M{"$gte": 42}}).Sort("$natural").Prefetch(0).Batch(2).Iter()
 	result := struct{ N int }{}
 	for i := 2; i < 7; i++ {
 		// first check will be with pending local record;
@@ -4906,7 +4906,7 @@ func (s *S) TestFindIterDoneNotFound(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	result := struct{ A, B int }{}
-	iter := coll.Find(M{"a": 1}).Iter()
+	iter := coll.Find(bson.M{"a": 1}).Iter()
 	ok := iter.Next(&result)
 	c.Assert(ok, Equals, false)
 	c.Assert(iter.Done(), Equals, true)
@@ -4919,7 +4919,7 @@ func (s *S) TestLogReplay(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 	for i := 0; i < 5; i++ {
-		err = coll.Insert(M{"ts": time.Now()})
+		err = coll.Insert(bson.M{"ts": time.Now()})
 		c.Assert(err, IsNil)
 	}
 
@@ -4939,7 +4939,7 @@ func (s *S) TestSetCursorTimeout(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	err = coll.Insert(M{"n": 42})
+	err = coll.Insert(bson.M{"n": 42})
 	c.Assert(err, IsNil)
 
 	// This is just a smoke test. Won't wait 10 minutes for an actual timeout.
@@ -5006,31 +5006,31 @@ func (s *S) TestBypassValidation(c *C) {
 	defer session.Close()
 
 	coll := session.DB("mydb").C("mycoll")
-	err = coll.Insert(M{"n": 1})
+	err = coll.Insert(bson.M{"n": 1})
 	c.Assert(err, IsNil)
 
 	err = coll.Database.Run(bson.D{
 		{Name: "collMod", Value: "mycoll"},
-		{Name: "validator", Value: M{"s": M{"$type": "string"}}},
+		{Name: "validator", Value: bson.M{"s": bson.M{"$type": "string"}}},
 	}, nil)
 	c.Assert(err, IsNil)
 
-	err = coll.Insert(M{"n": 2})
+	err = coll.Insert(bson.M{"n": 2})
 	c.Assert(err, ErrorMatches, "Document failed validation")
 
-	err = coll.Update(M{"n": 1}, M{"n": 10})
+	err = coll.Update(bson.M{"n": 1}, bson.M{"n": 10})
 	c.Assert(err, ErrorMatches, "Document failed validation")
 
 	session.SetBypassValidation(true)
 
-	err = coll.Insert(M{"n": 3})
+	err = coll.Insert(bson.M{"n": 3})
 	c.Assert(err, IsNil)
 
-	err = coll.Update(M{"n": 3}, M{"n": 4})
+	err = coll.Update(bson.M{"n": 3}, bson.M{"n": 4})
 	c.Assert(err, IsNil)
 
 	// Ensure this still works. Shouldn't be affected.
-	err = coll.Remove(M{"n": 1})
+	err = coll.Remove(bson.M{"n": 1})
 	c.Assert(err, IsNil)
 
 	var result struct{ N int }
