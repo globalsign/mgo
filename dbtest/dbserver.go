@@ -39,7 +39,12 @@ func (dbs *DBServer) SetPath(dbpath string) {
 	dbs.dbpath = dbpath
 }
 
+// Start a DB server without replication support.
 func (dbs *DBServer) start() {
+	dbs.startDB(false)
+}
+
+func (dbs *DBServer) startDB(repl bool) {
 	if dbs.server != nil {
 		panic("DBServer already started")
 	}
@@ -62,7 +67,11 @@ func (dbs *DBServer) start() {
 		"--nssize", "1",
 		"--noprealloc",
 		"--smallfiles",
-		"--replSet=rs0",
+	}
+	if repl {
+		args = append(args, "--replSet=rs0")
+	} else {
+		args = append(args, "--nojournal")
 	}
 	dbs.tomb = tomb.Tomb{}
 	dbs.server = exec.Command("mongod", args...)
@@ -74,7 +83,9 @@ func (dbs *DBServer) start() {
 		fmt.Fprintf(os.Stderr, "mongod failed to start: %v\n", err)
 		panic(err)
 	}
-	dbs.initiateRepl(addr.Port)
+	if repl {
+		dbs.initiateRepl(addr.Port)
+	}
 	dbs.tomb.Go(dbs.monitor)
 	dbs.Wipe()
 }
