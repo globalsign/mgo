@@ -426,7 +426,7 @@ func (s *S) TestInsertFindOneNil(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 	err = coll.Find(nil).One(nil)
-	c.Assert(err, ErrorMatches, "unauthorized.*|not authorized.*")
+	c.Assert(err, ErrorMatches, "unauthorized.*|not authorized.*|.*requires authentication")
 }
 
 func (s *S) TestInsertFindOneMap(c *C) {
@@ -691,6 +691,40 @@ func (s *S) TestUpdateWithCompletedTransaction(c *C) {
 
 	err = coll.Find(M{"k": 43}).One(result)
 	c.Assert(err, Equals, 43)
+}
+
+func (s *S) TestUpdateWithAbortedTransaction(c *C) {
+	session, err := mgo.Dial("localhost:40011")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	tr := mgo.NewTransaction(session, false)
+	coll := session.DB("mydb").C("mycoll")
+
+	ns := []int{40, 41, 42, 43, 44, 45, 46}
+	for _, n := range ns {
+		err := coll.Insert(M{"k": n, "n": n})
+		c.Assert(err, IsNil)
+	}
+
+	// No changes is a no-op and shouldn't return an error.
+	err = coll.UpdateTransaction(&tr, M{"k": 42}, M{"$set": M{"n": 42}})
+	c.Assert(err, IsNil)
+
+	err = coll.UpdateTransaction(&tr, M{"k": 42}, M{"$inc": M{"n": 1}})
+	c.Assert(err, IsNil)
+
+	result := make(M)
+	err = coll.Find(M{"k": 43}).One(result)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+
+	tr.Abort()
+
+	err = coll.Find(M{"k": 42}).One(result)
+	c.Assert(err, IsNil)
+
+	err = coll.Find(M{"k": 43}).One(result)
+	c.Assert(err, Equals, mgo.ErrNotFound)
 }
 
 func (s *S) TestUpdateId(c *C) {
@@ -1118,8 +1152,9 @@ func (s *S) TestCreateCollectionNoIndex(c *C) {
 	err = coll.Insert(M{"n": 1})
 	c.Assert(err, IsNil)
 
-	indexes, err := coll.Indexes()
-	c.Assert(indexes, HasLen, 0)
+	// Removing this test.  After 4.0, you can't disable indexes.
+	// indexes, err := coll.Indexes()
+	//c.Assert(indexes, HasLen, 0)
 }
 
 func (s *S) TestCreateCollectionForceIndex(c *C) {
@@ -2870,16 +2905,16 @@ func (s *S) TestIterNextResetsResult(c *C) {
 	var iresult interface{}
 	iter = query.Iter()
 	for iter.Next(&iresult) {
-		mresult, ok := iresult.(M)
+		mresult, ok := iresult.(bson.M)
 		c.Assert(ok, Equals, true, Commentf("%#v", iresult))
 		delete(mresult, "_id")
 		switch i {
 		case 0:
-			c.Assert(mresult, DeepEquals, M{"n1": 1})
+			c.Assert(mresult, DeepEquals, bson.M{"n1": 1})
 		case 1:
-			c.Assert(mresult, DeepEquals, M{"n2": 2})
+			c.Assert(mresult, DeepEquals, bson.M{"n2": 2})
 		case 2:
-			c.Assert(mresult, DeepEquals, M{"n3": 3})
+			c.Assert(mresult, DeepEquals, bson.M{"n3": 3})
 		}
 		i++
 	}
@@ -3070,16 +3105,16 @@ func (s *S) TestFindForResetsResult(c *C) {
 	i = 0
 	var iresult interface{}
 	err = query.For(&iresult, func() error {
-		mresult, ok := iresult.(M)
+		mresult, ok := iresult.(bson.M)
 		c.Assert(ok, Equals, true, Commentf("%#v", iresult))
 		delete(mresult, "_id")
 		switch i {
 		case 0:
-			c.Assert(mresult, DeepEquals, M{"n1": 1})
+			c.Assert(mresult, DeepEquals, bson.M{"n1": 1})
 		case 1:
-			c.Assert(mresult, DeepEquals, M{"n2": 2})
+			c.Assert(mresult, DeepEquals, bson.M{"n2": 2})
 		case 2:
-			c.Assert(mresult, DeepEquals, M{"n3": 3})
+			c.Assert(mresult, DeepEquals, bson.M{"n3": 3})
 		}
 		i++
 		return nil
@@ -4858,7 +4893,7 @@ func (s *S) TestInterfaceIterBug(c *C) {
 	i := 0
 	iter := coll.Find(nil).Sort("n").Iter()
 	for iter.Next(&result) {
-		c.Assert(result.(M)["n"], Equals, i)
+		c.Assert(result.(bson.M)["n"], Equals, i)
 		i++
 	}
 	c.Assert(iter.Close(), IsNil)
@@ -4926,7 +4961,7 @@ func (s *S) TestFindIterDoneErr(c *C) {
 	ok := iter.Next(&result)
 	c.Assert(iter.Done(), Equals, true)
 	c.Assert(ok, Equals, false)
-	c.Assert(iter.Err(), ErrorMatches, "unauthorized.*|not authorized.*")
+	c.Assert(iter.Err(), ErrorMatches, "unauthorized.*|not authorized.*|.requires authentication")
 }
 
 func (s *S) TestFindIterDoneNotFound(c *C) {

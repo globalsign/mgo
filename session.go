@@ -3376,7 +3376,14 @@ func (c *Collection) Create(info *CollectionInfo) error {
 			cmd = append(cmd, bson.DocElem{Name: "max", Value: info.MaxDocs})
 		}
 	}
-	if info.DisableIdIndex {
+
+	b, err := c.Database.Session.BuildInfo()
+	if err != nil {
+		return err
+	}
+	if b.VersionAtLeast(4, 0) {
+		logf("Cannot Disable ID Index above version 4.0")
+	} else if info.DisableIdIndex {
 		cmd = append(cmd, bson.DocElem{Name: "autoIndexId", Value: false})
 	}
 	if info.ForceIdIndex {
@@ -3708,6 +3715,11 @@ func (q *Query) SetMaxTime(d time.Duration) *Query {
 //     http://www.mongodb.org/display/DOCS/How+to+do+Snapshotted+Queries+in+the+Mongo+Database
 //
 func (q *Query) Snapshot() *Query {
+	// snapshots in a find are removed in 4.0 and later
+	b, _ := q.session.BuildInfo()
+	if b.VersionAtLeast(4, 0) {
+		return q
+	}
 	q.m.Lock()
 	q.op.options.Snapshot = true
 	q.op.hasOptions = true
