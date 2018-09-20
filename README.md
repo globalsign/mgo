@@ -59,6 +59,14 @@ A [sub-package](https://godoc.org/github.com/bukalapak/mgo/bson) that implements
 * Add `ssl` to the dial string options ([details](https://github.com/bukalapak/mgo/pull/184))
 
 
+## Added Function
+* Session.CopyWithContext(ctx contex.Context)
+	work just like Session.Copy() but user can include their own context to the session.
+* Session.CircuitBreaker(timeout int)
+	include circuitbreaker mechanism to the session, take timeout in second as parameter. 
+* Session.MaxRetry(retry int)
+	include max retry mechanism to the session, take retry attempt as parameter. 
+
 ---
 
 ### Thanks to

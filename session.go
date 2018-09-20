@@ -27,6 +27,7 @@
 package mgo
 
 import (
+	"context"
 	"crypto/md5"
 	"crypto/tls"
 	"crypto/x509"
@@ -48,6 +49,7 @@ import (
 	"github.com/afex/hystrix-go/hystrix"
 	"github.com/bukalapak/mgo/bson"
 	"github.com/indrasaputra/backoff"
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
 // Mode read preference mode. See Eventual, Monotonic and Strong for details
@@ -626,6 +628,9 @@ type DialInfo struct {
 
 	// interval function for waiting to retry
 	Intervaler *backoff.ConstantBackoff
+
+	// context
+	ctx context.Context
 }
 
 // Copy returns a deep-copy of i.
@@ -642,6 +647,10 @@ func (i *DialInfo) Copy() *DialInfo {
 	i.Intervaler = &backoff.ConstantBackoff{
 		BackoffInterval: 500 * time.Millisecond,
 		JitterInterval:  200 * time.Millisecond,
+	}
+
+	if i.ctx == nil {
+		context.Background()
 	}
 
 	info := &DialInfo{
@@ -669,6 +678,7 @@ func (i *DialInfo) Copy() *DialInfo {
 		EnableCB:       i.EnableCB,
 		MaxRetry:       i.MaxRetry,
 		Intervaler:     i.Intervaler,
+		ctx:            i.ctx,
 	}
 
 	info.Addrs = make([]string, len(i.Addrs))
@@ -2075,6 +2085,13 @@ func (s *Session) Copy() *Session {
 	scopy := copySession(s, true)
 	s.m.Unlock()
 	scopy.Refresh()
+	return scopy
+}
+
+// CopyWithContext works just like Copy, but include context from user to the session
+func (s *Session) CopyWithContext(ctx context.Context) *Session {
+	scopy := s.Copy()
+	scopy.dialInfo.ctx = ctx
 	return scopy
 }
 
@@ -5346,8 +5363,16 @@ func (r *writeCmdResult) BulkErrorCases() []BulkErrorCase {
 // will also be returned as err.
 func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err error) {
 	s := c.Database.Session
+	start := time.Now()
+	span, ctx := opentracing.StartSpanFromContext(s.dialInfo.ctx, "mgo_query")
+	defer span.Finish()
+	span = span.SetTag("db.type", "mongodb")
+	span = span.SetTag("db.kind", "query")
+	span = span.SetTag("db.statement", reflect.TypeOf(op))
+	s.dialInfo.ctx = ctx
 	socket, err := s.acquireSocket(c.Database.Name == "local")
 	if err != nil {
+		reportSpan(span, time.Since(start).Seconds(), err)
 		return nil, err
 	}
 	defer socket.Release()
@@ -5374,6 +5399,7 @@ func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err
 				lerr.N += oplerr.N
 				lerr.modified += oplerr.modified
 				if err != nil {
+					reportSpan(span, time.Since(start).Seconds(), err)
 					for ei := range oplerr.ecases {
 						oplerr.ecases[ei].Index += i
 					}
@@ -5384,6 +5410,7 @@ func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err
 				}
 			}
 			if len(lerr.ecases) != 0 {
+				reportSpan(span, time.Since(start).Seconds(), lerr.ecases[0].Err)
 				return &lerr, lerr.ecases[0].Err
 			}
 			return &lerr, nil
@@ -5410,6 +5437,7 @@ func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err
 				}
 			}
 			if len(lerr.ecases) != 0 {
+				reportSpan(span, time.Since(start).Seconds(), lerr.ecases[0].Err)
 				return &lerr, lerr.ecases[0].Err
 			}
 			return &lerr, nil
@@ -5436,6 +5464,7 @@ func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err
 				}
 			}
 			if len(lerr.ecases) != 0 {
+				reportSpan(span, time.Since(start).Seconds(), lerr.ecases[0].Err)
 				return &lerr, lerr.ecases[0].Err
 			}
 			return &lerr, nil
@@ -5455,6 +5484,7 @@ func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err
 			}
 		}
 		if len(lerr.ecases) != 0 {
+			reportSpan(span, time.Since(start).Seconds(), lerr.ecases[0].Err)
 			return &lerr, lerr.ecases[0].Err
 		}
 		return &lerr, nil
@@ -5472,11 +5502,21 @@ func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err
 			}
 		}
 		if len(lerr.ecases) != 0 {
+			reportSpan(span, time.Since(start).Seconds(), lerr.ecases[0].Err)
 			return &lerr, lerr.ecases[0].Err
 		}
 		return &lerr, nil
 	}
 	return c.writeOpQuery(socket, safeOp, op, ordered)
+}
+
+func reportSpan(s opentracing.Span, t float64, err error) {
+	s.LogEvent("error")
+	s.LogKV(
+		"event", "error",
+		"message", err.Error(),
+		"latency", t,
+	)
 }
 
 func (c *Collection) writeOpQuery(socket *mongoSocket, safeOp *queryOp, op interface{}, ordered bool) (lerr *LastError, err error) {
