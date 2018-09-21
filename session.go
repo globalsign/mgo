@@ -2506,8 +2506,6 @@ func (s *Session) Start() error {
 		return err
 	}
 	imap := r.ID.(bson.M)
-	// RJM
-	logf("id: %+v", r.ID)
 	s.SessionID = imap["id"].(bson.Binary)
 	return nil
 }
