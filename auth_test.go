@@ -39,7 +39,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/homedepot/mgo"
+	"github.com/globalsign/mgo"
 	. "gopkg.in/check.v1"
 )
 

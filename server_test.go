@@ -29,7 +29,7 @@ package mgo_test
 import (
 	"time"
 
-	"github.com/homedepot/mgo"
+	"github.com/globalsign/mgo"
 	. "gopkg.in/check.v1"
 )
 

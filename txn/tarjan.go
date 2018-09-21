@@ -3,7 +3,7 @@ package txn
 import (
 	"sort"
 
-	"github.com/homedepot/mgo/bson"
+	"github.com/globalsign/mgo/bson"
 )
 
 func tarjanSort(successors map[bson.ObjectId][]bson.ObjectId) [][]bson.ObjectId {
