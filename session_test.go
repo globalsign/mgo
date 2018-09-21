@@ -233,6 +233,27 @@ func (s *S) TestURLInvalidSafe(c *C) {
 	}
 }
 
+func (s *S) TestURLUnixSocket(c *C) {
+	type test struct {
+		url      string
+		socket   string
+		database string
+	}
+
+	tests := []test{
+		{"%2Fvar%2Frun%2Fmongodb%2Fmongod.sock", "/var/run/mongodb/mongod.sock", ""},
+		{"%2Fvar%2Frun%2Fmongodb%2Fmongod.sock/testing", "/var/run/mongodb/mongod.sock", "testing"},
+	}
+
+	for _, test := range tests {
+		info, err := mgo.ParseURL(test.url)
+		c.Assert(err, IsNil)
+		c.Assert(info.Addrs, NotNil)
+		c.Assert(info.Addrs[0], Equals, test.socket)
+		c.Assert(info.Database, Equals, test.database)
+	}
+}
+
 func (s *S) TestMinPoolSize(c *C) {
 	tests := []struct {
 		url  string
@@ -426,7 +447,7 @@ func (s *S) TestInsertFindOneNil(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 	err = coll.Find(nil).One(nil)
-	c.Assert(err, ErrorMatches, "unauthorized.*|not authorized.*|.*requires authentication")
+	c.Assert(err, ErrorMatches, "unauthorized.*|not authorized.*|.* requires authentication")
 }
 
 func (s *S) TestInsertFindOneMap(c *C) {
@@ -785,6 +806,92 @@ func (s *S) TestUpdateNil(c *C) {
 	c.Assert(result["n"], Equals, 46)
 }
 
+func (s *S) TestUpdateWithArrayFiltersMulti(c *C) {
+	if !s.versionAtLeast(3, 6) {
+		c.Skip("requires 3.6+")
+	}
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+	// defer session.DB("mydb").C("mycoll").DropCollection()
+	err = coll.Insert(
+		M{"_id": 1, "grades": []int{95, 92, 90}},
+		M{"_id": 2, "grades": []int{98, 100, 102}},
+		M{"_id": 3, "grades": []int{95, 110, 100}},
+	)
+	c.Assert(err, IsNil)
+
+	change, err := coll.UpdateWithArrayFilters(
+		M{"grades": M{"$gte": 100}},
+		M{"$set": M{"grades.$[element]": 100}},
+		[]M{
+			M{"element": M{"$gte": 100}},
+		}, true)
+	c.Assert(err, IsNil)
+	c.Assert(change, Not(IsNil))
+	c.Assert(change.Matched, Equals, 2)
+	c.Assert(change.Updated, Equals, 2)
+
+	students := []struct {
+		ID     bson.ObjectId `bson:"_id"`
+		Grades []int         `bson:"grades"`
+	}{}
+	err = coll.Find(bson.M{}).All(&students)
+	c.Assert(err, IsNil)
+	for _, student := range students {
+		for _, grade := range student.Grades {
+			if grade > 100 {
+				c.Fail()
+			}
+		}
+	}
+}
+
+func (s *S) TestUpdateWithArrayFiltersSingle(c *C) {
+	if !s.versionAtLeast(3, 6) {
+		c.Skip("requires 3.6+")
+	}
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+	defer session.DB("mydb").C("mycoll").DropCollection()
+	err = coll.Insert(
+		M{"_id": 1, "grades": []int{95, 92, 90, 100, 104, 50}},
+		M{"_id": 2, "grades": []int{98, 100, 102, 100, 104, 50}},
+		M{"_id": 3, "grades": []int{95, 110, 100, 100, 104, 50}},
+	)
+	c.Assert(err, IsNil)
+
+	change, err := coll.UpdateWithArrayFilters(
+		M{"grades": M{"$gte": 100}},
+		M{"$set": M{"grades.$[element]": 100}},
+		[]M{
+			M{"element": M{"$gte": 100}},
+		}, false)
+	c.Assert(err, IsNil)
+	c.Assert(change, Not(IsNil))
+	c.Assert(change.Matched, Equals, 1)
+	c.Assert(change.Updated, Equals, 1)
+
+	students := []struct {
+		ID     bson.ObjectId `bson:"_id"`
+		Grades []int         `bson:"grades"`
+	}{}
+	err = coll.Find(bson.M{}).All(&students)
+	c.Assert(err, IsNil)
+	for i, student := range students {
+		for _, grade := range student.Grades {
+			if i == 0 && grade > 100 {
+				c.Fail()
+			}
+		}
+	}
+}
+
 func (s *S) TestUpsert(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
@@ -837,11 +944,7 @@ func (s *S) TestUpsert(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(info.Updated, Equals, 0)
 	c.Assert(info.Matched, Equals, 0)
-	if s.versionAtLeast(2, 6) {
-		c.Assert(info.UpsertedId, Equals, 48)
-	} else {
-		c.Assert(info.UpsertedId, IsNil) // Unfortunate, but that's what Mongo gave us.
-	}
+	c.Assert(info.UpsertedId, Equals, 48)
 
 	err = coll.Find(M{"k": 48}).One(result)
 	c.Assert(err, IsNil)
@@ -874,11 +977,7 @@ func (s *S) TestUpsertId(c *C) {
 	info, err = coll.UpsertId(47, M{"_id": 47, "n": 47})
 	c.Assert(err, IsNil)
 	c.Assert(info.Updated, Equals, 0)
-	if s.versionAtLeast(2, 6) {
-		c.Assert(info.UpsertedId, Equals, 47)
-	} else {
-		c.Assert(info.UpsertedId, IsNil)
-	}
+	c.Assert(info.UpsertedId, Equals, 47)
 
 	err = coll.FindId(47).One(result)
 	c.Assert(err, IsNil)
@@ -900,13 +999,8 @@ func (s *S) TestUpdateAll(c *C) {
 
 	info, err := coll.UpdateAll(M{"k": M{"$gt": 42}}, M{"$unset": M{"missing": 1}})
 	c.Assert(err, IsNil)
-	if s.versionAtLeast(2, 6) {
-		c.Assert(info.Updated, Equals, 0)
-		c.Assert(info.Matched, Equals, 4)
-	} else {
-		c.Assert(info.Updated, Equals, 4)
-		c.Assert(info.Matched, Equals, 4)
-	}
+	c.Assert(info.Updated, Equals, 0)
+	c.Assert(info.Matched, Equals, 4)
 
 	info, err = coll.UpdateAll(M{"k": M{"$gt": 42}}, M{"$inc": M{"n": 1}})
 	c.Assert(err, IsNil)
@@ -926,12 +1020,6 @@ func (s *S) TestUpdateAll(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 45)
 
-	if !s.versionAtLeast(2, 6) {
-		// 2.6 made this invalid.
-		info, err = coll.UpdateAll(M{"k": 47}, M{"k": 47, "n": 47})
-		c.Assert(err, Equals, nil)
-		c.Assert(info.Updated, Equals, 0)
-	}
 }
 
 func (s *S) TestRemove(c *C) {
@@ -1137,6 +1225,9 @@ func (s *S) TestCreateCollectionCapped(c *C) {
 }
 
 func (s *S) TestCreateCollectionNoIndex(c *C) {
+	if s.versionAtLeast(4, 0) {
+		c.Skip("can't set autoIndexId:false when creating collections in databases other than the local database in 4.0 and above")
+	}
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -1679,6 +1770,37 @@ func (s *S) TestViewWithCollation(c *C) {
 	c.Assert(docs[1].Nm, Equals, "CaSe")
 }
 
+func (s *S) TestFindWithMinMax(c *C) {
+	if !s.versionAtLeast(3, 4) {
+		c.Skip("depends on mongodb 3.4+")
+	}
+	// CreateView has to be run against mongos
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	db := session.DB("mydb")
+
+	coll := db.C("mycoll")
+
+	for i := 0; i < 4; i++ {
+		err = coll.Insert(bson.M{"_id": i, "nm": "a"})
+		c.Assert(err, IsNil)
+		err = coll.Insert(bson.M{"_id": fmt.Sprintf("x%d", i), "nm": "b"})
+		c.Assert(err, IsNil)
+	}
+
+	ids := []interface{}{}
+	iter := coll.Find(nil).Sort("_id").Min(bson.M{"_id": 2}).Max(bson.M{"_id": "x2"}).Iter()
+	var doc bson.M
+	for iter.Next(&doc) {
+		ids = append(ids, doc["_id"])
+	}
+	c.Assert(iter.Err(), IsNil)
+
+	c.Assert(ids, DeepEquals, []interface{}{2, 3, "x0", "x1"})
+}
+
 func (s *S) TestCountQuery(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
@@ -1770,10 +1892,6 @@ func (s *S) TestCountSkipLimit(c *C) {
 }
 
 func (s *S) TestCountMaxTimeMS(c *C) {
-	if !s.versionAtLeast(2, 6) {
-		c.Skip("SetMaxTime only supported in 2.6+")
-	}
-
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -1793,10 +1911,6 @@ func (s *S) TestCountMaxTimeMS(c *C) {
 }
 
 func (s *S) TestCountHint(c *C) {
-	if !s.versionAtLeast(2, 6) {
-		c.Skip("Not implemented until mongo 2.5.5 https://jira.mongodb.org/browse/SERVER-2677")
-	}
-
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -1867,10 +1981,6 @@ func (s *S) TestQuerySetMaxScan(c *C) {
 }
 
 func (s *S) TestQuerySetMaxTime(c *C) {
-	if !s.versionAtLeast(2, 6) {
-		c.Skip("SetMaxTime only supported in 2.6+")
-	}
-
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -3123,7 +3233,9 @@ func (s *S) TestFindForResetsResult(c *C) {
 }
 
 func (s *S) TestFindIterSnapshot(c *C) {
-
+	if s.versionAtLeast(4, 0) {
+		c.Skip("iter snapshot is not supported in 4.0 and above")
+	}
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -3222,10 +3334,6 @@ func (s *S) TestSortScoreText(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
-
-	if !s.versionAtLeast(2, 4) {
-		c.Skip("Text search depends on 2.4+")
-	}
 
 	coll := session.DB("mydb").C("mycoll")
 
@@ -3501,11 +3609,7 @@ func (s *S) TestSafeInsert(c *C) {
 	// It must have sent two operations (INSERT_OP + getLastError QUERY_OP)
 	stats := mgo.GetStats()
 
-	if s.versionAtLeast(2, 6) {
-		c.Assert(stats.SentOps, Equals, 1)
-	} else {
-		c.Assert(stats.SentOps, Equals, 2)
-	}
+	c.Assert(stats.SentOps, Equals, 1)
 
 	mgo.ResetStats()
 
@@ -3530,10 +3634,6 @@ func (s *S) TestSafeParameters(c *C) {
 	session.SetSafe(&mgo.Safe{W: 4, WTimeout: 100})
 	err = coll.Insert(M{"_id": 1})
 	c.Assert(err, ErrorMatches, "timeout|timed out waiting for slaves|Not enough data-bearing nodes|waiting for replication timed out") // :-(
-	if !s.versionAtLeast(2, 6) {
-		// 2.6 turned it into a query error.
-		c.Assert(err.(*mgo.LastError).WTimeout, Equals, true)
-	}
 }
 
 func (s *S) TestQueryErrorOne(c *C) {
@@ -3549,10 +3649,8 @@ func (s *S) TestQueryErrorOne(c *C) {
 	// Oh, the dance of error codes. :-(
 	if s.versionAtLeast(3, 2) {
 		c.Assert(err.(*mgo.QueryError).Code, Equals, 2)
-	} else if s.versionAtLeast(2, 6) {
-		c.Assert(err.(*mgo.QueryError).Code, Equals, 17287)
 	} else {
-		c.Assert(err.(*mgo.QueryError).Code, Equals, 13097)
+		c.Assert(err.(*mgo.QueryError).Code, Equals, 17287)
 	}
 }
 
@@ -3575,10 +3673,8 @@ func (s *S) TestQueryErrorNext(c *C) {
 	// Oh, the dance of error codes. :-(
 	if s.versionAtLeast(3, 2) {
 		c.Assert(err.(*mgo.QueryError).Code, Equals, 2)
-	} else if s.versionAtLeast(2, 6) {
-		c.Assert(err.(*mgo.QueryError).Code, Equals, 17287)
 	} else {
-		c.Assert(err.(*mgo.QueryError).Code, Equals, 13097)
+		c.Assert(err.(*mgo.QueryError).Code, Equals, 17287)
 	}
 	c.Assert(iter.Err(), Equals, err)
 }
@@ -3599,16 +3695,14 @@ var indexTests = []struct {
 	},
 }, {
 	mgo.Index{
-		Key:      []string{"a", "-b"},
-		Unique:   true,
-		DropDups: true,
+		Key:    []string{"a", "-b"},
+		Unique: true,
 	},
 	M{
-		"name":     "a_1_b_-1",
-		"key":      M{"a": 1, "b": -1},
-		"ns":       "mydb.mycoll",
-		"unique":   true,
-		"dropDups": true,
+		"name":   "a_1_b_-1",
+		"key":    M{"a": 1, "b": -1},
+		"ns":     "mydb.mycoll",
+		"unique": true,
 	},
 }, {
 	mgo.Index{
@@ -3768,10 +3862,6 @@ func (s *S) TestEnsureIndex(c *C) {
 	coll := session.DB("mydb").C("mycoll")
 
 	for _, test := range indexTests {
-		if !s.versionAtLeast(2, 4) && test.expected["textIndexVersion"] != nil {
-			continue
-		}
-
 		// Only test partial indexes on
 		if !s.versionAtLeast(3, 2) && test.expected["name"] == "partial_1" {
 			continue
@@ -3789,11 +3879,6 @@ func (s *S) TestEnsureIndex(c *C) {
 			expectedName, _ = test.expected["name"].(string)
 		}
 
-		if s.versionAtLeast(2, 7) {
-			// Was deprecated in 2.6, and not being reported by 2.7+.
-			delete(test.expected, "dropDups")
-			test.index.DropDups = false
-		}
 		if s.versionAtLeast(3, 2) && test.expected["textIndexVersion"] != nil {
 			test.expected["textIndexVersion"] = 3
 		}
@@ -4254,13 +4339,8 @@ func (s *S) TestEnsureIndexEvalGetIndexes(c *C) {
 	c.Assert(indexes[2].Key, DeepEquals, []string{"-b"})
 	c.Assert(indexes[3].Name, Equals, "c_-1_e_1")
 	c.Assert(indexes[3].Key, DeepEquals, []string{"-c", "e"})
-	if s.versionAtLeast(2, 2) {
-		c.Assert(indexes[4].Name, Equals, "d_2d")
-		c.Assert(indexes[4].Key, DeepEquals, []string{"$2d:d"})
-	} else {
-		c.Assert(indexes[4].Name, Equals, "d_")
-		c.Assert(indexes[4].Key, DeepEquals, []string{"$2d:d"})
-	}
+	c.Assert(indexes[4].Name, Equals, "d_2d")
+	c.Assert(indexes[4].Key, DeepEquals, []string{"$2d:d"})
 }
 
 var testTTL = flag.Bool("test-ttl", false, "test TTL collections (may take 1 minute)")
@@ -4667,9 +4747,6 @@ func (s *S) TestFsync(c *C) {
 }
 
 func (s *S) TestRepairCursor(c *C) {
-	if !s.versionAtLeast(2, 7) {
-		c.Skip("RepairCursor only works on 2.7+")
-	}
 	if s.versionAtLeast(3, 2, 17) {
 		c.Skip("fail on 3.2.17+")
 	}
@@ -4717,10 +4794,6 @@ func (s *S) TestRepairCursor(c *C) {
 }
 
 func (s *S) TestPipeIter(c *C) {
-	if !s.versionAtLeast(2, 1) {
-		c.Skip("Pipe only works on 2.1+")
-	}
-
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -4753,10 +4826,6 @@ func (s *S) TestPipeIter(c *C) {
 }
 
 func (s *S) TestPipeAll(c *C) {
-	if !s.versionAtLeast(2, 1) {
-		c.Skip("Pipe only works on 2.1+")
-	}
-
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -4778,10 +4847,6 @@ func (s *S) TestPipeAll(c *C) {
 }
 
 func (s *S) TestPipeOne(c *C) {
-	if !s.versionAtLeast(2, 1) {
-		c.Skip("Pipe only works on 2.1+")
-	}
-
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -4803,10 +4868,6 @@ func (s *S) TestPipeOne(c *C) {
 }
 
 func (s *S) TestPipeExplain(c *C) {
-	if !s.versionAtLeast(2, 1) {
-		c.Skip("Pipe only works on 2.1+")
-	}
-
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -4824,9 +4885,6 @@ func (s *S) TestPipeExplain(c *C) {
 }
 
 func (s *S) TestPipeCollation(c *C) {
-	if !s.versionAtLeast(2, 1) {
-		c.Skip("Pipe only works on 2.1+")
-	}
 	if !s.versionAtLeast(3, 3, 12) {
 		c.Skip("collations being released with 3.4")
 	}
@@ -4961,7 +5019,7 @@ func (s *S) TestFindIterDoneErr(c *C) {
 	ok := iter.Next(&result)
 	c.Assert(iter.Done(), Equals, true)
 	c.Assert(ok, Equals, false)
-	c.Assert(iter.Err(), ErrorMatches, "unauthorized.*|not authorized.*|.*requires authentication")
+	c.Assert(iter.Err(), ErrorMatches, "unauthorized.*|not authorized.*|.* requires authentication")
 }
 
 func (s *S) TestFindIterDoneNotFound(c *C) {
@@ -4990,13 +5048,8 @@ func (s *S) TestLogReplay(c *C) {
 	}
 
 	iter := coll.Find(nil).LogReplay().Iter()
-	if s.versionAtLeast(2, 6) {
-		// This used to fail in 2.4. Now it's just a smoke test.
-		c.Assert(iter.Err(), IsNil)
-	} else {
-		c.Assert(iter.Next(bson.M{}), Equals, false)
-		c.Assert(iter.Err(), ErrorMatches, "no ts field in query")
-	}
+	// This used to fail in 2.4. Now it's just a smoke test.
+	c.Assert(iter.Err(), IsNil)
 }
 
 func (s *S) TestSetCursorTimeout(c *C) {

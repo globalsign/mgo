@@ -422,17 +422,22 @@ func (cluster *mongoCluster) syncServersLoop() {
 	debugf("SYNC Cluster %p is stopping its sync loop.", cluster)
 }
 
-func (cluster *mongoCluster) server(addr string, tcpaddr *net.TCPAddr) *mongoServer {
+func (cluster *mongoCluster) server(addr string, raddr net.Addr) *mongoServer {
 	cluster.RLock()
-	server := cluster.servers.Search(tcpaddr.String())
+	server := cluster.servers.Search(raddr.String())
 	cluster.RUnlock()
 	if server != nil {
 		return server
 	}
-	return newServer(addr, tcpaddr, cluster.sync, cluster.dial, cluster.dialInfo)
+	return newServer(addr, raddr, cluster.sync, cluster.dial, cluster.dialInfo)
 }
 
-func resolveAddr(addr string) (*net.TCPAddr, error) {
+func resolveAddr(addr string) (net.Addr, error) {
+	// Check if addr is a Unix Domain Socket
+	if strings.HasSuffix(addr, ".sock") {
+		return &net.UnixAddr{Net: "unix", Name: addr}, nil
+	}
+
 	// Simple cases that do not need actual resolution. Works with IPv4 and v6.
 	if host, port, err := net.SplitHostPort(addr); err == nil {
 		if port, _ := strconv.Atoi(port); port > 0 {
@@ -513,12 +518,12 @@ func (cluster *mongoCluster) syncServersIteration(direct bool) {
 		go func() {
 			defer wg.Done()
 
-			tcpaddr, err := resolveAddr(addr)
+			raddr, err := resolveAddr(addr)
 			if err != nil {
 				log("SYNC Failed to start sync of ", addr, ": ", err.Error())
 				return
 			}
-			resolvedAddr := tcpaddr.String()
+			resolvedAddr := raddr.String()
 
 			m.Lock()
 			if byMaster {
@@ -537,7 +542,7 @@ func (cluster *mongoCluster) syncServersIteration(direct bool) {
 			seen[resolvedAddr] = true
 			m.Unlock()
 
-			server := cluster.server(addr, tcpaddr)
+			server := cluster.server(addr, raddr)
 			info, hosts, err := cluster.syncServer(server)
 			if err != nil {
 				cluster.removeServer(server)

@@ -84,8 +84,6 @@ const (
 	zeroDuration = time.Duration(0)
 )
 
-// mgo.v3: Drop Strong mode, suffix all modes with "Mode".
-
 // When changing the Session type, check if newSession and copySession
 // need to be updated too.
 
@@ -229,7 +227,12 @@ const (
 //     mongodb://myuser:mypass@localhost:40001,otherhost:40001/mydb
 //
 // If the port number is not provided for a server, it defaults to 27017.
+// A host could be an Unix Domain Socket (POSIX Local IPC Socket) like:
 //
+//     %2Fvar%2Frun%2Fmongodb%2Fmongod.sock
+//     myuser:mypass@%2Ftmp%2Fmongod.sock/mydb
+//
+// A socket must have the file extension .sock and must not contain unescaped characters
 // The username and password provided in the URL will be used to authenticate
 // into the database named after the slash at the end of the host names, or into
 // the "admin" database if none is provided.  The authentication information
@@ -682,13 +685,11 @@ type ReadPreference struct {
 	TagSets []bson.D
 }
 
-// mgo.v3: Drop DialInfo.Dial.
-
 // ServerAddr represents the address for establishing a connection to an
 // individual MongoDB server.
 type ServerAddr struct {
-	str string
-	tcp *net.TCPAddr
+	str  string
+	addr net.Addr
 }
 
 // String returns the address that was provided for the server before resolution.
@@ -697,8 +698,14 @@ func (addr *ServerAddr) String() string {
 }
 
 // TCPAddr returns the resolved TCP address for the server.
+// TCPAddr will panic if ServerAddr is a Unix Domain Socket
 func (addr *ServerAddr) TCPAddr() *net.TCPAddr {
-	return addr.tcp
+	return (*net.TCPAddr)(addr.addr.(*net.TCPAddr))
+}
+
+// Addr returns the resolved TCP address for the server.
+func (addr *ServerAddr) Addr() net.Addr {
+	return addr.addr
 }
 
 // DialWithInfo establishes a new session to the cluster identified by info.
@@ -711,7 +718,7 @@ func DialWithInfo(dialInfo *DialInfo) (*Session, error) {
 	addrs := make([]string, len(info.Addrs))
 	for i, addr := range info.Addrs {
 		p := strings.LastIndexAny(addr, "]:")
-		if p == -1 || addr[p] != ':' {
+		if (p == -1 || addr[p] != ':') && !strings.HasSuffix(addr, ".sock") {
 			// XXX This is untested. The test suite doesn't use the standard port.
 			addr += ":27017"
 		}
@@ -821,11 +828,26 @@ func extractURL(s string) (*urlInfo, error) {
 		}
 		s = s[c+1:]
 	}
-	if c := strings.Index(s, "/"); c != -1 {
+	if c := strings.LastIndex(s, "/"); c != -1 && !strings.HasSuffix(s[c+1:], ".sock") {
 		info.db = s[c+1:]
 		s = s[:c]
 	}
 	info.addrs = strings.Split(s, ",")
+
+	for i := 0; i < len(info.addrs); i++ {
+		if strings.Contains(info.addrs[i], "/") {
+			return nil, fmt.Errorf("host information cannot contain any unescaped slashes")
+		}
+
+		if strings.HasSuffix(info.addrs[i], ".sock") {
+			var err error
+
+			info.addrs[i], err = url.PathUnescape(info.addrs[i])
+			if err != nil {
+				return nil, fmt.Errorf("cannot unescape Unix Domain Socket in URL")
+			}
+		}
+	}
 	return info, nil
 }
 
@@ -1144,6 +1166,19 @@ func (s *Session) LogoutAll() {
 	s.m.Unlock()
 }
 
+// AuthenticationRestriction represents an authentication restriction
+// for a MongoDB User. Authentication Restrictions was added in version
+// 3.6.
+//
+// Relevant documentation:
+//
+//     https://docs.mongodb.com/manual/reference/method/db.createUser/#authentication-restrictions
+//
+type AuthenticationRestriction struct {
+	ClientSource  []string `bson:"clientSource,omitempty"`
+	ServerAddress []string `bson:"serverAddress,omitempty"`
+}
+
 // User represents a MongoDB user.
 //
 // Relevant documentation:
@@ -1176,14 +1211,14 @@ type User struct {
 	// only works in the admin database.
 	OtherDBRoles map[string][]Role `bson:"otherDBRoles,omitempty"`
 
-	// UserSource indicates where to look for this user's credentials.
-	// It may be set to a database name, or to "$external" for
-	// consulting an external resource such as Kerberos. UserSource
-	// must not be set if Password or PasswordHash are present.
+	// AuthenticationRestrictions represents authentication restrictions
+	// the server enforces on the created user. Specifies a list of IP
+	// addresses and CIDR ranges from which the user is allowed to connect
+	// to the server or from which the server can accept users.
 	//
-	// WARNING: This setting was only ever supported in MongoDB 2.4,
-	// and is now obsolete.
-	UserSource string `bson:"userSource,omitempty"`
+	// WARNING: Authentication Restrictions are only supported in version
+	// 3.6 and above.
+	AuthenticationRestrictions []AuthenticationRestriction `bson:"authenticationRestrictions,omitempty"`
 }
 
 // Role available role for users
@@ -1237,9 +1272,6 @@ const (
 // a MongoDB user within the db database. If the named user doesn't exist
 // it will be created.
 //
-// This method should only be used from MongoDB 2.4 and on. For older
-// MongoDB releases, use the obsolete AddUser method instead.
-//
 // Relevant documentation:
 //
 //     http://docs.mongodb.org/manual/reference/user-privileges/
@@ -1249,23 +1281,15 @@ func (db *Database) UpsertUser(user *User) error {
 	if user.Username == "" {
 		return fmt.Errorf("user has no Username")
 	}
-	if (user.Password != "" || user.PasswordHash != "") && user.UserSource != "" {
-		return fmt.Errorf("user has both Password/PasswordHash and UserSource set")
-	}
+
 	if len(user.OtherDBRoles) > 0 && db.Name != "admin" && db.Name != "$external" {
 		return fmt.Errorf("user with OtherDBRoles is only supported in the admin or $external databases")
 	}
 
-	// Attempt to run this using 2.6+ commands.
-	rundb := db
-	if user.UserSource != "" {
-		// Compatibility logic for the userSource field of MongoDB <= 2.4.X
-		rundb = db.Session.DB(user.UserSource)
-	}
-	err := rundb.runUserCmd("updateUser", user)
+	err := db.runUserCmd("updateUser", user)
 	// retry with createUser when isAuthError in order to enable the "localhost exception"
 	if isNotFound(err) || isAuthError(err) {
-		return rundb.runUserCmd("createUser", user)
+		return db.runUserCmd("createUser", user)
 	}
 	if !isNoCmd(err) {
 		return err
@@ -1277,15 +1301,10 @@ func (db *Database) UpsertUser(user *User) error {
 		psum := md5.New()
 		psum.Write([]byte(user.Username + ":mongo:" + user.Password))
 		set = append(set, bson.DocElem{Name: "pwd", Value: hex.EncodeToString(psum.Sum(nil))})
-		unset = append(unset, bson.DocElem{Name: "userSource", Value: 1})
 	} else if user.PasswordHash != "" {
 		set = append(set, bson.DocElem{Name: "pwd", Value: user.PasswordHash})
-		unset = append(unset, bson.DocElem{Name: "userSource", Value: 1})
 	}
-	if user.UserSource != "" {
-		set = append(set, bson.DocElem{Name: "userSource", Value: user.UserSource})
-		unset = append(unset, bson.DocElem{Name: "pwd", Value: 1})
-	}
+
 	if user.Roles != nil || user.OtherDBRoles != nil {
 		set = append(set, bson.DocElem{Name: "roles", Value: user.Roles})
 		if len(user.OtherDBRoles) > 0 {
@@ -1346,49 +1365,11 @@ func (db *Database) runUserCmd(cmdName string, user *User) error {
 	if roles != nil || user.Roles != nil || cmdName == "createUser" {
 		cmd = append(cmd, bson.DocElem{Name: "roles", Value: roles})
 	}
-	err := db.Run(cmd, nil)
-	if !isNoCmd(err) && user.UserSource != "" && (user.UserSource != "$external" || db.Name != "$external") {
-		return fmt.Errorf("MongoDB 2.6+ does not support the UserSource setting")
-	}
-	return err
-}
-
-// AddUser creates or updates the authentication credentials of user within
-// the db database.
-//
-// WARNING: This method is obsolete and should only be used with MongoDB 2.2
-// or earlier. For MongoDB 2.4 and on, use UpsertUser instead.
-func (db *Database) AddUser(username, password string, readOnly bool) error {
-	// Try to emulate the old behavior on 2.6+
-	user := &User{Username: username, Password: password}
-	if db.Name == "admin" {
-		if readOnly {
-			user.Roles = []Role{RoleReadAny}
-		} else {
-			user.Roles = []Role{RoleReadWriteAny}
-		}
-	} else {
-		if readOnly {
-			user.Roles = []Role{RoleRead}
-		} else {
-			user.Roles = []Role{RoleReadWrite}
-		}
-	}
-	err := db.runUserCmd("updateUser", user)
-	if isNotFound(err) {
-		return db.runUserCmd("createUser", user)
-	}
-	if !isNoCmd(err) {
-		return err
+	if user.AuthenticationRestrictions != nil && len(user.AuthenticationRestrictions) > 0 {
+		cmd = append(cmd, bson.DocElem{Name: "authenticationRestrictions", Value: user.AuthenticationRestrictions})
 	}
 
-	// Command doesn't exist. Fallback to pre-2.6 behavior.
-	psum := md5.New()
-	psum.Write([]byte(username + ":mongo:" + password))
-	digest := hex.EncodeToString(psum.Sum(nil))
-	c := db.C("system.users")
-	_, err = c.Upsert(bson.M{"user": username}, bson.M{"$set": bson.M{"user": username, "pwd": digest, "readOnly": readOnly}})
-	return err
+	return db.Run(cmd, nil)
 }
 
 // RemoveUser removes the authentication credentials of user from the database.
@@ -1408,7 +1389,6 @@ type indexSpec struct {
 	Name, NS                string
 	Key                     bson.D
 	Unique                  bool    `bson:",omitempty"`
-	DropDups                bool    `bson:"dropDups,omitempty"`
 	Background              bool    `bson:",omitempty"`
 	Sparse                  bool    `bson:",omitempty"`
 	Bits                    int     `bson:",omitempty"`
@@ -1432,7 +1412,6 @@ type indexSpec struct {
 type Index struct {
 	Key           []string // Index key fields; prefix name with dash (-) for descending order
 	Unique        bool     // Prevent two documents from having the same index key
-	DropDups      bool     // Drop documents with the same index key as a previously indexed one
 	Background    bool     // Build index in background and return immediately
 	Sparse        bool     // Only index documents containing the Key fields
 	PartialFilter bson.M   // Partial index filter expression
@@ -1450,8 +1429,7 @@ type Index struct {
 	// Min and Max were improperly typed as int when they should have been
 	// floats.  To preserve backwards compatibility they are still typed as
 	// int and the following two fields enable reading and writing the same
-	// fields as float numbers. In mgo.v3, these fields will be dropped and
-	// Min/Max will become floats.
+	// fields as float numbers.
 	Min, Max   int
 	Minf, Maxf float64
 	BucketSize float64
@@ -1524,9 +1502,6 @@ type Collation struct {
 	// as done in the French language.
 	Backwards bool `bson:"backwards,omitempty"`
 }
-
-// mgo.v3: Drop Minf and Maxf and transform Min and Max to floats.
-// mgo.v3: Drop DropDups as it's unsupported past 2.8.
 
 type indexKeyInfo struct {
 	name    string
@@ -1629,7 +1604,6 @@ func (c *Collection) EnsureIndexKey(key ...string) error {
 //     index := Index{
 //         Key: []string{"lastname", "firstname"},
 //         Unique: true,
-//         DropDups: true,
 //         Background: true, // See notes.
 //         Sparse: true,
 //     }
@@ -1644,8 +1618,7 @@ func (c *Collection) EnsureIndexKey(key ...string) error {
 //     [$<kind>:][-]<field name>
 //
 // If the Unique field is true, the index must necessarily contain only a single
-// document per Key.  With DropDups set to true, documents with the same key
-// as a previously indexed one will be dropped rather than an error returned.
+// document per Key.
 //
 // If Background is true, other connections will be allowed to proceed using
 // the collection without the index while it's being built. Note that the
@@ -1709,7 +1682,6 @@ func (c *Collection) EnsureIndex(index Index) error {
 		NS:                      c.FullName,
 		Key:                     keyInfo.key,
 		Unique:                  index.Unique,
-		DropDups:                index.DropDups,
 		Background:              index.Background,
 		Sparse:                  index.Sparse,
 		Bits:                    index.Bits,
@@ -1936,7 +1908,6 @@ func indexFromSpec(spec indexSpec) Index {
 		Name:             spec.Name,
 		Key:              simpleIndexKey(spec.Key),
 		Unique:           spec.Unique,
-		DropDups:         spec.DropDups,
 		Background:       spec.Background,
 		Sparse:           spec.Sparse,
 		Minf:             spec.Min,
@@ -2777,8 +2748,7 @@ func (p *Pipe) Iter() *Iter {
 	c := p.collection.With(cloned)
 
 	var result struct {
-		Result []bson.Raw // 2.4, no cursors.
-		Cursor cursorData // 2.6+, with cursors.
+		Cursor cursorData
 	}
 
 	cmd := pipeCmd{
@@ -2797,11 +2767,8 @@ func (p *Pipe) Iter() *Iter {
 		cmd.AllowDisk = false
 		err = c.Database.Run(cmd, &result)
 	}
-	firstBatch := result.Result
-	if firstBatch == nil {
-		firstBatch = result.Cursor.FirstBatch
-	}
-	it := c.NewIter(p.session, firstBatch, result.Cursor.Id, err)
+
+	it := c.NewIter(p.session, result.Cursor.FirstBatch, result.Cursor.Id, err)
 	if p.maxTimeMS > 0 {
 		it.maxTimeMS = p.maxTimeMS
 	}
@@ -2998,7 +2965,6 @@ func (p *Pipe) Collation(collation *Collation) *Pipe {
 //
 //    https://docs.mongodb.com/manual/reference/command/getLastError/
 //
-// mgo.v3: Use a single user-visible error type.
 type LastError struct {
 	Err             string
 	Code, N, Waited int
@@ -3116,6 +3082,33 @@ func (c *Collection) UpdateId(id interface{}, update interface{}) error {
 
 func (c *Collection) UpdateIdTransaction(t *Transaction, id interface{}, update interface{}) error {
 	return c.UpdateTransaction(t, bson.D{{Name: "_id", Value: id}}, update)
+}
+
+// UpdateWithArrayFilters allows passing an array of filter documents that determines
+// which array elements to modify for an update operation on an array field. The multi parameter
+// determines whether the update should update multiple documents (true) or only one document (false).
+//
+// See example: https://docs.mongodb.com/manual/reference/method/db.collection.update/#update-arrayfiltersi
+//
+// Note this method is only compatible with MongoDB 3.6+.
+func (c *Collection) UpdateWithArrayFilters(selector, update, arrayFilters interface{}, multi bool) (*ChangeInfo, error) {
+	if selector == nil {
+		selector = bson.D{}
+	}
+	op := updateOp{
+		Collection:   c.FullName,
+		Selector:     selector,
+		Update:       update,
+		Flags:        2,
+		Multi:        multi,
+		ArrayFilters: arrayFilters,
+	}
+	lerr, err := c.writeOp(&op, true)
+	var info *ChangeInfo
+	if err == nil && lerr != nil {
+		info = &ChangeInfo{Updated: lerr.modified, Matched: lerr.N}
+	}
+	return info, err
 }
 
 // ChangeInfo holds details about the outcome of an update operation.
@@ -3544,6 +3537,34 @@ func (q *Query) Sort(fields ...string) *Query {
 	return q
 }
 
+// Specify a $min value to specify the inclusive lower bound for a specific index in order to constrain the results of
+// Find(). The $min specifies the lower bound for all keys of a specific index in order.
+//
+// Relevant documentation:
+//
+//     https://docs.mongodb.com/manual/reference/operator/meta/min/
+//
+func (q *Query) Min(min interface{}) *Query {
+	q.m.Lock()
+	q.op.options.Min = min
+	q.m.Unlock()
+	return q
+}
+
+// Specify a $max value to specify the exclusive upper bound for a specific index in order to constrain the results of
+// Find(). The $max specifies the upper bound for all keys of a specific index in order.
+//
+// Relevant documentation:
+//
+//     https://docs.mongodb.com/manual/reference/operator/meta/max/
+//
+func (q *Query) Max(max interface{}) *Query {
+	q.m.Lock()
+	q.op.options.Max = max
+	q.m.Unlock()
+	return q
+}
+
 // Collation allows to specify language-specific rules for string comparison,
 // such as rules for lettercase and accent marks.
 // When specifying collation, the locale field is mandatory; all other collation
@@ -3881,6 +3902,8 @@ func prepareFindOp(socket *mongoSocket, op *queryOp, limit int32) bool {
 		MaxTimeMS:       op.options.MaxTimeMS,
 		MaxScan:         op.options.MaxScan,
 		Hint:            op.options.Hint,
+		Min:             op.options.Min,
+		Max:             op.options.Max,
 		Comment:         op.options.Comment,
 		Snapshot:        op.options.Snapshot,
 		Collation:       op.options.Collation,
@@ -4004,7 +4027,7 @@ func (db *Database) run(socket *mongoSocket, cmd, result interface{}) (err error
 	if result != nil {
 		err = bson.Unmarshal(data, result)
 		if err != nil {
-			debugf("Run command unmarshaling failed: %#v", op, err)
+			debugf("Run command unmarshaling: %#v, failed: %#v", op, err)
 			return err
 		}
 		if globalDebug && globalLogger != nil {
@@ -5225,13 +5248,13 @@ func (s *Session) acquireSocket(slaveOk bool) (*mongoSocket, error) {
 	s.m.RLock()
 	// If there is a slave socket reserved and its use is acceptable, take it as long
 	// as there isn't a master socket which would be preferred by the read preference mode.
-	if s.slaveSocket != nil && s.slaveSocket.dead == nil && s.slaveOk && slaveOk && (s.masterSocket == nil || s.consistency != PrimaryPreferred && s.consistency != Monotonic) {
+	if s.slaveSocket != nil && s.slaveSocket.Dead() == nil && s.slaveOk && slaveOk && (s.masterSocket == nil || s.consistency != PrimaryPreferred && s.consistency != Monotonic) {
 		socket := s.slaveSocket
 		socket.Acquire()
 		s.m.RUnlock()
 		return socket, nil
 	}
-	if s.masterSocket != nil && s.masterSocket.dead == nil {
+	if s.masterSocket != nil && s.masterSocket.Dead() == nil {
 		socket := s.masterSocket
 		socket.Acquire()
 		s.m.RUnlock()
@@ -5245,7 +5268,7 @@ func (s *Session) acquireSocket(slaveOk bool) (*mongoSocket, error) {
 	defer s.m.Unlock()
 
 	if s.slaveSocket != nil && s.slaveOk && slaveOk && (s.masterSocket == nil || s.consistency != PrimaryPreferred && s.consistency != Monotonic) {
-		if s.slaveSocket.dead == nil {
+		if s.slaveSocket.Dead() == nil {
 			s.slaveSocket.Acquire()
 			return s.slaveSocket, nil
 		} else {
@@ -5253,7 +5276,7 @@ func (s *Session) acquireSocket(slaveOk bool) (*mongoSocket, error) {
 		}
 	}
 	if s.masterSocket != nil {
-		if s.masterSocket.dead == nil {
+		if s.masterSocket.Dead() == nil {
 			s.masterSocket.Acquire()
 			return s.masterSocket, nil
 		} else {
