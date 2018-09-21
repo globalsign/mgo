@@ -1276,7 +1276,7 @@ func (s *S) TestCreateCollectionWithCollation(c *C) {
 	var docs []struct {
 		A string `bson:"a"`
 	}
-	err = coll.Find(M{"a": "case"}).All(&docs)
+	err = coll.Find(bson.M{"a": "case"}).All(&docs)
 	c.Assert(err, IsNil)
 	c.Assert(docs[0].A, Equals, "case")
 	c.Assert(docs[1].A, Equals, "CaSe")
@@ -1371,7 +1371,7 @@ func (s *S) TestIsDupFindAndModify(c *C) {
 	c.Assert(err, IsNil)
 	err = coll.Insert(M{"n": 2})
 	c.Assert(err, IsNil)
-	_, err = coll.Find(M{"n": 1}).Apply(mgo.Change{Update: M{"$inc": M{"n": 1}}}, M{})
+	_, err = coll.Find(M{"n": 1}).Apply(mgo.Change{Update: M{"$inc": M{"n": 1}}}, bson.M{})
 	c.Assert(err, ErrorMatches, ".*duplicate key error.*")
 	c.Assert(mgo.IsDup(err), Equals, true)
 }
@@ -1383,14 +1383,14 @@ func (s *S) TestIsDupRetryUpsert(c *C) {
 
 	coll := session.DB("mydb").C("mycoll")
 
-	err = coll.Insert(M{"_id": 1, "x": 1})
+	err = coll.Insert(bson.M{"_id": 1, "x": 1})
 	c.Assert(err, IsNil)
 
-	_, err = coll.Upsert(M{"_id": 1, "x": 2}, M{"$set": M{"x": 3}})
+	_, err = coll.Upsert(bson.M{"_id": 1, "x": 2}, bson.M{"$set": bson.M{"x": 3}})
 	c.Assert(mgo.IsDup(err), Equals, true)
 
-	_, err = coll.Find(M{"_id": 1, "x": 2}).Apply(mgo.Change{
-		Update: M{"$set": M{"x": 3}},
+	_, err = coll.Find(bson.M{"_id": 1, "x": 2}).Apply(mgo.Change{
+		Update: bson.M{"$set": bson.M{"x": 3}},
 		Upsert: true,
 	}, nil)
 	c.Assert(mgo.IsDup(err), Equals, true)
@@ -1563,11 +1563,11 @@ func (s *S) TestView(c *C) {
 	coll := db.C("mycoll")
 
 	for i := 0; i < 4; i++ {
-		err = coll.Insert(M{"_id": i, "nm": "a"})
+		err = coll.Insert(bson.M{"_id": i, "nm": "a"})
 		c.Assert(err, IsNil)
 	}
 
-	pipeline := []M{{"$match": M{"_id": M{"$gte": 2}}}}
+	pipeline := []bson.M{{"$match": bson.M{"_id": bson.M{"$gte": 2}}}}
 
 	err = db.CreateView("myview", coll.Name, pipeline, nil)
 	c.Assert(err, IsNil)
@@ -1577,9 +1577,9 @@ func (s *S) TestView(c *C) {
 	c.Assert(names, DeepEquals, []string{"mycoll", "myview", "system.views"})
 
 	var viewInfo struct {
-		ID       string `bson:"_id"`
-		ViewOn   string `bson:"viewOn"`
-		Pipeline []M    `bson:"pipeline"`
+		ID       string   `bson:"_id"`
+		ViewOn   string   `bson:"viewOn"`
+		Pipeline []bson.M `bson:"pipeline"`
 	}
 
 	err = db.C("system.views").Find(nil).One(&viewInfo)
@@ -1602,7 +1602,7 @@ func (s *S) TestView(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(result.ID, Equals, 2)
 
-	err = view.Find(M{"_id": 3}).One(&result)
+	err = view.Find(bson.M{"_id": 3}).One(&result)
 	c.Assert(err, IsNil)
 	c.Assert(result.ID, Equals, 3)
 
@@ -1612,20 +1612,20 @@ func (s *S) TestView(c *C) {
 		C  int    `bson:"c"`
 	}
 
-	err = view.Pipe([]M{{"$project": M{"c": M{"$sum": []interface{}{"$_id", 10}}}}}).One(&resultPipe)
+	err = view.Pipe([]bson.M{{"$project": bson.M{"c": bson.M{"$sum": []interface{}{"$_id", 10}}}}}).One(&resultPipe)
 	c.Assert(err, IsNil)
 	c.Assert(resultPipe.C, Equals, 12)
 
 	err = view.EnsureIndexKey("nm")
 	c.Assert(err, NotNil)
 
-	err = view.Insert(M{"_id": 5, "nm": "b"})
+	err = view.Insert(bson.M{"_id": 5, "nm": "b"})
 	c.Assert(err, NotNil)
 
-	err = view.Remove(M{"_id": 2})
+	err = view.Remove(bson.M{"_id": 2})
 	c.Assert(err, NotNil)
 
-	err = view.Update(M{"_id": 2}, M{"$set": M{"d": true}})
+	err = view.Update(bson.M{"_id": 2}, bson.M{"$set": bson.M{"d": true}})
 	c.Assert(err, NotNil)
 
 	err = db.C("myview").DropCollection()
@@ -1661,13 +1661,13 @@ func (s *S) TestViewWithCollation(c *C) {
 
 	names := []string{"case", "CaSe", "cäse"}
 	for _, name := range names {
-		err = coll.Insert(M{"nm": name})
+		err = coll.Insert(bson.M{"nm": name})
 		c.Assert(err, IsNil)
 	}
 
 	collation := &mgo.Collation{Locale: "en", Strength: 2}
 
-	err = db.CreateView("myview", "mycoll", []M{{"$match": M{"nm": "case"}}}, collation)
+	err = db.CreateView("myview", "mycoll", []bson.M{{"$match": bson.M{"nm": "case"}}}, collation)
 	c.Assert(err, IsNil)
 
 	var docs []struct {
@@ -1929,12 +1929,12 @@ func (s *S) TestQueryComment(c *C) {
 		c.Assert(err, IsNil)
 	}
 
-	query := coll.Find(M{"n": 41})
+	query := coll.Find(bson.M{"n": 41})
 	query.Comment("some comment")
 	err = query.One(nil)
 	c.Assert(err, IsNil)
 
-	query = coll.Find(M{"n": 41})
+	query = coll.Find(bson.M{"n": 41})
 	query.Comment("another comment")
 	err = query.One(nil)
 	c.Assert(err, IsNil)
@@ -1950,7 +1950,7 @@ func (s *S) TestQueryComment(c *C) {
 			nField = "query.filter.n"
 		}
 	}
-	n, err := session.DB("mydb").C("system.profile").Find(M{nField: 41, commentField: "some comment"}).Count()
+	n, err := session.DB("mydb").C("system.profile").Find(bson.M{nField: 41, commentField: "some comment"}).Count()
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, 1)
 
@@ -2184,7 +2184,7 @@ func (s *S) TestResumeIter(c *C) {
 	c.Assert(iter.Err(), Not(IsNil))
 
 	// Get an iterator to resume from later, ensure it works
-	iter = coll.Find(M{}).Batch(2).Iter()
+	iter = coll.Find(bson.M{}).Batch(2).Iter()
 	c.Assert(iter.Next(&got), Equals, true)
 	c.Assert(iter.Err(), IsNil)
 	c.Assert(got.N, Equals, 0)
@@ -3744,7 +3744,7 @@ var indexTests = []struct {
 // The default "_id_" index is never returned, and the "v" field is removed from
 // the response.
 func getIndex34(session *mgo.Session, db, collection, name string) M {
-	cmd := M{"listIndexes": collection}
+	cmd := bson.M{"listIndexes": collection}
 	result := M{}
 	session.DB(db).Run(cmd, result)
 
@@ -4491,7 +4491,7 @@ func (s *S) TestMapReduceOutOfOrder(c *C) {
 	job := &mgo.MapReduce{
 		Map:    "function() { emit(this.n, 1); }",
 		Reduce: "function(key, values) { return Array.sum(values); }",
-		Out:    M{"a": "a", "z": "z", "replace": "mr", "db": "otherdb", "b": "b", "y": "y"},
+		Out:    bson.M{"a": "a", "z": "z", "replace": "mr", "db": "otherdb", "b": "b", "y": "y"},
 	}
 
 	info, err := coll.Find(nil).MapReduce(job, nil)
@@ -4515,7 +4515,7 @@ func (s *S) TestMapReduceScope(c *C) {
 		Scope:  M{"x": 42},
 	}
 
-	var result []M
+	var result []bson.M
 	_, err = coll.Find(nil).MapReduce(job, &result)
 	c.Assert(err, IsNil)
 	c.Assert(len(result), Equals, 1)
@@ -4561,7 +4561,7 @@ func (s *S) TestMapReduceLimit(c *C) {
 		Reduce: "function(key, values) { return Array.sum(values); }",
 	}
 
-	var result []M
+	var result []bson.M
 	_, err = coll.Find(nil).Limit(3).MapReduce(job, &result)
 	c.Assert(err, IsNil)
 	c.Assert(len(result), Equals, 3)
@@ -4618,7 +4618,7 @@ func (s *S) TestZeroTimeRoundtrip(c *C) {
 	err = conn.Insert(d)
 	c.Assert(err, IsNil)
 
-	var result M
+	var result bson.M
 	err = conn.Find(nil).One(&result)
 	c.Assert(err, IsNil)
 	t, isTime := result["t"].(time.Time)
@@ -4646,7 +4646,7 @@ func (s *S) TestFsyncLock(c *C) {
 		done <- now
 	}()
 
-	err = clone.DB("mydb").C("mycoll").Insert(M{"n": 1})
+	err = clone.DB("mydb").C("mycoll").Insert(bson.M{"n": 1})
 	unlocked := time.Now()
 	unlocking := <-done
 	c.Assert(err, IsNil)
@@ -4914,7 +4914,7 @@ func (s *S) TestFindIterCloseKillsCursor(c *C) {
 	}
 
 	iter := coll.Find(nil).Batch(2).Iter()
-	c.Assert(iter.Next(M{}), Equals, true)
+	c.Assert(iter.Next(bson.M{}), Equals, true)
 
 	c.Assert(iter.Close(), IsNil)
 	c.Assert(serverCursorsOpen(session), Equals, cursors)
@@ -4961,7 +4961,7 @@ func (s *S) TestFindIterDoneErr(c *C) {
 	ok := iter.Next(&result)
 	c.Assert(iter.Done(), Equals, true)
 	c.Assert(ok, Equals, false)
-	c.Assert(iter.Err(), ErrorMatches, "unauthorized.*|not authorized.*|.requires authentication")
+	c.Assert(iter.Err(), ErrorMatches, "unauthorized.*|not authorized.*|.*requires authentication")
 }
 
 func (s *S) TestFindIterDoneNotFound(c *C) {
@@ -4994,7 +4994,7 @@ func (s *S) TestLogReplay(c *C) {
 		// This used to fail in 2.4. Now it's just a smoke test.
 		c.Assert(iter.Err(), IsNil)
 	} else {
-		c.Assert(iter.Next(M{}), Equals, false)
+		c.Assert(iter.Next(bson.M{}), Equals, false)
 		c.Assert(iter.Err(), ErrorMatches, "no ts field in query")
 	}
 }
@@ -5024,7 +5024,7 @@ func (s *S) TestNewIterNoServer(c *C) {
 	c.Assert(err, IsNil)
 	defer session.Close()
 
-	data, err := bson.Marshal(M{"a": 1})
+	data, err := bson.Marshal(bson.M{"a": 1})
 	c.Assert(err, IsNil)
 
 	coll := session.DB("mydb").C("mycoll")
@@ -5046,7 +5046,7 @@ func (s *S) TestNewIterNoServerPresetErr(c *C) {
 	c.Assert(err, IsNil)
 	defer session.Close()
 
-	data, err := bson.Marshal(M{"a": 1})
+	data, err := bson.Marshal(bson.M{"a": 1})
 	c.Assert(err, IsNil)
 
 	coll := session.DB("mydb").C("mycoll")
@@ -5141,7 +5141,7 @@ func (s *S) TestCollationQueries(c *C) {
 	c.Assert(err, IsNil)
 	defer session.Close()
 
-	docsToInsert := []M{
+	docsToInsert := []bson.M{
 		{"text_number": "010"},
 		{"text_number": "2"},
 		{"text_number": "10"},
@@ -5167,7 +5167,7 @@ func (s *S) TestCollationQueries(c *C) {
 	iter := coll.Find(nil).Sort("text_number").Collation(collation).Iter()
 	defer iter.Close()
 	for _, expectedRes := range []string{"2", "010", "10"} {
-		res := make(M)
+		res := make(bson.M)
 		found := iter.Next(&res)
 		c.Assert(iter.Err(), IsNil)
 		c.Assert(found, Equals, true)
