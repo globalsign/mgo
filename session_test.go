@@ -440,6 +440,42 @@ func (s *S) TestInsertFindOne(c *C) {
 	c.Assert(result.B, Equals, 3)
 }
 
+func (s *S) TestInsertFindOneTransaction(c *C) {
+	session, err := mgo.Dial("localhost:40011")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	session.Start()
+	tr := mgo.NewTransaction(session)
+
+	coll := session.DB("mydb").C("mycoll")
+
+	// insert a dummy so we're not trying to create the collection
+	// in a multi-document transaction
+	err = coll.Insert(M{"dummy": 1})
+	err = coll.InsertTransaction(&tr, M{"a": 1, "b": 2})
+	c.Assert(err, IsNil)
+	err = coll.InsertTransaction(&tr, M{"a": 1, "b": 3})
+	c.Assert(err, IsNil)
+
+	result := struct{ A, B int }{}
+
+	err = coll.Find(M{"a": 1}).Sort("b").One(&result)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+
+	tr.Commit()
+
+	err = coll.Find(M{"a": 1}).Sort("b").One(&result)
+	c.Assert(err, IsNil)
+	c.Assert(result.A, Equals, 1)
+	c.Assert(result.B, Equals, 2)
+
+	err = coll.Find(M{"a": 1}).Sort("-b").One(&result)
+	c.Assert(err, IsNil)
+	c.Assert(result.A, Equals, 1)
+	c.Assert(result.B, Equals, 3)
+}
+
 func (s *S) TestInsertFindOneNil(c *C) {
 	session, err := mgo.Dial("localhost:40002")
 	c.Assert(err, IsNil)
@@ -688,7 +724,9 @@ func (s *S) TestUpdateWithCompletedTransaction(c *C) {
 	c.Assert(err, IsNil)
 	defer session.Close()
 
-	tr := mgo.NewTransaction(session, false)
+	session.Start()
+
+	tr := mgo.NewTransaction(session)
 	coll := session.DB("mydb").C("mycoll")
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
@@ -705,13 +743,15 @@ func (s *S) TestUpdateWithCompletedTransaction(c *C) {
 	c.Assert(err, IsNil)
 
 	result := make(M)
-	err = coll.Find(M{"k": 43}).One(result)
-	c.Assert(err, Equals, mgo.ErrNotFound)
+	err = coll.Find(M{"k": 42}).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result["n"], Equals, 42)
 
 	tr.Commit()
 
-	err = coll.Find(M{"k": 43}).One(result)
-	c.Assert(err, Equals, 43)
+	err = coll.Find(M{"k": 42}).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result["n"], Equals, 43)
 }
 
 func (s *S) TestUpdateWithAbortedTransaction(c *C) {
@@ -719,12 +759,14 @@ func (s *S) TestUpdateWithAbortedTransaction(c *C) {
 	c.Assert(err, IsNil)
 	defer session.Close()
 
-	tr := mgo.NewTransaction(session, false)
+	session.Start()
+
+	tr := mgo.NewTransaction(session)
 	coll := session.DB("mydb").C("mycoll")
 
 	ns := []int{40, 41, 42, 43, 44, 45, 46}
 	for _, n := range ns {
-		err := coll.Insert(M{"k": n, "n": n})
+		err := coll.Insert(tr, M{"k": n, "n": n})
 		c.Assert(err, IsNil)
 	}
 
@@ -736,16 +778,15 @@ func (s *S) TestUpdateWithAbortedTransaction(c *C) {
 	c.Assert(err, IsNil)
 
 	result := make(M)
-	err = coll.Find(M{"k": 43}).One(result)
-	c.Assert(err, Equals, mgo.ErrNotFound)
+	err = coll.Find(M{"k": 42}).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result["n"], Equals, 42)
 
 	tr.Abort()
 
 	err = coll.Find(M{"k": 42}).One(result)
 	c.Assert(err, IsNil)
-
-	err = coll.Find(M{"k": 43}).One(result)
-	c.Assert(err, Equals, mgo.ErrNotFound)
+	c.Assert(result["n"], Equals, 42)
 }
 
 func (s *S) TestUpdateId(c *C) {
@@ -765,6 +806,43 @@ func (s *S) TestUpdateId(c *C) {
 	c.Assert(err, IsNil)
 
 	result := make(M)
+	err = coll.FindId(42).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result["n"], Equals, 43)
+
+	err = coll.UpdateId(47, M{"k": 47, "n": 47})
+	c.Assert(err, Equals, mgo.ErrNotFound)
+
+	err = coll.FindId(47).One(result)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+}
+
+func (s *S) TestUpdateIdTransaction(c *C) {
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	session.Start()
+
+	coll := session.DB("mydb").C("mycoll")
+	tr := mgo.NewTransaction(session)
+
+	ns := []int{40, 41, 42, 43, 44, 45, 46}
+	for _, n := range ns {
+		err := coll.Insert(M{"_id": n, "n": n})
+		c.Assert(err, IsNil)
+	}
+
+	err = coll.UpdateIdTransaction(&tr, 42, M{"$inc": M{"n": 1}})
+	c.Assert(err, IsNil)
+
+	result := make(M)
+
+	err = coll.FindId(42).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result["n"], Equals, 42)
+
+	tr.Commit()
 	err = coll.FindId(42).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result["n"], Equals, 43)
@@ -951,6 +1029,39 @@ func (s *S) TestUpsert(c *C) {
 	c.Assert(result["n"], Equals, 48)
 }
 
+func (s *S) TestUpsertTransaction(c *C) {
+	session, err := mgo.Dial("localhost:40011")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	session.Start()
+	tr := mgo.NewTransaction(session)
+	coll := session.DB("mydb").C("mycoll")
+
+	ns := []int{40, 41, 42, 43, 44, 45, 46}
+	for _, n := range ns {
+		err := coll.Insert(bson.D{{Name: "k", Value: n}, {Name: "n", Value: n}})
+		c.Assert(err, IsNil)
+	}
+
+	info, err := coll.UpsertTransaction(&tr, M{"k": 42}, bson.D{{Name: "k", Value: 42}, {Name: "n", Value: 24}})
+	c.Assert(err, IsNil)
+	c.Assert(info.Updated, Equals, 1)
+	c.Assert(info.Matched, Equals, 1)
+	c.Assert(info.UpsertedId, IsNil)
+
+	result := M{}
+	err = coll.Find(M{"k": 42}).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result["n"], Equals, 42)
+
+	tr.Commit()
+
+	err = coll.Find(M{"k": 42}).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result["n"], Equals, 24)
+}
+
 func (s *S) TestUpsertId(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
@@ -1039,6 +1150,47 @@ func (s *S) TestRemove(c *C) {
 	c.Assert(err, IsNil)
 
 	result := &struct{ N int }{}
+	err = coll.Find(M{"n": 42}).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result.N, Equals, 42)
+
+	err = coll.Find(M{"n": 43}).One(result)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+
+	err = coll.Find(M{"n": 44}).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result.N, Equals, 44)
+}
+
+func (s *S) TestRemoveTransaction(c *C) {
+	session, err := mgo.Dial("localhost:40011")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	session.Start()
+	tr := mgo.NewTransaction(session)
+
+	coll := session.DB("mydb").C("mycoll")
+
+	ns := []int{40, 41, 42, 43, 44, 45, 46}
+	for _, n := range ns {
+		err := coll.Insert(M{"n": n})
+		c.Assert(err, IsNil)
+	}
+
+	err = coll.RemoveTransaction(&tr, M{"n": M{"$gt": 42}})
+	c.Assert(err, IsNil)
+
+	result := &struct{ N int }{}
+	err = coll.Find(M{"n": 42}).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result.N, Equals, 42)
+
+	err = coll.Find(M{"n": 43}).One(result)
+	c.Assert(result.N, Equals, 43)
+
+	tr.Commit()
+
 	err = coll.Find(M{"n": 42}).One(result)
 	c.Assert(err, IsNil)
 	c.Assert(result.N, Equals, 42)

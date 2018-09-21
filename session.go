@@ -2506,6 +2506,8 @@ func (s *Session) Start() error {
 		return err
 	}
 	imap := r.ID.(bson.M)
+	// RJM
+	logf("id: %+v", r.ID)
 	s.SessionID = imap["id"].(bson.Binary)
 	return nil
 }
@@ -2548,7 +2550,7 @@ func (s *Session) AbortTransaction(n int64) error {
 		return nil
 	}
 	cmd := bson.D{
-		{Name: "commitTransaction", Value: 1},
+		{Name: "abortTransaction", Value: 1},
 		{Name: "txnNumber", Value: n},
 		{Name: "autocommit", Value: false},
 		{Name: "lsid", Value: bson.M{"id": s.SessionID}},
@@ -5657,13 +5659,17 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 				err := errors.New("transaction already completed")
 				return nil, err
 			}
+			if op.txn.session.SessionID.Kind == 0 {
+				err := errors.New("session not started")
+				return nil, err
+			}
 			if op.txn.started == false {
 				cmd = append(cmd, bson.DocElem{Name: "startTransaction", Value: true})
-				cmd = append(cmd, bson.DocElem{Name: "autocommit", Value: op.txn.autoCommit})
 				op.txn.txnNumber = op.txn.session.nextTxnNumber
 				op.txn.session.nextTxnNumber++
 				op.txn.started = true
 			}
+			cmd = append(cmd, bson.DocElem{Name: "autocommit", Value: false})
 			cmd = append(cmd, bson.DocElem{Name: "txnNumber", Value: op.txn.txnNumber})
 			cmd = append(cmd, bson.DocElem{Name: "lsid", Value: bson.M{"id": op.txn.session.SessionID}})
 		} else {
@@ -5681,13 +5687,17 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 				err := errors.New("transaction already completed")
 				return nil, err
 			}
+			if op.Txn.session.SessionID.Kind == 0 {
+				err := errors.New("session not started")
+				return nil, err
+			}
 			if op.Txn.started == false {
-				cmd = append(cmd, bson.DocElem{Name: "startTransaction", Value: 1})
-				cmd = append(cmd, bson.DocElem{Name: "autocommit", Value: op.Txn.autoCommit})
+				cmd = append(cmd, bson.DocElem{Name: "startTransaction", Value: true})
 				op.Txn.started = true
 				op.Txn.txnNumber = op.Txn.session.nextTxnNumber
 				op.Txn.session.nextTxnNumber++
 			}
+			cmd = append(cmd, bson.DocElem{Name: "autocommit", Value: false})
 			cmd = append(cmd, bson.DocElem{Name: "txnNumber", Value: op.Txn.txnNumber})
 			cmd = append(cmd, bson.DocElem{Name: "lsid", Value: bson.M{"id": op.Txn.session.SessionID}})
 		} else {
@@ -5713,13 +5723,17 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 				err := errors.New("transaction already completed")
 				return nil, err
 			}
+			if op.Txn.session.SessionID.Kind == 0 {
+				err := errors.New("session not started")
+				return nil, err
+			}
 			if op.Txn.started == false {
-				cmd = append(cmd, bson.DocElem{Name: "startTransaction", Value: 1})
-				cmd = append(cmd, bson.DocElem{Name: "autocommit", Value: op.Txn.autoCommit})
+				cmd = append(cmd, bson.DocElem{Name: "startTransaction", Value: true})
 				op.Txn.started = true
 				op.Txn.txnNumber = op.Txn.session.nextTxnNumber
 				op.Txn.session.nextTxnNumber++
 			}
+			cmd = append(cmd, bson.DocElem{Name: "autocommit", Value: false})
 			cmd = append(cmd, bson.DocElem{Name: "txnNumber", Value: op.Txn.txnNumber})
 			cmd = append(cmd, bson.DocElem{Name: "lsid", Value: bson.M{"id": op.Txn.session.SessionID}})
 		} else {

@@ -33,22 +33,17 @@ package mgo
 // it is either committed or aborted.  If the session is killed out from under it, of
 // course, it will be left in an inconsistent state, but the transaction will be dead and
 // presumably already aborted.
-
-// The only field that should be actively modified by the user is AutoCommit.  Set this field
-// to true if you want "autocommit" to be set when writes are done through the transaction.
 type Transaction struct {
-	session    *Session
-	started    bool
-	finished   bool
-	txnNumber  int64
-	autoCommit bool
+	session   *Session
+	started   bool
+	finished  bool
+	txnNumber int64
 }
 
 // NewTransaction creates a new Transaction object.
-func NewTransaction(s *Session, ac bool) Transaction {
+func NewTransaction(s *Session) Transaction {
 	return Transaction{
-		session:    s,
-		autoCommit: ac,
+		session: s,
 	}
 }
 
