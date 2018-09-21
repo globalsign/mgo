@@ -45,10 +45,6 @@ tr.Commit()
 tr.Abort()
 ```
 
-Currently there are no tests, but we will be working on those before
-doing a pull request.  We're just making this available so the
-community can make use of them.
-
 ## Replication
 
 In order to adjust the tests to use replication (because the default
@@ -83,5 +79,4 @@ Server.Session()
 Caveats:
 
 - You can create more than one transaction object, but only use one at a time.
-- You can update the AutoCommit field in the transaction object before doing the first update operation.
 - More docs to come.

@@ -3033,6 +3033,7 @@ func (c *Collection) Insert(docs ...interface{}) error {
 	return err
 }
 
+// InsertTransaction inserts using a transaction.  See Insert().
 func (c *Collection) InsertTransaction(t *Transaction, docs ...interface{}) error {
 	_, err := c.writeOp(&insertOp{c.FullName, docs, 0, t}, true)
 	return err
@@ -3056,6 +3057,7 @@ func (c *Collection) Update(selector interface{}, update interface{}) error {
 	return err
 }
 
+// Update updates using a transaction.  See Update().
 func (c *Collection) UpdateTransaction(t *Transaction, selector interface{}, update interface{}) error {
 	if selector == nil {
 		selector = bson.D{}
@@ -3082,6 +3084,7 @@ func (c *Collection) UpdateId(id interface{}, update interface{}) error {
 	return c.Update(bson.D{{Name: "_id", Value: id}}, update)
 }
 
+// UpdateIDTransaction calls UpdateId using a transaction.  See UpdateId()
 func (c *Collection) UpdateIdTransaction(t *Transaction, id interface{}, update interface{}) error {
 	return c.UpdateTransaction(t, bson.D{{Name: "_id", Value: id}}, update)
 }
@@ -3141,6 +3144,7 @@ func (c *Collection) UpdateAll(selector interface{}, update interface{}) (info *
 	return c.UpdateAllTransaction(nil, selector, update)
 }
 
+// UpdateAllTransaction is UpdateAll using a transaction.  See UpdateAll().
 func (c *Collection) UpdateAllTransaction(t *Transaction, selector interface{}, update interface{}) (info *ChangeInfo, err error) {
 	if selector == nil {
 		selector = bson.D{}
@@ -3177,6 +3181,7 @@ func (c *Collection) Upsert(selector interface{}, update interface{}) (info *Cha
 	return c.UpsertTransaction(nil, selector, update)
 }
 
+// UpsertTransaction upserts using a transaction.  See Upsert()
 func (c *Collection) UpsertTransaction(t *Transaction, selector interface{}, update interface{}) (info *ChangeInfo, err error) {
 	if selector == nil {
 		selector = bson.D{}
@@ -3219,6 +3224,7 @@ func (c *Collection) UpsertId(id interface{}, update interface{}) (info *ChangeI
 	return c.Upsert(bson.D{{Name: "_id", Value: id}}, update)
 }
 
+// UpsertIdTransaction is UpsertId with transaction support.  See UpsertId().
 func (c *Collection) UpsertIdTransaction(t *Transaction, id interface{}, update interface{}) (info *ChangeInfo, err error) {
 	return c.UpsertTransaction(t, bson.D{{Name: "_id", Value: id}}, update)
 }
@@ -3237,6 +3243,7 @@ func (c *Collection) Remove(selector interface{}) error {
 	return c.RemoveTransaction(nil, selector)
 }
 
+// RemoveTransaction is Remove with transaction support.  See Remove()
 func (c *Collection) RemoveTransaction(t *Transaction, selector interface{}) error {
 	if selector == nil {
 		selector = bson.D{}
@@ -3257,6 +3264,7 @@ func (c *Collection) RemoveId(id interface{}) error {
 	return c.Remove(bson.D{{Name: "_id", Value: id}})
 }
 
+// RemoveIdTransaction is RemoveId with transaction support.  See RemoveId().
 func (c *Collection) RemoveIdTransaction(t *Transaction, id interface{}) error {
 	return c.RemoveTransaction(t, bson.D{{Name: "_id", Value: id}})
 }
@@ -3274,6 +3282,7 @@ func (c *Collection) RemoveAll(selector interface{}) (info *ChangeInfo, err erro
 	return c.RemoveAllTransaction(nil, selector)
 }
 
+// RemoveAllTransaction is RemoveAll with transaction support.  see RemoveAll().
 func (c *Collection) RemoveAllTransaction(t *Transaction, selector interface{}) (info *ChangeInfo, err error) {
 	if selector == nil {
 		selector = bson.D{}
