@@ -167,14 +167,17 @@ func (s *S) TestURLReadPreference(c *C) {
 	type test struct {
 		url  string
 		mode mgo.Mode
+
+		maxStalenessSeconds int
 	}
 
 	tests := []test{
-		{"localhost:40001?readPreference=primary", mgo.Primary},
-		{"localhost:40001?readPreference=primaryPreferred", mgo.PrimaryPreferred},
-		{"localhost:40001?readPreference=secondary", mgo.Secondary},
-		{"localhost:40001?readPreference=secondaryPreferred", mgo.SecondaryPreferred},
-		{"localhost:40001?readPreference=nearest", mgo.Nearest},
+		{"localhost:40001?readPreference=primary", mgo.Primary, 0},
+		{"localhost:40001?readPreference=primaryPreferred", mgo.PrimaryPreferred, 0},
+		{"localhost:40001?readPreference=secondary", mgo.Secondary, 0},
+		{"localhost:40001?readPreference=secondaryPreferred", mgo.SecondaryPreferred, 0},
+		{"localhost:40001?readPreference=secondary&maxStalenessSeconds=110", mgo.Secondary, 110},
+		{"localhost:40001?readPreference=nearest", mgo.Nearest, 0},
 	}
 
 	for _, test := range tests {
@@ -182,6 +185,7 @@ func (s *S) TestURLReadPreference(c *C) {
 		c.Assert(err, IsNil)
 		c.Assert(info.ReadPreference, NotNil)
 		c.Assert(info.ReadPreference.Mode, Equals, test.mode)
+		c.Assert(info.ReadPreference.MaxStalenessSeconds, Equals, test.maxStalenessSeconds)
 	}
 }
 
@@ -189,6 +193,7 @@ func (s *S) TestURLInvalidReadPreference(c *C) {
 	urls := []string{
 		"localhost:40001?readPreference=foo",
 		"localhost:40001?readPreference=primarypreferred",
+		"localhost:40001?readPreference=primary&maxStalenessSeconds=90",
 	}
 	for _, url := range urls {
 		_, err := mgo.ParseURL(url)

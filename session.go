@@ -304,6 +304,11 @@ const (
 //        false: Initiate the connection without TLS/SSL.
 //        The default value is false.
 //
+//     maxStalenessSeconds=<seconds>
+//
+//        specify a maximum replication lag, or “staleness” in seconds, for reads from secondaries, minimum value allowed is 90.
+//        Works on MongoDB 3.4+
+//
 // Relevant documentation:
 //
 //     http://docs.mongodb.org/manual/reference/connection-string/
@@ -353,6 +358,7 @@ func ParseURL(url string) (*DialInfo, error) {
 	var readPreferenceTagSets []bson.D
 	minPoolSize := 0
 	maxIdleTimeMS := 0
+	maxStalenessSeconds := 0
 	safe := Safe{}
 	for _, opt := range uinfo.options {
 		switch opt.key {
@@ -390,6 +396,17 @@ func ParseURL(url string) (*DialInfo, error) {
 			if err != nil {
 				return nil, errors.New("bad value for maxPoolSize: " + opt.value)
 			}
+		case "maxStalenessSeconds":
+			maxStalenessSeconds, err = strconv.Atoi(opt.value)
+
+			if err != nil {
+				return nil, errors.New("bad value for maxStalenessSeconds: " + opt.value)
+			}
+
+			if maxStalenessSeconds > 0 && maxStalenessSeconds < 90 {
+				return nil, errors.New("maxStalenessSeconds too low " + opt.value + ", must be >= 90 seconds")
+			}
+
 		case "appName":
 			if len(opt.value) > 128 {
 				return nil, errors.New("appName too long, must be < 128 bytes: " + opt.value)
@@ -455,6 +472,10 @@ func ParseURL(url string) (*DialInfo, error) {
 		return nil, errors.New("readPreferenceTagSet may not be specified when readPreference is primary")
 	}
 
+	if readPreferenceMode == Primary && maxStalenessSeconds > 0 {
+		return nil, errors.New("maxStalenessSeconds may not be specified when readPreference is primary")
+	}
+
 	info := DialInfo{
 		Addrs:     uinfo.addrs,
 		Direct:    direct,
@@ -469,6 +490,8 @@ func ParseURL(url string) (*DialInfo, error) {
 		ReadPreference: &ReadPreference{
 			Mode:    readPreferenceMode,
 			TagSets: readPreferenceTagSets,
+
+			MaxStalenessSeconds: maxStalenessSeconds,
 		},
 		Safe:           safe,
 		ReplicaSetName: setName,
@@ -607,6 +630,8 @@ func (i *DialInfo) Copy() *DialInfo {
 	if i.ReadPreference != nil {
 		readPreference = &ReadPreference{
 			Mode: i.ReadPreference.Mode,
+
+			MaxStalenessSeconds: i.ReadPreference.MaxStalenessSeconds,
 		}
 		readPreference.TagSets = make([]bson.D, len(i.ReadPreference.TagSets))
 		copy(readPreference.TagSets, i.ReadPreference.TagSets)
@@ -678,6 +703,9 @@ func (i *DialInfo) poolLimit() int {
 type ReadPreference struct {
 	// Mode determines the consistency of results. See Session.SetMode.
 	Mode Mode
+
+	// MaxStalenessSeconds specify a maximum replication lag, or “staleness” in seconds, for reads from secondaries.
+	MaxStalenessSeconds int
 
 	// TagSets indicates which servers are allowed to be used. See Session.SelectServers.
 	TagSets []bson.D
@@ -768,6 +796,7 @@ func DialWithInfo(dialInfo *DialInfo) (*Session, error) {
 	if info.ReadPreference != nil {
 		session.SelectServers(info.ReadPreference.TagSets...)
 		session.SetMode(info.ReadPreference.Mode, true)
+		session.SetMaxStalenessSeconds(info.ReadPreference.MaxStalenessSeconds)
 	} else {
 		session.SetMode(Strong, true)
 	}
@@ -2188,6 +2217,24 @@ func (s *Session) SetPoolTimeout(timeout time.Duration) {
 	s.m.Lock()
 	s.dialInfo.PoolTimeout = timeout
 	s.m.Unlock()
+}
+
+// SetMaxStalenessSeconds set the maximum of seconds of replication lag from secondaries
+// You must specify a maxStalenessSeconds value of 90 seconds or longer: specifying a smaller maxStalenessSeconds value will raise an error.
+// Works on MongoDB 3.4+
+//
+// Relevant documentation:
+//
+//   https://docs.mongodb.com/manual/core/read-preference/#maxstalenessseconds
+//
+func (s *Session) SetMaxStalenessSeconds(seconds int) error {
+	s.m.Lock()
+	defer s.m.Unlock()
+	if seconds > 0 && seconds < 90 {
+		return errors.New("SetMaxStalenessSeconds: minimum of seconds is 90")
+	}
+	s.queryConfig.op.maxStalenessSeconds = seconds
+	return nil
 }
 
 // SetBypassValidation sets whether the server should bypass the registered

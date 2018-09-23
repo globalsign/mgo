@@ -83,6 +83,8 @@ type queryOp struct {
 	hasOptions  bool
 	flags       queryOpFlags
 	readConcern string
+
+	maxStalenessSeconds int
 }
 
 type queryWrapper struct {
@@ -120,10 +122,14 @@ func (op *queryOp) finalQuery(socket *mongoSocket) interface{} {
 			panic(fmt.Sprintf("unsupported read mode: %d", op.mode))
 		}
 		op.hasOptions = true
-		op.options.ReadPreference = make(bson.D, 0, 2)
+		op.options.ReadPreference = make(bson.D, 0, 3)
 		op.options.ReadPreference = append(op.options.ReadPreference, bson.DocElem{Name: "mode", Value: modeName})
 		if len(op.serverTags) > 0 {
 			op.options.ReadPreference = append(op.options.ReadPreference, bson.DocElem{Name: "tags", Value: op.serverTags})
+		}
+
+		if op.maxStalenessSeconds > 0 {
+			op.options.ReadPreference = append(op.options.ReadPreference, bson.DocElem{Name: "maxStalenessSeconds", Value: op.maxStalenessSeconds})
 		}
 	}
 	if op.hasOptions {
