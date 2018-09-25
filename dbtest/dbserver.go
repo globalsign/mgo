@@ -24,12 +24,15 @@ import (
 // Before the DBServer is used the SetPath method must be called to define
 // the location for the database files to be stored.
 type DBServer struct {
-	session *mgo.Session
-	output  bytes.Buffer
-	server  *exec.Cmd
-	dbpath  string
-	host    string
-	tomb    tomb.Tomb
+	session        *mgo.Session
+	output         bytes.Buffer
+	server         *exec.Cmd
+	dbpath         string
+	host           string
+	engine         string
+	disableMonitor bool
+	wtCacheSizeGB  float64
+	tomb           tomb.Tomb
 }
 
 // SetPath defines the path to the directory where the database files will be
