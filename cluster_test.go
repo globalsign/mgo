@@ -2040,10 +2040,6 @@ func (s *S) TestNoDeadlockOnClose(c *C) {
 }
 
 func (s *S) TestSelectServers(c *C) {
-	if !s.versionAtLeast(2, 2) {
-		c.Skip("read preferences introduced in 2.2")
-	}
-
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -2066,9 +2062,6 @@ func (s *S) TestSelectServers(c *C) {
 }
 
 func (s *S) TestSelectServersWithMongos(c *C) {
-	if !s.versionAtLeast(2, 2) {
-		c.Skip("read preferences introduced in 2.2")
-	}
 	if s.versionAtLeast(3, 4) {
 		c.Skip("fail on 3.4+")
 	}

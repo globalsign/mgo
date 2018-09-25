@@ -511,7 +511,7 @@ func (d *decoder) readRaw(kind byte) Raw {
 	d.i += size
 	return Raw{
 		Kind: kind,
-		Data: d.in[d.i-size : d.i],
+		Data: d.in[d.i-size : d.i : d.i],
 	}
 }
 
@@ -1051,5 +1051,5 @@ func (d *decoder) readBytes(length int32) []byte {
 	if d.i < start || d.i > len(d.in) {
 		corrupted()
 	}
-	return d.in[start : start+int(length)]
+	return d.in[start : start+int(length) : start+int(length)]
 }

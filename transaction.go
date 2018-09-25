@@ -1,6 +1,7 @@
 // mgo - MongoDB driver for Go
 //
-// Copyright (c) 2018 Canonical Ltd
+// Copyright (c) 2010-2012 - Gustavo Niemeyer <gustavo@niemeyer.net>
+// transaction.go (c) 2018 Russell Miller/The Home Depot <russell_j_miller@homedepot.com>
 //
 // All rights reserved.
 //
@@ -24,47 +25,40 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package mgo_test
+package mgo
 
-import (
-	"time"
+// The transaction struct is only initialized with a valid Session, and that does not
+// change.  The struct contains state information for the transaction.  The transaction
+// is started when the first write operation is created using it, and it is finished when
+// it is either committed or aborted.  If the session is killed out from under it, of
+// course, it will be left in an inconsistent state, but the transaction will be dead and
+// presumably already aborted.
+type Transaction struct {
+	session   *Session
+	started   bool
+	finished  bool
+	txnNumber int64
+}
 
-	"github.com/globalsign/mgo"
-	. "gopkg.in/check.v1"
-)
-
-func (s *S) TestServerRecoversFromAbend(c *C) {
-	session, err := mgo.Dial("localhost:40001")
-	c.Assert(err, IsNil)
-	defer session.Close()
-	// Peek behind the scenes
-	cluster := session.Cluster()
-	server := cluster.Server("127.0.0.1:40001")
-
-	info := &mgo.DialInfo{
-		Timeout:   time.Second,
-		PoolLimit: 100,
+// NewTransaction creates a new Transaction object.
+func NewTransaction(s *Session) Transaction {
+	return Transaction{
+		session: s,
 	}
+}
 
-	sock, abended, err := server.AcquireSocket(info)
-	c.Assert(err, IsNil)
-	c.Assert(sock, NotNil)
-	sock.Release()
-	c.Check(abended, Equals, false)
-	// Forcefully abend this socket
-	sock.Close()
-	server.AbendSocket(sock)
-	// Next acquire notices the connection was abnormally ended
-	sock, abended, err = server.AcquireSocket(info)
-	c.Assert(err, IsNil)
-	sock.Release()
-	c.Check(abended, Equals, true)
-	// cluster.AcquireSocketWithPoolTimeout should fix the abended problems
-	sock, err = cluster.AcquireSocketWithPoolTimeout(mgo.Primary, false, time.Minute, nil, info)
-	c.Assert(err, IsNil)
-	sock.Release()
-	sock, abended, err = server.AcquireSocket(info)
-	c.Assert(err, IsNil)
-	c.Check(abended, Equals, false)
-	sock.Release()
+// Commit commits and finalizes the transaction.
+func (t *Transaction) Commit() error {
+	// check errors
+	err := t.session.CommitTransaction(t.txnNumber)
+	t.finished = true
+	return err
+}
+
+// Abort aborts and closes the transaction.
+func (t *Transaction) Abort() error {
+	// check errors
+	err := t.session.AbortTransaction(t.txnNumber)
+	t.finished = true
+	return err
 }

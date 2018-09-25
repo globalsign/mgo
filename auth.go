@@ -32,9 +32,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/globalsign/mgo/bson"
 	"sync"
 
-	"github.com/globalsign/mgo/bson"
 	"github.com/globalsign/mgo/internal/scram"
 )
 
