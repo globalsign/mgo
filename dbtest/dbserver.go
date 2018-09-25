@@ -24,14 +24,12 @@ import (
 // Before the DBServer is used the SetPath method must be called to define
 // the location for the database files to be stored.
 type DBServer struct {
-	session        *mgo.Session
-	output         bytes.Buffer
-	server         *exec.Cmd
-	dbpath         string
-	host           string
-	engine         string
-	disableMonitor bool
-	tomb           tomb.Tomb
+	session *mgo.Session
+	output  bytes.Buffer
+	server  *exec.Cmd
+	dbpath  string
+	host    string
+	tomb    tomb.Tomb
 }
 
 // SetPath defines the path to the directory where the database files will be
@@ -41,22 +39,7 @@ func (dbs *DBServer) SetPath(dbpath string) {
 	dbs.dbpath = dbpath
 }
 
-// SetEngine defines the MongoDB storage engine to be used when starting the
-// server.
-func (dbs *DBServer) SetEngine(engine string) {
-	dbs.engine = engine
-}
-
-// SetMonitor defines whether the MongoDB server should be monitored for crashes
-// panics, etc.
-func (dbs *DBServer) SetMonitor(enabled bool) {
-	dbs.disableMonitor = !enabled
-}
-
 func (dbs *DBServer) start(repl bool) {
-	if dbs.engine == "" {
-		dbs.engine = "mmapv1"
-	}
 	if dbs.server != nil {
 		panic("DBServer already started")
 	}
@@ -76,18 +59,15 @@ func (dbs *DBServer) start(repl bool) {
 		"--dbpath", dbs.dbpath,
 		"--bind_ip", "127.0.0.1",
 		"--port", strconv.Itoa(addr.Port),
-		"--storageEngine=" + dbs.engine,
+		"--nssize", "1",
+		"--noprealloc",
+		"--smallfiles",
 	}
-	if dbs.engine == "mmapv1" {
-		// default to mmapv1 and add mmapv1-only args (nssize, noprealloc, smallfiles and nojournal)
-		args = append(args,
-			"--nssize", "1",
-			"--noprealloc",
-			"--smallfiles",
-			"--nojournal",
-		)
+	if repl {
+		args = append(args, "--replSet=rs0")
+	} else {
+		args = append(args, "--nojournal")
 	}
-
 	dbs.tomb = tomb.Tomb{}
 	dbs.server = exec.Command("mongod", args...)
 	dbs.server.Stdout = &dbs.output
@@ -101,9 +81,7 @@ func (dbs *DBServer) start(repl bool) {
 	if repl {
 		dbs.initiateRepl(addr.Port)
 	}
-	if !dbs.disableMonitor {
-		dbs.tomb.Go(dbs.monitor)
-	}
+	dbs.tomb.Go(dbs.monitor)
 	dbs.Wipe()
 }
 
