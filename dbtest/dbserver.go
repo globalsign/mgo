@@ -42,7 +42,27 @@ func (dbs *DBServer) SetPath(dbpath string) {
 	dbs.dbpath = dbpath
 }
 
+// SetEngine defines the MongoDB storage engine to be used when starting the
+// server.
+func (dbs *DBServer) SetEngine(engine string) {
+	dbs.engine = engine
+}
+
+// SetMonitor defines whether the MongoDB server should be monitored for crashes
+// panics, etc.
+func (dbs *DBServer) SetMonitor(enabled bool) {
+	dbs.disableMonitor = !enabled
+}
+
+// SetWiredTigerCacheSize sets the size (in gigabytes) of the WiredTiger cache
+func (dbs *DBServer) SetWiredTigerCacheSize(sizeGB float64) {
+	dbs.wtCacheSizeGB = sizeGB
+}
+
 func (dbs *DBServer) start(repl bool) {
+	if dbs.engine == "" {
+		dbs.engine = "mmapv1"
+	}
 	if dbs.server != nil {
 		panic("DBServer already started")
 	}
@@ -62,15 +82,28 @@ func (dbs *DBServer) start(repl bool) {
 		"--dbpath", dbs.dbpath,
 		"--bind_ip", "127.0.0.1",
 		"--port", strconv.Itoa(addr.Port),
-		"--nssize", "1",
-		"--noprealloc",
-		"--smallfiles",
+		"--storageEngine=" + dbs.engine,
 	}
-	if repl {
-		args = append(args, "--replSet=rs0")
-	} else {
-		args = append(args, "--nojournal")
+
+	switch dbs.engine {
+	case "wiredTiger":
+		if dbs.wtCacheSizeGB == 0 {
+			dbs.wtCacheSizeGB = 0.1
+		}
+		args = append(args, fmt.Sprintf("--wiredTigerCacheSizeGB=%.2f", dbs.wtCacheSizeGB))
+	case "mmapv1":
+		args = append(args,
+			"--nssize", "1",
+			"--noprealloc",
+			"--smallfiles",
+		)
+		if repl {
+			args = append(args, "--replSet=rs0")
+		} else {
+			args = append(args, "--nojournal")
+		}
 	}
+
 	dbs.tomb = tomb.Tomb{}
 	dbs.server = exec.Command("mongod", args...)
 	dbs.server.Stdout = &dbs.output
