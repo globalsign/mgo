@@ -441,6 +441,9 @@ func (s *S) TestInsertFindOne(c *C) {
 }
 
 func (s *S) TestInsertFindOneTransaction(c *C) {
+	if !s.versionAtLeast(4, 0) {
+		c.Skip("Transactions not supported before MongoDB 4.0")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -720,6 +723,9 @@ func (s *S) TestUpdate(c *C) {
 }
 
 func (s *S) TestUpdateWithCompletedTransaction(c *C) {
+	if !s.versionAtLeast(4, 0) {
+		c.Skip("Transactions not supported before MongoDB 4.0")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -755,6 +761,9 @@ func (s *S) TestUpdateWithCompletedTransaction(c *C) {
 }
 
 func (s *S) TestUpdateWithAbortedTransaction(c *C) {
+	if !s.versionAtLeast(4, 0) {
+		c.Skip("Transactions not supported before MongoDB 4.0")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -818,6 +827,9 @@ func (s *S) TestUpdateId(c *C) {
 }
 
 func (s *S) TestUpdateIdTransaction(c *C) {
+	if !s.versionAtLeast(4, 0) {
+		c.Skip("Transactions not supported before MongoDB 4.0")
+	}
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -1030,6 +1042,9 @@ func (s *S) TestUpsert(c *C) {
 }
 
 func (s *S) TestUpsertTransaction(c *C) {
+	if !s.versionAtLeast(4, 0) {
+		c.Skip("Transactions not supported before MongoDB 4.0")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
@@ -1163,6 +1178,9 @@ func (s *S) TestRemove(c *C) {
 }
 
 func (s *S) TestRemoveTransaction(c *C) {
+	if !s.versionAtLeast(4, 0) {
+		c.Skip("Transactions not supported before MongoDB 4.0")
+	}
 	session, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
 	defer session.Close()
