@@ -1,4 +1,5 @@
 package mgo
+
 // mgo - MongoDB driver for Go
 //
 // Copyright (c) 2010-2012 - Gustavo Niemeyer <gustavo@niemeyer.net>
@@ -25,8 +26,6 @@ package mgo
 // ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-package mgo
 
 // The transaction struct is only initialized with a valid Session, and that does not
 // change.  The struct contains state information for the transaction.  The transaction
