@@ -2624,6 +2624,7 @@ func (c *Collection) FindId(id interface{}) *Query {
 type Pipe struct {
 	session    *Session
 	collection *Collection
+	database   *Database
 	pipeline   interface{}
 	allowDisk  bool
 	batchSize  int
@@ -2632,7 +2633,7 @@ type Pipe struct {
 }
 
 type pipeCmd struct {
-	Aggregate string
+	Aggregate interface{}
 	Pipeline  interface{}
 	Cursor    *pipeCmdCursor `bson:",omitempty"`
 	Explain   bool           `bson:",omitempty"`
@@ -2673,22 +2674,57 @@ func (c *Collection) Pipe(pipeline interface{}) *Pipe {
 	}
 }
 
+// pipe prepares a pipe for an aggregation command that will be executed at session level.
+// This is used 4.0 in order to get a changeStream over an entire cluster.
+func (s *Session) pipe(pipeline interface{}) *Pipe {
+	s.m.RLock()
+	batchSize := int(s.queryConfig.op.limit)
+	s.m.RUnlock()
+	return &Pipe{
+		session:    s,
+		database:   nil,
+		collection: nil,
+		pipeline:   pipeline,
+		batchSize:  batchSize,
+	}
+}
+
+// pipe prepares a pipe for an aggregation command that will be executed at database level.
+// This is used 4.0 in order to get a changeStream over an entire database.
+func (db *Database) pipe(pipeline interface{}) *Pipe {
+	session := db.Session
+	session.m.RLock()
+	batchSize := int(session.queryConfig.op.limit)
+	session.m.RUnlock()
+	return &Pipe{
+		session:    session,
+		database:   db,
+		collection: nil,
+		pipeline:   pipeline,
+		batchSize:  batchSize,
+	}
+}
+
 // Iter executes the pipeline and returns an iterator capable of going
 // over all the generated results.
 func (p *Pipe) Iter() *Iter {
 	// Clone session and set it to Monotonic mode so that the server
 	// used for the query may be safely obtained afterwards, if
 	// necessary for iteration when a cursor is received.
-	cloned := p.session.nonEventual()
-	defer cloned.Close()
-	c := p.collection.With(cloned)
-
+	clonedSess := p.session.nonEventual()
+	defer clonedSess.Close()
+	var c *Collection
+	var db *Database
+	if p.collection != nil {
+		c = p.collection.With(clonedSess)
+	} else if p.database != nil {
+		db = p.database.With(clonedSess)
+	}
 	var result struct {
 		Cursor cursorData
 	}
 
 	cmd := pipeCmd{
-		Aggregate: c.Name,
 		Pipeline:  p.pipeline,
 		AllowDisk: p.allowDisk,
 		Cursor:    &pipeCmdCursor{p.batchSize},
@@ -2697,14 +2733,36 @@ func (p *Pipe) Iter() *Iter {
 	if p.maxTimeMS > 0 {
 		cmd.MaxTimeMS = p.maxTimeMS
 	}
-	err := c.Database.Run(cmd, &result)
+
+	var err error
+
+	// We use this function to avoid duplicating code, it executes the command on the right
+	// object (collection, db, or admindb) depending on the requested changestream
+	var runCmd = func() {
+		if c != nil {
+			cmd.Aggregate = c.Name
+			err = c.Database.Run(cmd, &result)
+		} else {
+			cmd.Aggregate = 1
+			if db != nil {
+				err = db.Run(cmd, &result)
+			} else {
+				err = clonedSess.DB("admin").Run(cmd, &result)
+			}
+		}
+	}
+	runCmd()
 	if e, ok := err.(*QueryError); ok && e.Message == `unrecognized field "cursor` {
 		cmd.Cursor = nil
 		cmd.AllowDisk = false
-		err = c.Database.Run(cmd, &result)
+		runCmd()
 	}
-
-	it := c.NewIter(p.session, result.Cursor.FirstBatch, result.Cursor.Id, err)
+	var it *Iter
+	if c != nil {
+		it = c.NewIter(p.session, result.Cursor.FirstBatch, result.Cursor.Id, err)
+	} else {
+		it = clonedSess.newIter(p.session, result.Cursor.FirstBatch, result.Cursor.Id, result.Cursor.NS, err)
+	}
 	if p.maxTimeMS > 0 {
 		it.maxTimeMS = p.maxTimeMS
 	}
@@ -2783,6 +2841,59 @@ func (c *Collection) NewIter(session *Session, firstBatch []bson.Raw, cursorId i
 		}
 		iter.op.cursorId = cursorId
 		iter.op.collection = c.FullName
+		iter.op.replyFunc = iter.replyFunc()
+	}
+	return iter
+}
+
+// newIter returns a newly created iterator with the provided parameters.
+// This is used while building a 4.0 changestream iterator over a database or cluster.
+func (s *Session) newIter(session *Session, firstBatch []bson.Raw, cursorId int64, collectionName string, err error) *Iter {
+	var server *mongoServer
+	s.m.RLock()
+	socket := s.masterSocket
+	if socket == nil {
+		socket = s.slaveSocket
+	}
+	if socket != nil {
+		server = socket.Server()
+	}
+	s.m.RUnlock()
+
+	if server == nil {
+		if s.Mode() == Eventual {
+			panic("Collection.NewIter called in Eventual mode")
+		}
+		if err == nil {
+			err = errors.New("server not available")
+		}
+	}
+
+	if session == nil {
+		session = s
+	}
+
+	iter := &Iter{
+		session: session,
+		server:  server,
+		timeout: -1,
+		err:     err,
+	}
+
+	if socket.ServerInfo().MaxWireVersion >= 4 {
+		iter.isFindCmd = true
+	}
+
+	iter.gotReply.L = &iter.m
+	for _, doc := range firstBatch {
+		iter.docData.Push(doc.Data)
+	}
+	if cursorId != 0 {
+		if socket != nil && socket.ServerInfo().MaxWireVersion >= 4 {
+			iter.docsBeforeMore = len(firstBatch)
+		}
+		iter.op.cursorId = cursorId
+		iter.op.collection = collectionName
 		iter.op.replyFunc = iter.replyFunc()
 	}
 	return iter
