@@ -788,7 +788,13 @@ type urlInfoOption struct {
 }
 
 func extractURL(s string) (*urlInfo, error) {
-	s = strings.TrimPrefix(s, "mongodb://")
+	isSRV := false
+	if strings.Index(s, "mongodb+srv://") == 0 {
+		isSRV = true
+		s = strings.TrimPrefix(s, "mongodb+srv://")
+	} else {
+		s = strings.TrimPrefix(s, "mongodb://")
+	}
 	info := &urlInfo{options: []urlInfoOption{}}
 
 	if c := strings.Index(s, "?"); c != -1 {
@@ -824,6 +830,32 @@ func extractURL(s string) (*urlInfo, error) {
 		s = s[:c]
 	}
 	info.addrs = strings.Split(s, ",")
+	if isSRV == true {
+		// auto turn off ssl
+		info.options = append(info.options, urlInfoOption{key: "ssl", value: "true"})
+		srvAddr := info.addrs[0]
+		params, pe := net.LookupTXT(srvAddr)
+		if pe != nil {
+			return nil, fmt.Errorf(pe.Error())
+		}
+		for _, pair := range strings.FieldsFunc(params[0], isOptSep) {
+			l := strings.SplitN(pair, "=", 2)
+			if len(l) != 2 || l[0] == "" || l[1] == "" {
+				return nil, errors.New("connection option must be key=value: " + pair)
+			}
+			info.options = append(info.options, urlInfoOption{key: l[0], value: l[1]})
+		}
+		_, addrs, le := net.LookupSRV("mongodb", "tcp", srvAddr)
+		if le != nil {
+			return nil, fmt.Errorf(le.Error())
+		}
+		addresses := make([]string, len(addrs))
+		for i, addr := range addrs {
+			address := strings.TrimSuffix(addr.Target, ".")
+			addresses[i] = fmt.Sprintf("%s:%d", address, addr.Port)
+		}
+		info.addrs = addresses
+	}
 	return info, nil
 }
 
@@ -2911,7 +2943,6 @@ func (p *Pipe) SetMaxTime(d time.Duration) *Pipe {
 	p.maxTimeMS = int64(d / time.Millisecond)
 	return p
 }
-
 
 // Collation allows to specify language-specific rules for string comparison,
 // such as rules for lettercase and accent marks.
