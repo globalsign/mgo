@@ -17,6 +17,14 @@ const (
 	UpdateLookup = "updateLookup"
 )
 
+type changeDomainType int
+
+const (
+	changeDomainCollection changeDomainType = iota
+	changeDomainDatabase
+	changeDomainCluster
+)
+
 type ChangeStream struct {
 	iter           *Iter
 	isClosed       bool
@@ -28,6 +36,9 @@ type ChangeStream struct {
 	err            error
 	m              sync.Mutex
 	sessionCopied  bool
+	domainType     changeDomainType
+	session        *Session
+	database       *Database
 }
 
 type ChangeStreamOptions struct {
@@ -53,7 +64,7 @@ type ChangeStreamOptions struct {
 var errMissingResumeToken = errors.New("resume token missing from result")
 
 // Watch constructs a new ChangeStream capable of receiving continuing data
-// from the database.
+// from the database, it works at collection level.
 func (c *Collection) Watch(pipeline interface{},
 	options ChangeStreamOptions) (*ChangeStream, error) {
 
@@ -61,7 +72,7 @@ func (c *Collection) Watch(pipeline interface{},
 		pipeline = []bson.M{}
 	}
 
-	csPipe := constructChangeStreamPipeline(pipeline, options)
+	csPipe := constructChangeStreamPipeline(pipeline, options, changeDomainCollection)
 	pipe := c.Pipe(&csPipe)
 	if options.MaxAwaitTimeMS > 0 {
 		pipe.SetMaxTime(options.MaxAwaitTimeMS)
@@ -85,6 +96,82 @@ func (c *Collection) Watch(pipeline interface{},
 		resumeToken: nil,
 		options:     options,
 		pipeline:    pipeline,
+		domainType:  changeDomainCollection,
+	}, nil
+}
+
+// Watch constructs a new ChangeStream capable of receiving continuing data
+// from the database, it works at cluster level (change events from all collections across al DBs).
+func (sess *Session) Watch(pipeline interface{},
+	options ChangeStreamOptions) (*ChangeStream, error) {
+
+	if pipeline == nil {
+		pipeline = []bson.M{}
+	}
+
+	csPipe := constructChangeStreamPipeline(pipeline, options, changeDomainCluster)
+	pipe := sess.pipe(&csPipe)
+	if options.MaxAwaitTimeMS > 0 {
+		pipe.SetMaxTime(options.MaxAwaitTimeMS)
+	}
+	if options.BatchSize > 0 {
+		pipe.Batch(options.BatchSize)
+	}
+	pIter := pipe.Iter()
+
+	// check that there was no issue creating the iterator.
+	// this will fail immediately with an error from the server if running against
+	// a standalone.
+	if err := pIter.Err(); err != nil {
+		return nil, err
+	}
+
+	pIter.isChangeStream = true
+	return &ChangeStream{
+		iter:        pIter,
+		resumeToken: nil,
+		options:     options,
+		pipeline:    pipeline,
+		domainType:  changeDomainCluster,
+		session:     sess,
+	}, nil
+}
+
+// Watch constructs a new ChangeStream capable of receiving continuing data
+// from the database, it works at DB level (change events from all collections in this DB).
+func (db *Database) Watch(pipeline interface{},
+	options ChangeStreamOptions) (*ChangeStream, error) {
+
+	if pipeline == nil {
+		pipeline = []bson.M{}
+	}
+
+	csPipe := constructChangeStreamPipeline(pipeline, options, changeDomainDatabase)
+	pipe := db.pipe(&csPipe)
+	if options.MaxAwaitTimeMS > 0 {
+		pipe.SetMaxTime(options.MaxAwaitTimeMS)
+	}
+	if options.BatchSize > 0 {
+		pipe.Batch(options.BatchSize)
+	}
+	pIter := pipe.Iter()
+
+	// check that there was no issue creating the iterator.
+	// this will fail immediately with an error from the server if running against
+	// a standalone.
+	if err := pIter.Err(); err != nil {
+		return nil, err
+	}
+
+	pIter.isChangeStream = true
+	return &ChangeStream{
+		iter:        pIter,
+		resumeToken: nil,
+		options:     options,
+		pipeline:    pipeline,
+		domainType:  changeDomainDatabase,
+		session:     db.Session,
+		database:    db,
 	}, nil
 }
 
@@ -213,7 +300,7 @@ func (changeStream *ChangeStream) Timeout() bool {
 }
 
 func constructChangeStreamPipeline(pipeline interface{},
-	options ChangeStreamOptions) interface{} {
+	options ChangeStreamOptions, domain changeDomainType) interface{} {
 	pipelinev := reflect.ValueOf(pipeline)
 
 	// ensure that the pipeline passed in is a slice.
@@ -230,6 +317,9 @@ func constructChangeStreamPipeline(pipeline interface{},
 	}
 	if options.ResumeAfter != nil {
 		changeStreamStageOptions["resumeAfter"] = options.ResumeAfter
+	}
+	if domain == changeDomainCluster {
+		changeStreamStageOptions["allChangesForCluster"] = true
 	}
 
 	changeStreamStage := bson.M{"$changeStream": changeStreamStageOptions}
@@ -274,10 +364,18 @@ func (changeStream *ChangeStream) resume() error {
 		opts.ResumeAfter = changeStream.resumeToken
 	}
 	// make a new pipeline containing the resume token.
-	changeStreamPipeline := constructChangeStreamPipeline(changeStream.pipeline, opts)
+	changeStreamPipeline := constructChangeStreamPipeline(changeStream.pipeline, opts, changeStream.domainType)
 
 	// generate the new iterator with the new connection.
-	newPipe := changeStream.collection.Pipe(changeStreamPipeline)
+	var newPipe *Pipe
+	if changeStream.domainType == changeDomainCollection {
+		newPipe = changeStream.collection.Pipe(changeStreamPipeline)
+	} else if changeStream.domainType == changeDomainCluster {
+		newPipe = changeStream.session.pipe(changeStreamPipeline)
+	} else if changeStream.domainType == changeDomainDatabase {
+		newPipe = changeStream.database.pipe(changeStreamPipeline)
+	}
+
 	changeStream.iter = newPipe.Iter()
 	if err := changeStream.iter.Err(); err != nil {
 		return err

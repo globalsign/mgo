@@ -31,6 +31,7 @@ type DBServer struct {
 	host           string
 	engine         string
 	disableMonitor bool
+	wtCacheSizeGB  float64
 	tomb           tomb.Tomb
 }
 
@@ -51,6 +52,11 @@ func (dbs *DBServer) SetEngine(engine string) {
 // panics, etc.
 func (dbs *DBServer) SetMonitor(enabled bool) {
 	dbs.disableMonitor = !enabled
+}
+
+// SetWiredTigerCacheSize sets the size (in gigabytes) of the WiredTiger cache
+func (dbs *DBServer) SetWiredTigerCacheSize(sizeGB float64) {
+	dbs.wtCacheSizeGB = sizeGB
 }
 
 func (dbs *DBServer) start() {
@@ -78,8 +84,14 @@ func (dbs *DBServer) start() {
 		"--port", strconv.Itoa(addr.Port),
 		"--storageEngine=" + dbs.engine,
 	}
-	if dbs.engine == "mmapv1" {
-		// default to mmapv1 and add mmapv1-only args (nssize, noprealloc, smallfiles and nojournal)
+
+	switch dbs.engine {
+	case "wiredTiger":
+		if dbs.wtCacheSizeGB == 0 {
+			dbs.wtCacheSizeGB = 0.1
+		}
+		args = append(args, fmt.Sprintf("--wiredTigerCacheSizeGB=%.2f", dbs.wtCacheSizeGB))
+	case "mmapv1":
 		args = append(args,
 			"--nssize", "1",
 			"--noprealloc",
