@@ -157,23 +157,26 @@ type insertOp struct {
 	collection string        // "database.collection"
 	documents  []interface{} // One or more documents to insert
 	flags      uint32
+	txn        *Transaction
 }
 
 type updateOp struct {
-	Collection   string      `bson:"-"` // "database.collection"
-	Selector     interface{} `bson:"q"`
-	Update       interface{} `bson:"u"`
-	Flags        uint32      `bson:"-"`
-	Multi        bool        `bson:"multi,omitempty"`
-	Upsert       bool        `bson:"upsert,omitempty"`
-	ArrayFilters interface{} `bson:"arrayFilters,omitempty"`
+	Collection   string       `bson:"-"` // "database.collection"
+	Selector     interface{}  `bson:"q"`
+	Update       interface{}  `bson:"u"`
+	Flags        uint32       `bson:"-"`
+	Multi        bool         `bson:"multi,omitempty"`
+	Upsert       bool         `bson:"upsert,omitempty"`
+	ArrayFilters interface{}  `bson:"arrayFilters,omitempty"`
+	Txn          *Transaction `bson:"-"`
 }
 
 type deleteOp struct {
-	Collection string      `bson:"-"` // "database.collection"
-	Selector   interface{} `bson:"q"`
-	Flags      uint32      `bson:"-"`
-	Limit      int         `bson:"limit"`
+	Collection string       `bson:"-"` // "database.collection"
+	Selector   interface{}  `bson:"q"`
+	Flags      uint32       `bson:"-"`
+	Limit      int          `bson:"limit"`
+	Txn        *Transaction `bson:"-"`
 }
 
 type killCursorsOp struct {

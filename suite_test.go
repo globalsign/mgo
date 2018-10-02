@@ -144,6 +144,8 @@ func (s *S) Stop(host string) {
 	panicOnWindows()
 	time.Sleep(2 * time.Second)
 	err := run("svc -d _harness/daemons/" + supvName(host))
+	// Give a moment to allow the host to stop, svc returns immediately
+	time.Sleep(5 * time.Second)
 	if err != nil {
 		panic(err)
 	}

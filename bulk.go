@@ -367,7 +367,7 @@ func (b *Bulk) Run() (*BulkResult, error) {
 }
 
 func (b *Bulk) runInsert(action *bulkAction, result *BulkResult, berr *BulkError) bool {
-	op := &insertOp{b.c.FullName, action.docs, 0}
+	op := &insertOp{b.c.FullName, action.docs, 0, nil}
 	if !b.ordered {
 		op.flags = 1 // ContinueOnError
 	}
