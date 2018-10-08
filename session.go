@@ -494,6 +494,7 @@ func ParseURL(url string) (*DialInfo, error) {
 		ReplicaSetName: setName,
 		MinPoolSize:    minPoolSize,
 		MaxIdleTimeMS:  maxIdleTimeMS,
+		ctx:            context.Background(),
 	}
 	if ssl && info.DialServer == nil {
 		// Set DialServer only if nil, we don't want to override user's settings.
