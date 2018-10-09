@@ -44,8 +44,14 @@ import (
 // coarseTimeProvider).
 var coarseTime *coarseTimeProvider
 
-func init() {
-	coarseTime = newcoarseTimeProvider(25 * time.Millisecond)
+// coarseTimeOnce is used to ensure we create a single coarseTime instance.
+var coarseTimeOnce sync.Once
+
+// initCoarseTime is used to ensure the global coarseTime is initialized.
+func initCoarseTime() {
+	coarseTimeOnce.Do(func() {
+		coarseTime = newcoarseTimeProvider(25 * time.Millisecond)
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +97,7 @@ type mongoServerInfo struct {
 var defaultServerInfo mongoServerInfo
 
 func newServer(addr string, raddr net.Addr, syncChan chan bool, dial dialer, info *DialInfo) *mongoServer {
+	initCoarseTime()
 	server := &mongoServer{
 		Addr:         addr,
 		ResolvedAddr: raddr.String(),

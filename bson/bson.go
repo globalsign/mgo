@@ -686,10 +686,14 @@ func (e *TypeError) Error() string {
 // Maintain a mapping of keys to structure field indexes
 
 type structInfo struct {
-	FieldsMap  map[string]fieldInfo
-	FieldsList []fieldInfo
-	InlineMap  int
-	Zero       reflect.Value
+	FieldsMap    map[string]fieldInfo
+	FieldsList   []fieldInfo
+	InlineMap    int
+	InlineStruct bool
+
+	Zero reflect.Value
+
+	st reflect.Type
 }
 
 type fieldInfo struct {
@@ -720,6 +724,7 @@ func getStructInfo(st reflect.Type) (*structInfo, error) {
 	fieldsMap := make(map[string]fieldInfo)
 	fieldsList := make([]fieldInfo, 0, n)
 	inlineMap := -1
+	var inlineStruct bool
 	for i := 0; i != n; i++ {
 		field := st.Field(i)
 		if field.PkgPath != "" && !field.Anonymous {
@@ -786,6 +791,7 @@ func getStructInfo(st reflect.Type) (*structInfo, error) {
 				field.Type = field.Type.Elem()
 				fallthrough
 			case reflect.Struct:
+				inlineStruct = true
 				sinfo, err := getStructInfo(field.Type)
 				if err != nil {
 					return nil, err
@@ -827,10 +833,63 @@ func getStructInfo(st reflect.Type) (*structInfo, error) {
 		fieldsMap,
 		fieldsList,
 		inlineMap,
+		inlineStruct,
 		reflect.New(st).Elem(),
+		st,
 	}
+
 	structMapMutex.Lock()
 	structMap[st] = sinfo
 	structMapMutex.Unlock()
 	return sinfo, nil
+}
+
+// DeepZero returns recursive zero object
+func deepZero(st reflect.Type) (result reflect.Value) {
+	result = reflect.Indirect(reflect.New(st))
+
+	if result.Kind() == reflect.Struct {
+		for i := 0; i < result.NumField(); i++ {
+			if f := result.Field(i); f.Kind() == reflect.Ptr {
+				if f.CanInterface() {
+					if ft := reflect.TypeOf(f.Interface()); ft.Elem().Kind() == reflect.Struct {
+						result.Field(i).Set(recursivePointerTo(deepZero(ft.Elem())))
+					}
+				}
+			}
+		}
+	}
+
+	return
+}
+
+// getZeroField returns recursive zero object
+func getZeroField(v reflect.Value, index []int) reflect.Value {
+	for _, ind := range index {
+		if v.Kind() == reflect.Ptr && v.Elem().Kind() == reflect.Struct {
+			v = v.Elem()
+		}
+
+		v = v.Field(ind)
+	}
+
+	dz := deepZero(v.Type().Elem())
+	return reflect.New(dz.Type())
+}
+
+// recursivePointerTo calls reflect.New(v.Type) but recursively for its fields inside
+func recursivePointerTo(v reflect.Value) reflect.Value {
+	v = reflect.Indirect(v)
+	result := reflect.New(v.Type())
+	if v.Kind() == reflect.Struct {
+		for i := 0; i < v.NumField(); i++ {
+			if f := v.Field(i); f.Kind() == reflect.Ptr {
+				if f.Elem().Kind() == reflect.Struct {
+					result.Elem().Field(i).Set(recursivePointerTo(f))
+				}
+			}
+		}
+	}
+
+	return result
 }

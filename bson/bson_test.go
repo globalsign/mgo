@@ -274,38 +274,91 @@ func (s *S) TestMarshalBuffer(c *C) {
 }
 
 func (s *S) TestPtrInline(c *C) {
-	cases := []struct {
-		In  interface{}
-		Out bson.M
-	}{
-		{
-			In:  inlinePtrStruct{A: 1, MStruct: &MStruct{M: 3}},
-			Out: bson.M{"a": 1, "m": 3},
-		},
-		{ // go deeper
-			In:  inlinePtrPtrStruct{B: 10, inlinePtrStruct: &inlinePtrStruct{A: 20, MStruct: &MStruct{M: 30}}},
-			Out: bson.M{"b": 10, "a": 20, "m": 30},
-		},
-		{
-			// nil embed struct
-			In:  &inlinePtrStruct{A: 3},
-			Out: bson.M{"a": 3},
-		},
-		{
-			// nil embed struct
-			In:  &inlinePtrPtrStruct{B: 5},
-			Out: bson.M{"b": 5},
-		},
+
+	// struct with inline pointer
+	{
+		in := InlineG1{G1: 4, Final: &Final{G0: 8}}
+		c.Assert(in.Final, NotNil)
+
+		data, err := bson.Marshal(in)
+		c.Assert(err, IsNil)
+
+		var out InlineG1
+		err = bson.Unmarshal(data, &out)
+		c.Assert(err, IsNil)
+		c.Assert(out.Final, NotNil)
+		c.Assert(out, DeepEquals, in)
 	}
 
-	for _, cs := range cases {
-		data, err := bson.Marshal(cs.In)
-		c.Assert(err, IsNil)
-		var dataBSON bson.M
-		err = bson.Unmarshal(data, &dataBSON)
+	// deeper struct with inline pointer
+	{
+		in := InlineG2{G2: 15, InlineG1: &InlineG1{G1:16, Final: &Final{G0: 23}}}
+		c.Assert(in.InlineG1, NotNil)
+		c.Assert(in.Final, NotNil)
+
+		data, err := bson.Marshal(in)
 		c.Assert(err, IsNil)
 
-		c.Assert(dataBSON, DeepEquals, cs.Out)
+		var out InlineG2
+		err = bson.Unmarshal(data, &out)
+		c.Assert(err, IsNil)
+		c.Assert(out.InlineG1, NotNil)
+		c.Assert(out.Final, NotNil)
+		c.Assert(out, DeepEquals, in)
+	}
+
+	// struct with nil inline pointer
+	{
+		in := InlineG1{G1: 42}
+		c.Assert(in.Final, IsNil)
+
+		data, err := bson.Marshal(in)
+		c.Assert(err, IsNil)
+
+		// default behaviour: no respect to nil values
+		var out InlineG1
+		err = bson.Unmarshal(data, &out)
+		c.Assert(err, IsNil)
+		c.Assert(out.Final, NotNil)
+		c.Assert(out.G1, Equals, in.G1)
+		c.Assert(out.G0, Equals, 0)
+
+		// respect to nil value
+		var outRespectNils InlineG1
+		bson.SetRespectNilValues(true)
+		err = bson.Unmarshal(data, &outRespectNils)
+		bson.SetRespectNilValues(false)
+		c.Assert(err, IsNil)
+		c.Assert(outRespectNils.Final, IsNil)
+		c.Assert(outRespectNils, DeepEquals, in)
+	}
+
+	// deeper struct with nil inline pointer
+	{
+		in := InlineG2{G2: 108}
+		c.Assert(in.InlineG1, IsNil)
+
+		data, err := bson.Marshal(in)
+		c.Assert(err, IsNil)
+
+		// default behaviour: no respect to nil values
+		var out InlineG2
+		err = bson.Unmarshal(data, &out)
+		c.Assert(err, IsNil)
+		c.Assert(out.InlineG1, NotNil)
+		c.Assert(out.Final, NotNil)
+		c.Assert(out.G2, Equals, in.G2)
+		c.Assert(out.G1, Equals, 0)
+		c.Assert(out.G0, Equals, 0)
+
+		// respect to nil value
+		var outRespectNils InlineG2
+		bson.SetRespectNilValues(true)
+		err = bson.Unmarshal(data, &outRespectNils)
+		bson.SetRespectNilValues(false)
+		c.Assert(err, IsNil)
+		c.Assert(outRespectNils.InlineG1, IsNil)
+		c.Assert(outRespectNils, DeepEquals, in)
 	}
 }
 
@@ -1210,19 +1263,21 @@ type inlineUnexported struct {
 	M          map[string]interface{} `bson:",inline"`
 	unexported `bson:",inline"`
 }
-type MStruct struct {
-	M int `bson:"m,omitempty"`
-}
-type inlinePtrStruct struct {
-	A        int
-	*MStruct `bson:",inline"`
-}
-type inlinePtrPtrStruct struct {
-	B                int
-	*inlinePtrStruct `bson:",inline"`
-}
 type unexported struct {
 	A int
+}
+
+// Structures for `inline pointers` feature
+type Final struct {
+	G0 int `bson:"g0,omitempty"`
+}
+type InlineG1 struct {
+	G1 int `bson:"g1,omitempty"`
+	*Final `bson:",inline"`
+}
+type InlineG2 struct {
+	G2 int    `bson:"g2,omitempty"`
+	*InlineG1 `bson:",inline"`
 }
 
 type getterSetterD bson.D
