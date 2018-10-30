@@ -46,6 +46,13 @@ import (
 // in a mongo cluster.  This works with individual servers, a replica set,
 // a replica pair, one or multiple mongos routers, etc.
 
+type LoadBalancingStrategy int
+
+const (
+	Original LoadBalancingStrategy = 0
+	Uniform  LoadBalancingStrategy = 1
+)
+
 type mongoCluster struct {
 	sync.RWMutex
 	serverSynced sync.Cond
@@ -60,6 +67,7 @@ type mongoCluster struct {
 	sync         chan bool
 	dial         dialer
 	dialInfo     *DialInfo
+	lbstrategy   LoadBalancingStrategy
 }
 
 func newCluster(userSeeds []string, info *DialInfo) *mongoCluster {
@@ -68,6 +76,7 @@ func newCluster(userSeeds []string, info *DialInfo) *mongoCluster {
 		references: 1,
 		dial:       dialer{info.Dial, info.DialServer},
 		dialInfo:   info,
+		lbstrategy: info.LoadBalancingStrategy,
 	}
 	cluster.serverSynced.L = cluster.RWMutex.RLocker()
 	cluster.sync = make(chan bool, 1)
@@ -632,10 +641,15 @@ func (cluster *mongoCluster) AcquireSocketWithPoolTimeout(mode Mode, slaveOk boo
 		}
 
 		var server *mongoServer
-		if slaveOk {
-			server = cluster.servers.BestFit(mode, serverTags)
-		} else {
-			server = cluster.masters.BestFit(mode, nil)
+		switch cluster.lbstrategy {
+		case Original:
+			if slaveOk {
+				server = cluster.servers.BestFit(mode, serverTags)
+			} else {
+				server = cluster.masters.BestFit(mode, nil)
+			}
+		case Uniform:
+			server = cluster.servers.UniformRandom()
 		}
 		cluster.RUnlock()
 

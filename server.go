@@ -28,6 +28,7 @@ package mgo
 
 import (
 	"errors"
+	"math/rand"
 	"net"
 	"sort"
 	"sync"
@@ -555,6 +556,14 @@ func (servers *mongoServers) HasMongos() bool {
 		}
 	}
 	return false
+}
+
+// Picks servers uniform at random to perform operations on. Mainly used when
+// all the seed servers are mongos and we want to distribute load evenly
+func (servers *mongoServers) UniformRandom() *mongoServer {
+	var best *mongoServer
+	best = servers.slice[rand.Int31n(int32(len(servers.slice)))]
+	return best
 }
 
 // BestFit returns the best guess of what would be the most interesting

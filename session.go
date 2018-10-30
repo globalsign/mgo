@@ -494,6 +494,9 @@ type DialInfo struct {
 	// to be established. Timeout does not affect logic in DialServer.
 	Timeout time.Duration
 
+	// Which load balancing strategy to use when selecting a server to do
+	// an operation on
+	LoadBalancingStrategy LoadBalancingStrategy
 	// Database is the default database name used when the Session.DB method
 	// is called with an empty name, and is also used during the initial
 	// authentication if Source is unset.
