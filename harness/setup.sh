@@ -32,6 +32,7 @@ start() {
         if [ x$COUNT = x$UP ]; then
             echo "Running init.js with mongo..."
             mongo --nodb ../harness/mongojs/init.js
+            svc -d daemons/dbx1/
             exit 0
         fi
         sleep 1
