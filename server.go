@@ -59,22 +59,23 @@ func initCoarseTime() {
 
 type mongoServer struct {
 	sync.RWMutex
-	Addr          string
-	ResolvedAddr  string
-	raddr         net.Addr
-	unusedSockets []*mongoSocket
-	liveSockets   []*mongoSocket
-	sync          chan bool
-	dial          dialer
-	pingValue     time.Duration
-	pingIndex     int
-	pingWindow    [6]time.Duration
-	info          *mongoServerInfo
-	pingCount     uint32
-	closed        bool
-	abended       bool
-	poolWaiter    *sync.Cond
-	dialInfo      *DialInfo
+	Addr                string
+	ResolvedAddr        string
+	raddr               net.Addr
+	unusedSockets       []*mongoSocket
+	liveSockets         []*mongoSocket
+	inFlightSocketDials int
+	sync                chan bool
+	dial                dialer
+	pingValue           time.Duration
+	pingIndex           int
+	pingWindow          [6]time.Duration
+	info                *mongoServerInfo
+	pingCount           uint32
+	closed              bool
+	abended             bool
+	poolWaiter          *sync.Cond
+	dialInfo            *DialInfo
 }
 
 type dialer struct {
@@ -173,7 +174,7 @@ func (server *mongoServer) acquireSocketInternal(info *DialInfo, shouldBlock boo
 					}()
 				}
 				timeSpentWaiting := time.Duration(0)
-				for len(server.liveSockets)-len(server.unusedSockets) >= info.PoolLimit && !timeoutHit {
+				for len(server.liveSockets)+server.inFlightSocketDials-len(server.unusedSockets) >= info.PoolLimit && !timeoutHit {
 					// We only count time spent in Wait(), and not time evaluating the entire loop,
 					// so that in the happy non-blocking path where the condition above evaluates true
 					// first time, we record a nice round zero wait time.
@@ -210,20 +211,57 @@ func (server *mongoServer) acquireSocketInternal(info *DialInfo, shouldBlock boo
 				continue
 			}
 		} else {
+			server.inFlightSocketDials++
 			server.Unlock()
-			socket, err = server.Connect(info)
-			if err == nil {
-				server.Lock()
-				// We've waited for the Connect, see if we got
-				// closed in the meantime
-				if server.closed {
+
+			// We have some special handling here for what to do if server.Connect panics (since it could execute
+			// user provided code, and we'd like to keep mgo's internal state consistent even if that happens).
+			// Use a sentinal bool to detect this condition (without recovering and eating their panic). In the panic
+			// case we need to lock/unlock right in the defer to modify the inflight socket count; in the not-panic case,
+			// the decrement is done in normal control flow because other work needs to be done with the lock too.
+			connectDidPanic := true
+			defer func() {
+				if connectDidPanic {
+					server.Lock()
+					server.inFlightSocketDials--
+					// Broadcast before unlock because reducing the inflight socket count might mean someone can get
+					// the pool
+					server.poolWaiter.Broadcast()
 					server.Unlock()
-					socket.Release()
-					socket.Close()
-					return nil, abended, errServerClosed
 				}
-				server.liveSockets = append(server.liveSockets, socket)
+			}()
+			socket, err = server.Connect(info)
+			connectDidPanic = false
+			server.Lock()
+
+			if err != nil {
+				server.inFlightSocketDials--
+				// Broadcast before unlock again; pool could have shrunk
+				server.poolWaiter.Broadcast()
 				server.Unlock()
+				return
+			} else if server.closed {
+				// Means we got closed whilst waiting for the connect to happen.
+				// This path is a bit complicated; we need to release & close the socket (which puts it in the
+				// unusedSockets list), and only afterwards increment the inflight socket dial count (which signals
+				// that this attempt to dial has actually closed off its TCP connection).
+				// We need to broadcast because the inFlightSocketDials decrement is not atomic with the appending
+				// to unusedSockets (since that happens in socket.Close() under a different acquisition of the server mutex)
+				server.Unlock()
+				socket.Release()
+				socket.Close()
+				server.Lock()
+				server.inFlightSocketDials--
+				server.poolWaiter.Broadcast()
+				server.Unlock()
+				return nil, abended, errServerClosed
+			} else {
+				server.inFlightSocketDials--
+				server.liveSockets = append(server.liveSockets, socket)
+				// No need to broadcast here; we're trading -1 on the inflight dial counter to +1 on the liveSockets list,
+				// so there's no new pool capacity here.
+				server.Unlock()
+				return
 			}
 		}
 		return

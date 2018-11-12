@@ -1689,6 +1689,103 @@ func (s *S) TestPoolLimitTimeout(c *C) {
 	c.Assert(stats.TotalPoolWaitTime < 1100*time.Millisecond, Equals, true)
 }
 
+func (s *S) TestPoolLimitDialInFlight(c *C) {
+	if *fast {
+		c.Skip("-fast")
+	}
+
+	var connCount int32
+	connCount = 0
+	slowModeActivated := false
+
+	dialInfo := &mgo.DialInfo{
+		Addrs: []string{"localhost:40011"},
+		DialServer: func(addr *mgo.ServerAddr) (net.Conn, error) {
+			atomic.AddInt32(&connCount, 1)
+			if slowModeActivated {
+				// The first one should be quick, but the subsequent ones should take ages
+				time.Sleep(5 * time.Second)
+			}
+			return net.DialTimeout("tcp", addr.String(), 1*time.Second)
+		},
+	}
+
+	session, err := mgo.DialWithInfo(dialInfo)
+	c.Assert(err, IsNil)
+	defer session.Close()
+	session.SetPoolTimeout(2 * time.Second)
+	session.SetPoolLimit(2)
+
+	mgo.ResetStats()
+
+	// Put one socket in use.
+	c.Assert(session.Ping(), IsNil)
+	atomic.StoreInt32(&connCount, 0)
+	slowModeActivated = true
+
+	// Now try and acquire the second one (should take ages)
+	c1 := session.Copy()
+	go func() {
+		defer c1.Close()
+		c1.Ping()
+	}()
+	time.Sleep(1 * time.Second)
+	// And the third one (should be a pool timeout and _not_ attempt to open a new connection)
+	c2 := session.Copy()
+	defer c2.Close()
+	pingErr := c2.Ping()
+
+	connAttemptsCount := atomic.LoadInt32(&connCount)
+	c.Assert(connAttemptsCount, Equals, int32(1))
+	c.Assert(pingErr, NotNil)
+}
+
+func (s *S) TestPoolLimitResiliantToPanic(c *C) {
+	if *fast {
+		c.Skip("-fast")
+	}
+
+	shouldPanic := false
+
+	dialInfo := &mgo.DialInfo{
+		Addrs: []string{"localhost:40011"},
+		DialServer: func(addr *mgo.ServerAddr) (net.Conn, error) {
+			if shouldPanic {
+				panic("I am a badly written dial function!")
+			}
+			return net.DialTimeout("tcp", addr.String(), 1*time.Second)
+		},
+	}
+
+	session, err := mgo.DialWithInfo(dialInfo)
+	c.Assert(err, IsNil)
+	defer session.Close()
+	session.SetPoolTimeout(2 * time.Second)
+	session.SetPoolLimit(2)
+
+	// Put one socket in use.
+	c.Assert(session.Ping(), IsNil)
+
+	// Make a second one
+	c1 := session.Copy()
+	shouldPanic = true
+	func() {
+		defer func() {
+			recover()
+			c1.Close()
+		}()
+		c1.Ping()
+	}()
+	shouldPanic = false
+
+	// A third attempt should not timeout
+	c2 := session.Copy()
+	pingError := c2.Ping()
+	c2.Close()
+
+	c.Assert(pingError, IsNil)
+}
+
 func (s *S) TestSetModeEventualIterBug(c *C) {
 	session1, err := mgo.Dial("localhost:40011")
 	c.Assert(err, IsNil)
