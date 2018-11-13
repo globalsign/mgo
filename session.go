@@ -651,7 +651,7 @@ func (i *DialInfo) Copy() *DialInfo {
 	}
 
 	if i.ctx == nil {
-		context.Background()
+		i.ctx = context.Background()
 	}
 
 	info := &DialInfo{
