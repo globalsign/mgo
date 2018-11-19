@@ -18,6 +18,8 @@ func TestAll(t *testing.T) {
 	TestingT(t)
 }
 
+var fast = flag.Bool("fast", false, "Skip slow tests")
+
 type S struct {
 	server   dbtest.DBServer
 	session  *mgo.Session
@@ -578,6 +580,9 @@ func (s *S) TestPurgeMissing(c *C) {
 }
 
 func (s *S) TestTxnQueueStashStressTest(c *C) {
+	if *fast {
+		c.Skip("-fast was supplied and this test is slow")
+	}
 	txn.SetChaos(txn.Chaos{
 		SlowdownChance: 0.3,
 		Slowdown:       50 * time.Millisecond,
