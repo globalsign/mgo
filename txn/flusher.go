@@ -3,7 +3,7 @@ package txn
 import (
 	"fmt"
 
-	mgo "github.com/globalsign/mgo"
+	"github.com/globalsign/mgo"
 
 	"github.com/globalsign/mgo/bson"
 )
@@ -857,7 +857,7 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 					updated := false
 					if !hasToken(stash.Queue, tt) {
 						var set, unset bson.D
-						cleanedQueue := cleanQueue(info.Queue, pull, tt)
+						cleanedQueue := filterQueue(info.Queue, pull, tt)
 						if revno == 0 {
 							// Missing revno in stash means -1.
 							set = bson.D{{Name: "txn-queue", Value: cleanedQueue}}
@@ -899,7 +899,7 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 				var info txnInfo
 				if _, err = f.sc.Find(qdoc).Apply(change, &info); err == nil {
 					f.debugf("Stash for document %v has revno %d and queue: %v", dkey, info.Revno, info.Queue)
-					cleanedQueue := cleanQueue(info.Queue, pull, tt)
+					cleanedQueue := filterQueue(info.Queue, pull, tt)
 					d = setInDoc(d, bson.D{
 						{Name: "_id", Value: op.Id},
 						{Name: "txn-revno", Value: newRevno},
@@ -1004,8 +1004,9 @@ func tokensToPull(dqueue []tokenAndId, pull map[bson.ObjectId]*transaction, dont
 	return result
 }
 
-// cleanQueue takes an existing queue and removes all the items in pull from it, generating a new txn-queue.
-func cleanQueue(queue []token, pull map[bson.ObjectId]*transaction, dontPull token) ([]token) {
+// filterQueue takes an existing queue and removes all the items in pull from it. The returned slice will only contain
+// items that aren't in 'pull'.
+func filterQueue(queue []token, pull map[bson.ObjectId]*transaction, dontPull token) ([]token) {
 	cleaned := make([]token, 0, len(queue))
 	for _, tt := range queue {
 		if tt == dontPull {
