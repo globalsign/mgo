@@ -1098,7 +1098,6 @@ func (s *S) TestTxnQueueAddAndRemove(c *C) {
 	c.Assert(err, IsNil)
 	err = s.accounts.FindId(0).One(&qdoc)
 	c.Assert(err, IsNil)
-	// Remove prunes the txn-queue but Insert currently does not, so we end up with the last Remove
-	// and the last Insert in the document.
-	c.Check(len(qdoc.Queue), Equals, 2)
+	// Both Remove and Insert should prune all the completed transactions
+	c.Check(len(qdoc.Queue), Equals, 1)
 }
