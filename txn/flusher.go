@@ -898,8 +898,14 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 				var info txnInfo
 				if _, err = f.sc.Find(qdoc).Apply(change, &info); err == nil {
 					f.debugf("Stash for document %v has revno %d and queue: %v", dkey, info.Revno, info.Queue)
-					// TODO(jam): 2018-11-19 should we also go through tokensToPull here?
-					d = setInDoc(d, bson.D{{Name: "_id", Value: op.Id}, {Name: "txn-revno", Value: newRevno}, {Name: "txn-queue", Value: info.Queue}})
+					// Note(jam): 2018-11-19 for now, we aren't bothering to go through txn-queue and $pullAll the
+					// tokens that have been marked. As long as *one* of Insert&Remove cleanup the queue, it won't get
+					// out of hand (you can't Insert again unless you've Removed).
+					d = setInDoc(d, bson.D{
+						{Name: "_id", Value: op.Id},
+						{Name: "txn-revno", Value: newRevno},
+						{Name: "txn-queue", Value: info.Queue},
+					})
 					// Unlikely yet unfortunate race in here if this gets seriously
 					// delayed. If someone inserts+removes meanwhile, this will
 					// reinsert, and there's no way to avoid that while keeping the
