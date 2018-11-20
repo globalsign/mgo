@@ -1096,8 +1096,6 @@ func (s *S) TestTxnQueueAddAndRemove(c *C) {
 	var qdoc txnQueue
 	err = s.accounts.FindId(0).One(&qdoc)
 	c.Assert(err, IsNil)
-	err = s.accounts.FindId(0).One(&qdoc)
-	c.Assert(err, IsNil)
 	// Both Remove and Insert should prune all the completed transactions
 	c.Check(len(qdoc.Queue), Equals, 1)
 }
