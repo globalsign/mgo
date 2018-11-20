@@ -227,6 +227,7 @@ type Runner struct {
 }
 
 const defaultMaxTxnQueueLength = 1000
+const defaultAssertionCleanupLength = 10
 
 // NewRunner returns a new transaction runner that uses tc to hold its
 // transactions.
@@ -256,6 +257,11 @@ type RunnerOptions struct {
 	// Normal operations are likely to only ever hit 10 or so, we use a default
 	// maximum length of 1000.
 	MaxTxnQueueLength int
+
+	// AssertionCleanupLength is the length of a txn-queue that we will start
+	// cleaning up even if this is only an assertion against the document (not
+	// otherwise modifying the document).
+	AssertionCleanupLength int
 }
 
 // SetOptions allows people to change some of the internal behavior of a Runner.
@@ -267,7 +273,8 @@ func (r *Runner) SetOptions(opts RunnerOptions) {
 // Users can use the DefaultRunnerOptions to only override specific behavior.
 func DefaultRunnerOptions() RunnerOptions {
 	return RunnerOptions{
-		MaxTxnQueueLength: defaultMaxTxnQueueLength,
+		MaxTxnQueueLength:      defaultMaxTxnQueueLength,
+		AssertionCleanupLength: defaultAssertionCleanupLength,
 	}
 }
 

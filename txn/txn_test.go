@@ -705,6 +705,178 @@ func (s *S) TestTxnQueueUnlimited(c *C) {
 	c.Check(len(doc["txn-queue"].([]interface{})), Equals, 1101)
 }
 
+func (s *S) TestTxnQueueAssertionsDefault(c *C) {
+	opts := txn.DefaultRunnerOptions()
+	// We force the MaxTxnQueueLength to be shorter, so we don't have to do
+	// as many iterations to get it to fail.
+	// Without any default pruning, the queue on the assert-only document
+	// will grow longer than this length, and that will cause transactions
+	// to stop being applied.
+	opts.MaxTxnQueueLength = 500
+	s.runner.SetOptions(opts)
+	// By default we should prevent a txn-queue from growing too large
+	txn.SetDebug(false)
+	c.Assert(s.accounts.Insert(M{"_id": 0, "balance": 100}), IsNil)
+	c.Assert(s.accounts.Insert(M{"_id": 1, "balance": 100}), IsNil)
+	ops := []txn.Op{{
+		C:      "accounts",
+		Id:     0,
+		Assert: M{"balance": 100},
+	}, {
+		C:      "accounts",
+		Id:     1,
+		Update: M{"$inc": M{"balance": 1}},
+	}}
+	for i := 0; i < 600; i++ {
+		c.Assert(s.runner.Run(ops, "", nil), IsNil)
+	}
+	var a0 txnQueue
+	c.Assert(s.accounts.FindId(0).One(&a0), IsNil)
+	var a1 txnQueue
+	c.Assert(s.accounts.FindId(1).One(&a1), IsNil)
+	c.Check(len(a0.Queue) < 500, Equals, true,
+		Commentf("txn-queue grew too long: len=%d", len(a0.Queue)))
+	c.Check(len(a1.Queue) < 500, Equals, true,
+		Commentf("txn-queue grew too long: len=%d", len(a1.Queue)))
+}
+
+func (s *S) TestTxnQueueAssertionsCustomValue(c *C) {
+	opts := txn.DefaultRunnerOptions()
+	opts.AssertionCleanupLength = 17
+	s.runner.SetOptions(opts)
+	// By default we should prevent a txn-queue from growing too large
+	txn.SetDebug(false)
+	c.Assert(s.accounts.Insert(M{"_id": 0, "balance": 100}), IsNil)
+	c.Assert(s.accounts.Insert(M{"_id": 1, "balance": 100}), IsNil)
+	ops := []txn.Op{{
+		C:      "accounts",
+		Id:     0,
+		Assert: M{"balance": 100},
+	}, {
+		C:      "accounts",
+		Id:     1,
+		Update: M{"$inc": M{"balance": 1}},
+	}}
+	for i := 0; i < 100; i++ {
+		c.Assert(s.runner.Run(ops, "", nil), IsNil)
+	}
+	var a0 txnQueue
+	c.Assert(s.accounts.FindId(0).One(&a0), IsNil)
+	var a1 txnQueue
+	c.Assert(s.accounts.FindId(1).One(&a1), IsNil)
+	c.Check(len(a0.Queue) <= 17, Equals, true,
+		Commentf("txn-queue grew too long: len=%d", len(a0.Queue)))
+	c.Check(len(a1.Queue) <= 17, Equals, true,
+		Commentf("txn-queue grew too long: len=%d", len(a1.Queue)))
+}
+
+func (s *S) TestTxnQueueAssertionsDisabled(c *C) {
+	opts := txn.DefaultRunnerOptions()
+	opts.AssertionCleanupLength = 0
+	s.runner.SetOptions(opts)
+	// By default we should prevent a txn-queue from growing too large
+	txn.SetDebug(false)
+	c.Assert(s.accounts.Insert(M{"_id": 0, "balance": 100}), IsNil)
+	c.Assert(s.accounts.Insert(M{"_id": 1, "balance": 100}), IsNil)
+	ops := []txn.Op{{
+		C:      "accounts",
+		Id:     0,
+		Assert: M{"balance": 100},
+	}, {
+		C:      "accounts",
+		Id:     1,
+		Update: M{"$inc": M{"balance": 1}},
+	}}
+	for i := 0; i < 200; i++ {
+		c.Assert(s.runner.Run(ops, "", nil), IsNil)
+	}
+	var a0 txnQueue
+	c.Assert(s.accounts.FindId(0).One(&a0), IsNil)
+	c.Check(len(a0.Queue), Equals, 200,
+		Commentf("queue length did not match expected %d: actual: %d", 200, len(a0.Queue)))
+}
+
+func (s *S) TestPurgeMissingPipelineSizeLimit(c *C) {
+	// This test ensures that PurgeMissing can handle very large
+	// txn-queue fields. Previous iterations of PurgeMissing would
+	// trigger a 16MB aggregation pipeline result size limit when run
+	// against a documents or stashes with large numbers of txn-queue
+	// entries. PurgeMissing now no longer uses aggregation pipelines
+	// to work around this limit.
+
+	// The pipeline result size limitation was removed from MongoDB in 2.6 so
+	// this test is only run for older MongoDB version.
+	build, err := s.session.BuildInfo()
+	c.Assert(err, IsNil)
+	if build.VersionAtLeast(2, 6) {
+		c.Skip("This tests a problem that can only happen with MongoDB < 2.6 ")
+	}
+
+	// Insert a single document to work with.
+	err = s.accounts.Insert(M{"_id": 0, "balance": 100})
+	c.Assert(err, IsNil)
+
+	ops := []txn.Op{{
+		C:      "accounts",
+		Id:     0,
+		Update: M{"$inc": M{"balance": 100}},
+	}}
+
+	// Generate one successful transaction.
+	good := bson.NewObjectId()
+	c.Logf("---- Running ops under transaction %q", good.Hex())
+	err = s.runner.Run(ops, good, nil)
+	c.Assert(err, IsNil)
+
+	// Generate another transaction which which will go missing.
+	missing := bson.NewObjectId()
+	c.Logf("---- Running ops under transaction %q (which will go missing)", missing.Hex())
+	err = s.runner.Run(ops, missing, nil)
+	c.Assert(err, IsNil)
+
+	err = s.tc.RemoveId(missing)
+	c.Assert(err, IsNil)
+
+	// Generate a txn-queue on the test document that's large enough
+	// that it used to cause PurgeMissing to exceed MongoDB's pipeline
+	// result 16MB size limit (MongoDB 2.4 and older only).
+	//
+	// The contents of the txn-queue field doesn't matter, only that
+	// it's big enough to trigger the size limit. The required size
+	// can also be achieved by using multiple documents as long as the
+	// cumulative size of all the txn-queue fields exceeds the
+	// pipeline limit. A single document is easier to work with for
+	// this test however.
+	//
+	// The txn id of the successful transaction is used fill the
+	// txn-queue because this takes advantage of a short circuit in
+	// PurgeMissing, dramatically speeding up the test run time.
+	const fakeQueueLen = 250000
+	fakeTxnQueue := make([]string, fakeQueueLen)
+	token := good.Hex() + "_12345678" // txn id + nonce
+	for i := 0; i < fakeQueueLen; i++ {
+		fakeTxnQueue[i] = token
+	}
+
+	err = s.accounts.UpdateId(0, bson.M{
+		"$set": bson.M{"txn-queue": fakeTxnQueue},
+	})
+	c.Assert(err, IsNil)
+
+	// PurgeMissing could hit the same pipeline result size limit when
+	// processing the txn-queue fields of stash documents so insert
+	// the large txn-queue there too to ensure that no longer happens.
+	err = s.sc.Insert(
+		bson.D{{Name: "c", Value: "accounts"}, {Name: "id", Value: 0}},
+		bson.M{"txn-queue": fakeTxnQueue},
+	)
+	c.Assert(err, IsNil)
+
+	c.Logf("---- Purging missing transactions")
+	err = s.runner.PurgeMissing("accounts")
+	c.Assert(err, IsNil)
+}
+
 var flaky = flag.Bool("flaky", false, "Include flaky tests")
 var txnQueueLength = flag.Int("qlength", 100, "txn-queue length for tests")
 
@@ -787,6 +959,11 @@ type txnQueue struct {
 
 func (s *S) TestTxnQueueAssertionGrowth(c *C) {
 	txn.SetDebug(false) // too much spam
+	opts := txn.DefaultRunnerOptions()
+	// Disable automatic cleanup of queue, so that we can see the queue
+	// properly cleared on update.
+	opts.AssertionCleanupLength = 0
+	s.runner.SetOptions(opts)
 	err := s.accounts.Insert(M{"_id": 0, "balance": 0})
 	c.Assert(err, IsNil)
 	// Create many assertion only transactions.
