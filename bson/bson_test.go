@@ -790,8 +790,10 @@ type structWithDupKeys struct {
 var marshalErrorItems = []testItemType{
 	{bson.M{"": uint64(1 << 63)},
 		"BSON has no uint64 type, and value is too large to fit correctly in an int64"},
-	{bson.M{"": bson.ObjectId("tooshort")},
-		"ObjectIDs must be exactly 12 bytes long \\(got 8\\)"},
+	{bson.M{"key": bson.ObjectId("tooshort")},
+		"ObjectIDs\\(key\\) must be exactly 12 bytes long \\(got \"tooshort\"\\)"},
+	{bson.M{"key": bson.DBPointer{Namespace: "", Id: bson.ObjectId("tooshort")}},
+		"ObjectIDs\\(key\\.id\\) must be exactly 12 bytes long \\(got \"tooshort\"\\)"},
 	{int64(123),
 		"Can't marshal int64 as a BSON document"},
 	{bson.M{"": 1i},

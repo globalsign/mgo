@@ -380,8 +380,7 @@ func (e *encoder) addElem(name string, v reflect.Value, minSize bool) {
 		switch v.Type() {
 		case typeObjectId:
 			if len(s) != 12 {
-				panic("ObjectIDs must be exactly 12 bytes long (got " +
-					strconv.Itoa(len(s)) + ")")
+				panic(fmt.Sprintf("ObjectIDs(%s) must be exactly 12 bytes long (got \"%s\")", name, s))
 			}
 			e.addElemName(0x07, name)
 			e.addBytes([]byte(s)...)
@@ -532,8 +531,7 @@ func (e *encoder) addElem(name string, v reflect.Value, minSize bool) {
 			e.addElemName(0x0C, name)
 			e.addStr(s.Namespace)
 			if len(s.Id) != 12 {
-				panic("ObjectIDs must be exactly 12 bytes long (got " +
-					strconv.Itoa(len(s.Id)) + ")")
+				panic(fmt.Sprintf("ObjectIDs(%s.id) must be exactly 12 bytes long (got \"%s\")", name, string(s.Id)))
 			}
 			e.addBytes([]byte(s.Id)...)
 
