@@ -886,6 +886,49 @@ func (s *S) TestUpsert(c *C) {
 	c.Assert(result["n"], Equals, 48)
 }
 
+func (s *S) TestUpsertMulti(c *C) {
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+
+	ns := []int{40, 41, 42, 43, 44, 45, 46}
+	for _, n := range ns {
+		err := coll.Insert(M{"k": 1, "n": n})
+		c.Assert(err, IsNil)
+	}
+
+	changeInfo, err := coll.UpsertMulti(M{"k": 1}, M{"$set": M{"n": 42}})
+	c.Assert(err, IsNil)
+	c.Assert(changeInfo.Matched, Equals, len(ns))
+	c.Assert(changeInfo.Updated, Equals, len(ns)-1)
+
+	result := M{}
+	iter := coll.Find(M{"k": 1}).Iter()
+	numResults := 0
+	for {
+		hasNext := iter.Next(&result)
+		if !hasNext {
+			break
+		}
+		c.Assert(result["n"], Equals, 42)
+		numResults += 1
+	}
+	c.Assert(iter.Err(), IsNil)
+	c.Assert(numResults, Equals, 7)
+
+	changeInfo, err = coll.UpsertMulti(M{"k": 2, "n": 2}, M{"$set": M{"n": 42}})
+	c.Assert(err, IsNil)
+	c.Assert(changeInfo.Matched, Equals, 0)
+	c.Assert(changeInfo.Updated, Equals, 0)
+	c.Assert(changeInfo.UpsertedId, Not(IsNil))
+
+	err = coll.Find(M{"k": 2}).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result["n"], Equals, 42)
+}
+
 func (s *S) TestUpsertId(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)

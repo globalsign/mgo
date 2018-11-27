@@ -3182,20 +3182,7 @@ func (c *Collection) UpdateAll(selector interface{}, update interface{}) (info *
 	return info, err
 }
 
-// Upsert finds a single document matching the provided selector document
-// and modifies it according to the update document.  If no document matching
-// the selector is found, the update document is applied to the selector
-// document and the result is inserted in the collection.
-// If the session is in safe mode (see SetSafe) details of the executed
-// operation are returned in info, or an error of type *LastError when
-// some problem is detected.
-//
-// Relevant documentation:
-//
-//     http://www.mongodb.org/display/DOCS/Updating
-//     http://www.mongodb.org/display/DOCS/Atomic+Operations
-//
-func (c *Collection) Upsert(selector interface{}, update interface{}) (info *ChangeInfo, err error) {
+func (c *Collection) upsert(selector interface{}, update interface{}, multi bool) (info *ChangeInfo, err error) {
 	if selector == nil {
 		selector = bson.D{}
 	}
@@ -3205,6 +3192,7 @@ func (c *Collection) Upsert(selector interface{}, update interface{}) (info *Cha
 		Update:     update,
 		Flags:      1,
 		Upsert:     true,
+		Multi:      multi,
 	}
 	var lerr *LastError
 	for i := 0; i < maxUpsertRetries; i++ {
@@ -3225,6 +3213,34 @@ func (c *Collection) Upsert(selector interface{}, update interface{}) (info *Cha
 		}
 	}
 	return info, err
+}
+
+// Upsert finds a single document matching the provided selector document
+// and modifies it according to the update document.  If no document matching
+// the selector is found, the update document is applied to the selector
+// document and the result is inserted in the collection.
+// If the session is in safe mode (see SetSafe) details of the executed
+// operation are returned in info, or an error of type *LastError when
+// some problem is detected.
+//
+// Relevant documentation:
+//
+//     http://www.mongodb.org/display/DOCS/Updating
+//     http://www.mongodb.org/display/DOCS/Atomic+Operations
+//
+func (c *Collection) Upsert(selector interface{}, update interface{}) (info *ChangeInfo, err error) {
+	return c.upsert(selector, update, false)
+}
+
+// UpsertMulti finds multiple document matching the provided selector document
+// and modifies them according to the update document.  If no document matching
+// the selector is found, the update document is applied to the selector
+// document and the result is inserted in the collection.
+// If the session is in safe mode (see SetSafe) details of the executed
+// operation are returned in info, or an error of type *LastError when
+// some problem is detected.
+func (c *Collection) UpsertMulti(selector interface{}, update interface{}) (info *ChangeInfo, err error) {
+	return c.upsert(selector, update, true)
 }
 
 // UpsertId is a convenience helper equivalent to:
