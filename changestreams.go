@@ -349,6 +349,7 @@ func (changeStream *ChangeStream) resume() error {
 	cursorId := changeStream.iter.op.cursorId
 	err := runKillCursorsOnSession(newSession, cursorId)
 	if err != nil {
+		newSession.Close()
 		return err
 	}
 
@@ -445,11 +446,6 @@ func runKillCursorsOnSession(session *Session, cursorId int64) error {
 	if err != nil {
 		return err
 	}
-	err = socket.Query(&killCursorsOp{[]int64{cursorId}})
-	if err != nil {
-		return err
-	}
-	socket.Release()
-
-	return nil
+	defer socket.Release()
+	return socket.Query(&killCursorsOp{[]int64{cursorId}})
 }
