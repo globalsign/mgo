@@ -30,6 +30,8 @@ type DBServer struct {
 	dbpath  string
 	host    string
 	tomb    tomb.Tomb
+	// ReplicaSet, if set to true, will initiate a 1-member replica set
+	ReplicaSet bool
 }
 
 // SetPath defines the path to the directory where the database files will be
@@ -55,15 +57,21 @@ func (dbs *DBServer) start() {
 	l.Close()
 	dbs.host = addr.String()
 
+	portString := strconv.Itoa(addr.Port)
 	args := []string{
 		"--dbpath", dbs.dbpath,
 		"--bind_ip", "127.0.0.1",
-		"--port", strconv.Itoa(addr.Port),
+		"--port", portString,
 		"--nssize", "1",
 		"--noprealloc",
 		"--smallfiles",
-		"--nojournal",
 	}
+	if dbs.ReplicaSet == false {
+		args = append(args, "--nojournal")
+	} else {
+		args = append(args, "--replSet", "rs0")
+	}
+
 	dbs.tomb = tomb.Tomb{}
 	dbs.server = exec.Command("mongod", args...)
 	dbs.server.Stdout = &dbs.output
@@ -74,6 +82,17 @@ func (dbs *DBServer) start() {
 		fmt.Fprintf(os.Stderr, "mongod failed to start: %v\n", err)
 		panic(err)
 	}
+
+	if dbs.ReplicaSet {
+		time.Sleep(1 * time.Second)
+		rs := exec.Command("mongo", "127.0.0.1:"+portString, "--eval", "rs.initiate()")
+		err = rs.Run()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "replicaset initiate failed: %v\n", err)
+			panic(err)
+		}
+	}
+
 	dbs.tomb.Go(dbs.monitor)
 	dbs.Wipe()
 }
@@ -140,7 +159,8 @@ func (dbs *DBServer) Session() *mgo.Session {
 	if dbs.session == nil {
 		mgo.ResetStats()
 		var err error
-		dbs.session, err = mgo.Dial(dbs.host + "/test")
+		d, err := mgo.ParseURL(dbs.host+"/test?connect=replicaSet")
+		dbs.session, err = mgo.DialWithInfo(d)
 		if err != nil {
 			panic(err)
 		}
