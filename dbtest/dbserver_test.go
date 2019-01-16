@@ -140,3 +140,29 @@ func (s *S) TestSetEngine(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(wtStatus.StorageEngine.Name, Equals, "wiredTiger")
 }
+
+func (s *S) TestReplicaSet(c *C) {
+
+	type Member struct {
+		State string `bson:"stateStr"`
+	}
+	type ReplSetStatus struct {
+		Members []Member `bson:"members"`
+	}
+	rsStatus := ReplSetStatus{}
+
+	var mServer dbtest.DBServer
+	mServer.SetPath(c.MkDir())
+	mServer.SetEngine("wiredTiger")
+	mServer.SetReplicaSet(true)
+
+	defer mServer.Stop()
+
+	mSession := mServer.Session()
+	defer mSession.Close()
+
+	err := mSession.Run("replSetGetStatus", &rsStatus)
+	c.Assert(err, IsNil)
+	c.Assert(len(rsStatus.Members), Equals, 1)
+	c.Assert(rsStatus.Members[0].State, Equals, "PRIMARY")
+}
