@@ -28,7 +28,25 @@ func TestIndexedInt64FieldsBug(t *testing.T) {
 		{Name: "testkey", Value: float64(1)},
 	}
 
-	_ = simpleIndexKey(input)
+	indexes, err := simpleIndexKey(input)
+	if err != nil {
+		t.Error("Received unexpected error: ", err)
+	}
+	if len(input) != len(indexes) {
+		t.Errorf("Expected %d indexes returned; received %d\n", len(input), len(indexes))
+	}
+}
+
+// Ensures we don't panic (but do return an error) with bad index sort types
+func TestIndexedUnknownTypeErr(t *testing.T) {
+	input := bson.D{
+		{Name: "testkey", Value: bool(false)},
+	}
+
+	_, err := simpleIndexKey(input)
+	if err == nil {
+		t.Error("Expected an error for unknown index value type (bool) but none received")
+	}
 }
 
 func (s *S) TestGetRFC2253NameStringSingleValued(c *C) {

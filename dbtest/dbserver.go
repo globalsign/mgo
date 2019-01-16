@@ -30,6 +30,7 @@ type DBServer struct {
 	dbpath         string
 	host           string
 	engine         string
+	rs             bool
 	disableMonitor bool
 	wtCacheSizeGB  float64
 	tomb           tomb.Tomb
@@ -46,6 +47,11 @@ func (dbs *DBServer) SetPath(dbpath string) {
 // server.
 func (dbs *DBServer) SetEngine(engine string) {
 	dbs.engine = engine
+}
+
+// SetReplicaSet if set to true, will initialize a 1 member replica set
+func (dbs *DBServer) SetReplicaSet(rs bool) {
+	dbs.rs = rs
 }
 
 // SetMonitor defines whether the MongoDB server should be monitored for crashes
@@ -78,10 +84,11 @@ func (dbs *DBServer) start() {
 	l.Close()
 	dbs.host = addr.String()
 
+	portString := strconv.Itoa(addr.Port)
 	args := []string{
 		"--dbpath", dbs.dbpath,
 		"--bind_ip", "127.0.0.1",
-		"--port", strconv.Itoa(addr.Port),
+		"--port", portString,
 		"--storageEngine=" + dbs.engine,
 	}
 
@@ -96,8 +103,16 @@ func (dbs *DBServer) start() {
 			"--nssize", "1",
 			"--noprealloc",
 			"--smallfiles",
-			"--nojournal",
 		)
+		// Nojournal can only be enabled if
+		// it is NOT a replica set
+		if !dbs.rs {
+			args = append(args, "--nojournal")
+		}
+	}
+
+	if dbs.rs {
+		args = append(args, "--replSet", "rs0")
 	}
 
 	dbs.tomb = tomb.Tomb{}
@@ -110,9 +125,21 @@ func (dbs *DBServer) start() {
 		fmt.Fprintf(os.Stderr, "mongod failed to start: %v\n", err)
 		panic(err)
 	}
+
+	if dbs.rs {
+		time.Sleep(1 * time.Second)
+		rs := exec.Command("mongo", "127.0.0.1:"+portString, "--eval", "rs.initiate()")
+		err = rs.Run()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "replicaset initiate failed: %v\n", err)
+			panic(err)
+		}
+	}
+
 	if !dbs.disableMonitor {
 		dbs.tomb.Go(dbs.monitor)
 	}
+
 	dbs.Wipe()
 }
 
@@ -178,7 +205,8 @@ func (dbs *DBServer) Session() *mgo.Session {
 	if dbs.session == nil {
 		mgo.ResetStats()
 		var err error
-		dbs.session, err = mgo.Dial(dbs.host + "/test")
+		d, err := mgo.ParseURL(dbs.host + "/test?connect=replicaSet")
+		dbs.session, err = mgo.DialWithInfo(d)
 		if err != nil {
 			panic(err)
 		}

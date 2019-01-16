@@ -1892,7 +1892,11 @@ func (c *Collection) Indexes() (indexes []Index, err error) {
 
 	var spec indexSpec
 	for iter.Next(&spec) {
-		indexes = append(indexes, indexFromSpec(spec))
+		index, err := indexFromSpec(spec)
+		if err != nil {
+			return nil, err
+		}
+		indexes = append(indexes, *index)
 	}
 	if err = iter.Close(); err != nil {
 		return nil, err
@@ -1901,10 +1905,14 @@ func (c *Collection) Indexes() (indexes []Index, err error) {
 	return indexes, nil
 }
 
-func indexFromSpec(spec indexSpec) Index {
+func indexFromSpec(spec indexSpec) (*Index, error) {
+	key, err := simpleIndexKey(spec.Key)
+	if err != nil {
+		return nil, err
+	}
 	index := Index{
 		Name:             spec.Name,
-		Key:              simpleIndexKey(spec.Key),
+		Key:              key,
 		Unique:           spec.Unique,
 		Background:       spec.Background,
 		Sparse:           spec.Sparse,
@@ -1932,7 +1940,7 @@ func indexFromSpec(spec indexSpec) Index {
 			}
 		}
 	}
-	return index
+	return &index, nil
 }
 
 type indexSlice []Index
@@ -1941,7 +1949,7 @@ func (idxs indexSlice) Len() int           { return len(idxs) }
 func (idxs indexSlice) Less(i, j int) bool { return idxs[i].Name < idxs[j].Name }
 func (idxs indexSlice) Swap(i, j int)      { idxs[i], idxs[j] = idxs[j], idxs[i] }
 
-func simpleIndexKey(realKey bson.D) (key []string) {
+func simpleIndexKey(realKey bson.D) (key []string, err error) {
 	for i := range realKey {
 		var vi int
 		field := realKey[i].Name
@@ -1970,7 +1978,7 @@ func simpleIndexKey(realKey bson.D) (key []string) {
 			key = append(key, "-"+field)
 			continue
 		}
-		panic("Got unknown index key type for field " + field)
+		return nil, errors.New("Got unknown index key type for field " + field)
 	}
 	return
 }
@@ -3182,20 +3190,7 @@ func (c *Collection) UpdateAll(selector interface{}, update interface{}) (info *
 	return info, err
 }
 
-// Upsert finds a single document matching the provided selector document
-// and modifies it according to the update document.  If no document matching
-// the selector is found, the update document is applied to the selector
-// document and the result is inserted in the collection.
-// If the session is in safe mode (see SetSafe) details of the executed
-// operation are returned in info, or an error of type *LastError when
-// some problem is detected.
-//
-// Relevant documentation:
-//
-//     http://www.mongodb.org/display/DOCS/Updating
-//     http://www.mongodb.org/display/DOCS/Atomic+Operations
-//
-func (c *Collection) Upsert(selector interface{}, update interface{}) (info *ChangeInfo, err error) {
+func (c *Collection) upsert(selector interface{}, update interface{}, multi bool) (info *ChangeInfo, err error) {
 	if selector == nil {
 		selector = bson.D{}
 	}
@@ -3205,6 +3200,7 @@ func (c *Collection) Upsert(selector interface{}, update interface{}) (info *Cha
 		Update:     update,
 		Flags:      1,
 		Upsert:     true,
+		Multi:      multi,
 	}
 	var lerr *LastError
 	for i := 0; i < maxUpsertRetries; i++ {
@@ -3225,6 +3221,34 @@ func (c *Collection) Upsert(selector interface{}, update interface{}) (info *Cha
 		}
 	}
 	return info, err
+}
+
+// Upsert finds a single document matching the provided selector document
+// and modifies it according to the update document.  If no document matching
+// the selector is found, the update document is applied to the selector
+// document and the result is inserted in the collection.
+// If the session is in safe mode (see SetSafe) details of the executed
+// operation are returned in info, or an error of type *LastError when
+// some problem is detected.
+//
+// Relevant documentation:
+//
+//     http://www.mongodb.org/display/DOCS/Updating
+//     http://www.mongodb.org/display/DOCS/Atomic+Operations
+//
+func (c *Collection) Upsert(selector interface{}, update interface{}) (info *ChangeInfo, err error) {
+	return c.upsert(selector, update, false)
+}
+
+// UpsertMulti finds multiple document matching the provided selector document
+// and modifies them according to the update document.  If no document matching
+// the selector is found, the update document is applied to the selector
+// document and the result is inserted in the collection.
+// If the session is in safe mode (see SetSafe) details of the executed
+// operation are returned in info, or an error of type *LastError when
+// some problem is detected.
+func (c *Collection) UpsertMulti(selector interface{}, update interface{}) (info *ChangeInfo, err error) {
+	return c.upsert(selector, update, true)
 }
 
 // UpsertId is a convenience helper equivalent to:
