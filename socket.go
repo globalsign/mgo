@@ -200,6 +200,7 @@ func newSocket(server *mongoServer, conn net.Conn, info *DialInfo) *mongoSocket 
 	stats.socketsAlive(+1)
 	debugf("Socket %p to %s: initialized", socket, socket.addr)
 	socket.resetNonce()
+	stats.SocketCreated()
 	go socket.readLoop()
 	return socket
 }
@@ -352,12 +353,14 @@ func (socket *mongoSocket) updateDeadline(which deadlineType) {
 
 // Close terminates the socket use.
 func (socket *mongoSocket) Close() {
+	stats.SocketClosed()
 	socket.kill(errors.New("Closed explicitly"), false)
 }
 
 // CloseAfterIdle terminates an idle socket, which has a zero
 // reference, or marks the socket to be terminate after idle.
 func (socket *mongoSocket) CloseAfterIdle() {
+	stats.SocketClosedIdle()
 	socket.Lock()
 	if socket.references == 0 {
 		socket.Unlock()

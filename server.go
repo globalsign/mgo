@@ -114,6 +114,9 @@ func newServer(addr string, raddr net.Addr, syncChan chan bool, dial dialer, inf
 	if info.MaxIdleTimeMS != 0 {
 		go server.poolShrinker()
 	}
+
+	stats.ServerCreated()
+
 	return server
 }
 
@@ -312,12 +315,14 @@ func (server *mongoServer) Connect(info *DialInfo) (*mongoSocket, error) {
 // Close forces closing all sockets that are alive, whether
 // they're currently in use or not.
 func (server *mongoServer) Close() {
+	stats.ServerClosed()
 	server.close(false)
 }
 
 // CloseIdle closing all sockets that are idle,
 // sockets currently in use will be closed after idle.
 func (server *mongoServer) CloseIdle() {
+	stats.ServerClosedIdle()
 	server.close(true)
 }
 
@@ -429,6 +434,9 @@ NextTagSet:
 var pingDelay = 15 * time.Second
 
 func (server *mongoServer) pinger(loop bool) {
+	stats.PingerCreated()
+	defer stats.PingerExited()
+
 	var delay time.Duration
 	if raceDetector {
 		// This variable is only ever touched by tests.
@@ -483,6 +491,9 @@ func (server *mongoServer) pinger(loop bool) {
 }
 
 func (server *mongoServer) poolShrinker() {
+	stats.PoolShrinkerCreated()
+	defer stats.PoolShrinkerExited()
+
 	ticker := time.NewTicker(1 * time.Minute)
 	for _ = range ticker.C {
 		if server.closed {
