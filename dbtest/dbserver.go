@@ -60,7 +60,7 @@ func (dbs *DBServer) start() {
 	portString := strconv.Itoa(addr.Port)
 	args := []string{
 		"--dbpath", dbs.dbpath,
-		"--bind_ip", "127.0.0.1",
+		"--bind_ip", "127.0.0.1,127.0.1.1",
 		"--port", portString,
 		"--nssize", "1",
 		"--noprealloc",
@@ -72,6 +72,7 @@ func (dbs *DBServer) start() {
 		args = append(args, "--replSet", "rs0")
 	}
 
+	fmt.Println("TAHER: Starting mongod with args", args)
 	dbs.tomb = tomb.Tomb{}
 	dbs.server = exec.Command("mongod", args...)
 	dbs.server.Stdout = &dbs.output
@@ -83,14 +84,16 @@ func (dbs *DBServer) start() {
 		panic(err)
 	}
 
+	fmt.Println("TAHER: Started mongodb...")
 	if dbs.ReplicaSet {
+		fmt.Println("TAHER: Starting rs.initiate...")
 		time.Sleep(1 * time.Second)
-		rs := exec.Command("mongo", "127.0.0.1:"+portString, "--eval", "rs.initiate()")
-		err = rs.Run()
+		out, err := exec.Command("mongo", "127.0.0.1:"+portString, "--eval", "rs.initiate()").CombinedOutput()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "replicaset initiate failed: %v\n", err)
-			panic(err)
+			panic(err.Error() + "," + string(out))
 		}
+		fmt.Println("TAHER: Done with rs.initiate...", string(out))
 	}
 
 	dbs.tomb.Go(dbs.monitor)
