@@ -97,6 +97,7 @@ func (c *Collection) Watch(pipeline interface{},
 		options:     options,
 		pipeline:    pipeline,
 		domainType:  changeDomainCollection,
+		session:     c.Database.Session,
 	}, nil
 }
 
@@ -275,7 +276,7 @@ func (changeStream *ChangeStream) Close() error {
 		changeStream.err = err
 	}
 	if changeStream.sessionCopied {
-		changeStream.iter.session.Close()
+		changeStream.session.Close()
 		changeStream.sessionCopied = false
 	}
 	return err
@@ -342,22 +343,24 @@ func (changeStream *ChangeStream) resume() error {
 	// copy the information for the new socket.
 
 	// Thanks to Copy() future uses will acquire a new socket against the newly selected DB.
-	newSession := changeStream.iter.session.Copy()
+	newSession := changeStream.session.Copy()
 
-	// fetch the cursor from the iterator and use it to run a killCursors
-	// on the connection.
-	cursorId := changeStream.iter.op.cursorId
-	err := runKillCursorsOnSession(newSession, cursorId)
-	if err != nil {
+	// Close the iterator killing the server cursor
+	if err := changeStream.iter.Close(); err != nil {
 		newSession.Close()
 		return err
 	}
 
-	// change out the old connection to the database with the new connection.
-	if changeStream.sessionCopied {
-		changeStream.collection.Database.Session.Close()
+	// Close the session and assign the new one
+	changeStream.session.Close()
+	if changeStream.domainType == changeDomainCollection {
+		// Ensure collection session points to the new one
+		changeStream.collection.Database.Session = newSession
+	} else if changeStream.domainType == changeDomainDatabase {
+		// Ensure database session points to the new one
+		changeStream.database.Session = newSession
 	}
-	changeStream.collection.Database.Session = newSession
+	changeStream.session = newSession
 	changeStream.sessionCopied = true
 
 	opts := changeStream.options
@@ -439,13 +442,4 @@ func isResumableError(err error) bool {
 	// but the error is a notMaster error
 	//and is not a missingResumeToken error (caused by the user provided pipeline)
 	return (!isQueryError || isNotMasterError(err)) && (err != errMissingResumeToken)
-}
-
-func runKillCursorsOnSession(session *Session, cursorId int64) error {
-	socket, err := session.acquireSocket(true)
-	if err != nil {
-		return err
-	}
-	defer socket.Release()
-	return socket.Query(&killCursorsOp{[]int64{cursorId}})
 }
