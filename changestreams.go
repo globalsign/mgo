@@ -340,19 +340,20 @@ func constructChangeStreamPipeline(pipeline interface{},
 }
 
 func (changeStream *ChangeStream) resume() error {
-	// copy the information for the new socket.
+
+	// Close the iterator killing the server cursor
+	if err := changeStream.iter.Close(); err != nil {
+		return err
+	}
 
 	// Thanks to Copy() future uses will acquire a new socket against the newly selected DB.
 	newSession := changeStream.session.Copy()
 
-	// Close the iterator killing the server cursor
-	if err := changeStream.iter.Close(); err != nil {
-		newSession.Close()
-		return err
+	// Close the session if it has been copied
+	if changeStream.sessionCopied {
+		changeStream.session.Close()
 	}
-
-	// Close the session and assign the new one
-	changeStream.session.Close()
+	// Assign the new session to the change stream
 	if changeStream.domainType == changeDomainCollection {
 		// Ensure collection session points to the new one
 		changeStream.collection.Database.Session = newSession
