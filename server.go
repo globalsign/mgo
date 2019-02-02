@@ -398,7 +398,6 @@ func (server *mongoServer) pinger(loop bool) {
 		if loop {
 			time.Sleep(delay)
 		}
-		op := op
 
 		socket, _, err := server.AcquireSocket(server.dialInfo)
 		if err == nil {
