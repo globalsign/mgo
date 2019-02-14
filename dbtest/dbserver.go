@@ -84,9 +84,9 @@ func (dbs *DBServer) start() {
 		panic(err)
 	}
 
-	fmt.Println("TAHER: Started mongodb...")
+	fmt.Println("Gary: Started mongodb...")
 	if dbs.ReplicaSet {
-		fmt.Println("TAHER: Starting rs.initiate...")
+		fmt.Println("Gary: Starting rs.initiate...")
 		time.Sleep(1 * time.Second)
 		out, err := exec.Command("mongo", "127.0.0.1:"+portString, "--eval", "rs.initiate()").CombinedOutput()
 		if err != nil {
