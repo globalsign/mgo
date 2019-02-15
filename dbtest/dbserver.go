@@ -65,6 +65,7 @@ func (dbs *DBServer) start() {
 		"--nssize", "1",
 		"--noprealloc",
 		"--smallfiles",
+		"--logpath", dbs.dbpath + "/mongo.log",
 	}
 	if dbs.ReplicaSet == false {
 		args = append(args, "--nojournal")
@@ -84,16 +85,24 @@ func (dbs *DBServer) start() {
 		panic(err)
 	}
 
-	fmt.Println("TAHER: Started mongodb...")
+	fmt.Println("Started mongodb...")
 	if dbs.ReplicaSet {
-		fmt.Println("TAHER: Starting rs.initiate...")
-		time.Sleep(1 * time.Second)
-		out, err := exec.Command("mongo", "127.0.0.1:"+portString, "--eval", "rs.initiate()").CombinedOutput()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "replicaset initiate failed: %v\n", err)
-			panic(err.Error() + "," + string(out))
+		retryAttempts := 20
+		for retryAttempts > 0 {
+			retryAttempts--
+			time.Sleep(1 * time.Second)
+			fmt.Printf("Starting rs.initiate, attempt left %d...\n", retryAttempts)
+			out, err := exec.Command("mongo", "127.0.0.1:"+portString, "--eval", "rs.initiate()").CombinedOutput()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "replicaset initiate failed: %v\n", err)
+				if retryAttempts == 0 {
+					panic(err.Error() + "," + string(out))
+				}
+			} else {
+				retryAttempts = 0
+				fmt.Println("Mongod replset initiated")
+			}
 		}
-		fmt.Println("TAHER: Done with rs.initiate...", string(out))
 	}
 
 	dbs.tomb.Go(dbs.monitor)
