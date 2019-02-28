@@ -110,6 +110,25 @@ type Session struct {
 	slaveOk          bool
 
 	dialInfo *DialInfo
+	sessionId             bson.Binary
+	nextTransactionNumber int64
+	transaction           *transaction
+}
+
+type sessionId struct {
+	Id bson.Binary `bson:"id"`
+}
+
+type sessionInfo struct {
+	Id             sessionId `bson:"id"`
+	TimeoutMinutes int       `bson:"timeoutMinutes"`
+}
+
+type transaction struct {
+	number    int64
+	sessionId bson.Binary
+	started   bool
+	finished  bool
 }
 
 // Database holds collections of documents
@@ -3840,6 +3859,7 @@ Error:
 func (q *Query) One(result interface{}) (err error) {
 	q.m.Lock()
 	session := q.session
+	txn := session.transaction
 	op := q.op // Copy.
 	q.m.Unlock()
 
@@ -3853,7 +3873,7 @@ func (q *Query) One(result interface{}) (err error) {
 
 	session.prepareQuery(&op)
 
-	expectFindReply := prepareFindOp(socket, &op, 1)
+	expectFindReply := prepareFindOp(socket, &op, 1, txn)
 
 	data, err := socket.SimpleQuery(&op)
 	if err != nil {
@@ -3897,7 +3917,7 @@ func (q *Query) One(result interface{}) (err error) {
 // a new-style find command if that's supported by the MongoDB server (3.2+).
 // It returns whether to expect a find command result or not. Note op may be
 // translated into an explain command, in which case the function returns false.
-func prepareFindOp(socket *mongoSocket, op *queryOp, limit int32) bool {
+func prepareFindOp(socket *mongoSocket, op *queryOp, limit int32, txn *transaction) bool {
 	if socket.ServerInfo().MaxWireVersion < 4 || op.collection == "admin.$cmd" {
 		return false
 	}
@@ -3934,6 +3954,20 @@ func prepareFindOp(socket *mongoSocket, op *queryOp, limit int32) bool {
 		find.SingleBatch = true
 	} else {
 		find.BatchSize = op.limit
+	}
+
+	if txn != nil {
+		if txn.finished {
+			// ???
+		}
+		if !txn.started {
+			txn.started = true
+			find.StartTransaction = true
+		}
+		find.TXNNumber = txn.number
+		find.LSID = bson.D{{Name: "id", Value: txn.sessionId}}
+		autocommit := false
+		find.Autocommit = &autocommit
 	}
 
 	explain := op.options.Explain
@@ -3990,6 +4024,10 @@ type findCmd struct {
 	NoCursorTimeout     bool        `bson:"noCursorTimeout,omitempty"`
 	AllowPartialResults bool        `bson:"allowPartialResults,omitempty"`
 	Collation           *Collation  `bson:"collation,omitempty"`
+	LSID                bson.D      `bson:"lsid,omitempty"`
+	TXNNumber           int64       `bson:"txnNumber,omitempty"`
+	Autocommit          *bool       `bson:"autocommit,omitempty"`
+	StartTransaction    bool        `bson:"startTransaction,omitempty"`
 }
 
 // readLevel provides the nested "level: majority" serialisation needed for the
@@ -4200,6 +4238,7 @@ func (s *Session) DatabaseNames() (names []string, err error) {
 func (q *Query) Iter() *Iter {
 	q.m.Lock()
 	session := q.session
+	txn := session.transaction
 	op := q.op
 	prefetch := q.prefetch
 	limit := q.limit
@@ -4227,7 +4266,7 @@ func (q *Query) Iter() *Iter {
 	session.prepareQuery(&op)
 	op.replyFunc = iter.op.replyFunc
 
-	if prepareFindOp(socket, &op, limit) {
+	if prepareFindOp(socket, &op, limit, txn) {
 		iter.isFindCmd = true
 	}
 
@@ -5654,13 +5693,13 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 	}
 
 	var cmd bson.D
+	txn := c.Database.Session.transaction
 	switch op := op.(type) {
 	case *insertOp:
 		// http://docs.mongodb.org/manual/reference/command/insert
 		cmd = bson.D{
 			{Name: "insert", Value: c.Name},
 			{Name: "documents", Value: op.documents},
-			{Name: "writeConcern", Value: writeConcern},
 			{Name: "ordered", Value: op.flags&1 == 0},
 		}
 	case *updateOp:
@@ -5668,7 +5707,6 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 		cmd = bson.D{
 			{Name: "update", Value: c.Name},
 			{Name: "updates", Value: []interface{}{op}},
-			{Name: "writeConcern", Value: writeConcern},
 			{Name: "ordered", Value: ordered},
 		}
 	case bulkUpdateOp:
@@ -5676,7 +5714,6 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 		cmd = bson.D{
 			{Name: "update", Value: c.Name},
 			{Name: "updates", Value: op},
-			{Name: "writeConcern", Value: writeConcern},
 			{Name: "ordered", Value: ordered},
 		}
 	case *deleteOp:
@@ -5684,7 +5721,6 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 		cmd = bson.D{
 			{Name: "delete", Value: c.Name},
 			{Name: "deletes", Value: []interface{}{op}},
-			{Name: "writeConcern", Value: writeConcern},
 			{Name: "ordered", Value: ordered},
 		}
 	case bulkDeleteOp:
@@ -5692,12 +5728,25 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 		cmd = bson.D{
 			{Name: "delete", Value: c.Name},
 			{Name: "deletes", Value: op},
-			{Name: "writeConcern", Value: writeConcern},
 			{Name: "ordered", Value: ordered},
 		}
 	}
 	if bypassValidation {
 		cmd = append(cmd, bson.DocElem{Name: "bypassDocumentValidation", Value: true})
+	}
+	if txn != nil {
+		if txn.finished {
+			//TODO ERROR
+		}
+		if !txn.started {
+			cmd = append(cmd, bson.DocElem{Name: "startTransaction", Value: true})
+			txn.started = true
+		}
+		cmd = append(cmd, bson.DocElem{Name: "autocommit", Value: false})
+		cmd = append(cmd, bson.DocElem{Name: "txnNumber", Value: txn.number})
+		cmd = append(cmd, bson.DocElem{Name: "lsid", Value: bson.M{"id": txn.sessionId}})
+	} else {
+		cmd = append(cmd, bson.DocElem{Name: "writeConcern", Value: writeConcern})
 	}
 
 	var result writeCmdResult
@@ -5810,4 +5859,98 @@ func rdnOIDToShortName(oid asn1.ObjectIdentifier) string {
 	}
 
 	return ""
+}
+
+func (s *Session) ensureSessionId() error {
+	if len(s.sessionId.Data) != 0 {
+		return nil
+	}
+	var info sessionInfo
+	// TODO(jam): 2019-02-27 the startSession call can take a few optional parameters.
+	//  We could put them as Session attributes that we pass along. It seems to be
+	//  things like 'casual consistency' and 'write preference', which we seem to be
+	//  setting elsewhere.
+
+	err := s.Run("startSession", &info)
+	if err != nil {
+		return err
+	}
+	s.sessionId = info.Id.Id
+	return nil
+}
+
+func (s *Session) StartTransaction() error {
+	if err := s.ensureSessionId(); err != nil {
+		return err
+	}
+	if s.transaction != nil {
+		return errors.New("transaction already started")
+	}
+	s.nextTransactionNumber++
+	s.transaction = &transaction{
+		number:    s.nextTransactionNumber,
+		sessionId: s.sessionId,
+		started:   false,
+	}
+	// TODO: readConcern, writeConcern, readPreference can all be set separately for a given transaction
+	return nil
+}
+
+func (s *Session) finishTransaction(command string) error {
+	cmd := bson.D{
+		{Name: command, Value: 1},
+		{Name: "txnNumber", Value: s.transaction.number},
+		{Name: "autocommit", Value: false},
+		{Name: "lsid", Value: bson.M{"id": s.sessionId}},
+	}
+	return s.Run(cmd, nil)
+}
+
+func (s *Session) CommitTransaction() error {
+	if len(s.sessionId.Data) == 0 {
+		// XXX: error?, shouldn't commit if we never called s.ensureSessionId
+		return nil
+	}
+	if s.transaction == nil || !s.transaction.started {
+		// XXX: error?, no active transaction
+		return nil
+	}
+	if s.transaction.finished {
+		// XXX: logic error, we shouldn't be able to get here
+		return nil
+	}
+	// XXX: Python has a retry tracking 'retryable' errors around finishTransaction
+	err := s.finishTransaction("commitTransaction")
+	// TODO(jam): 2019-02-28 do we need a mutex around this since Insert/Update/etc are potentially different goroutines?
+	s.transaction.finished = false
+	s.transaction = nil
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Session) AbortTransaction() error {
+	if len(s.sessionId.Data) == 0 {
+		// XXX: error?, shouldn't commit if we never called s.ensureSessionId
+		return nil
+	}
+	if s.transaction == nil {
+		// XXX: error?, no active transaction
+		return nil
+	}
+	if !s.transaction.started {
+		// nothing to do
+		return nil
+	}
+	// XXX: do we want to track a transaction STATE, like they do in Python with states of:
+	// NONE, STARTING, IN_PROGRESS, ABORTED, COMMITTED, COMMITTED_EMPTY
+	err := s.finishTransaction("abortTransaction")
+	// TODO(jam): 2019-02-28 do we need a mutex around this since Insert/Update/etc are potentially different goroutines?
+	s.transaction.finished = false
+	s.transaction = nil
+	if err != nil {
+		return err
+	}
+	return nil
 }
