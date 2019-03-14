@@ -5768,7 +5768,7 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 		cmd = append(cmd, bson.DocElem{Name: "txnNumber", Value: txn.number})
 		cmd = append(cmd, bson.DocElem{Name: "lsid", Value: bson.M{"id": txn.sessionId}})
 	} else {
-		cmd = append(cmd, bson.DocElem{"writeConcern", writeConcern})
+		cmd = append(cmd, bson.DocElem{Name: "writeConcern", Value: writeConcern})
 	}
 
 	if started {
