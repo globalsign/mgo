@@ -109,7 +109,7 @@ type Session struct {
 	bypassValidation bool
 	slaveOk          bool
 
-	dialInfo *DialInfo
+	dialInfo              *DialInfo
 	sessionId             bson.Binary
 	nextTransactionNumber int64
 	transaction           *transaction
@@ -128,7 +128,6 @@ type transaction struct {
 	number    int64
 	sessionId bson.Binary
 	started   bool
-	finished  bool
 }
 
 // Database holds collections of documents
@@ -2054,12 +2053,23 @@ func (s *Session) Clone() *Session {
 // Close terminates the session.  It's a runtime error to use a session
 // after it has been closed.
 func (s *Session) Close() {
+	s.m.RLock()
+	txnActive := s.transaction != nil && s.transaction.started
+	s.m.RUnlock()
+	if txnActive {
+		// No chance to give the user an error
+		err := s.AbortTransaction()
+		if err != nil {
+			logf("abort during Session.Close failed: %v", err)
+		}
+	}
 	s.m.Lock()
 	if s.mgoCluster != nil {
 		debugf("Closing session %p", s)
 		s.unsetSocket()
 		s.mgoCluster.Release()
 		s.mgoCluster = nil
+		s.transaction = nil
 	}
 	s.m.Unlock()
 }
@@ -3859,9 +3869,12 @@ Error:
 func (q *Query) One(result interface{}) (err error) {
 	q.m.Lock()
 	session := q.session
-	txn := session.transaction
 	op := q.op // Copy.
 	q.m.Unlock()
+	session.m.RLock()
+	txn := session.transaction
+	startTxn := txn != nil && !txn.started
+	session.m.RUnlock()
 
 	socket, err := session.acquireSocket(true)
 	if err != nil {
@@ -3873,11 +3886,16 @@ func (q *Query) One(result interface{}) (err error) {
 
 	session.prepareQuery(&op)
 
-	expectFindReply := prepareFindOp(socket, &op, 1, txn)
+	expectFindReply := prepareFindOp(socket, &op, 1, txn, startTxn)
 
 	data, err := socket.SimpleQuery(&op)
 	if err != nil {
 		return err
+	}
+	if startTxn {
+		session.m.Lock()
+		txn.started = true
+		session.m.Unlock()
 	}
 	if data == nil {
 		return ErrNotFound
@@ -3917,7 +3935,7 @@ func (q *Query) One(result interface{}) (err error) {
 // a new-style find command if that's supported by the MongoDB server (3.2+).
 // It returns whether to expect a find command result or not. Note op may be
 // translated into an explain command, in which case the function returns false.
-func prepareFindOp(socket *mongoSocket, op *queryOp, limit int32, txn *transaction) bool {
+func prepareFindOp(socket *mongoSocket, op *queryOp, limit int32, txn *transaction, startTxn bool) bool {
 	if socket.ServerInfo().MaxWireVersion < 4 || op.collection == "admin.$cmd" {
 		return false
 	}
@@ -3957,11 +3975,7 @@ func prepareFindOp(socket *mongoSocket, op *queryOp, limit int32, txn *transacti
 	}
 
 	if txn != nil {
-		if txn.finished {
-			// ???
-		}
-		if !txn.started {
-			txn.started = true
+		if startTxn {
 			find.StartTransaction = true
 		}
 		find.TXNNumber = txn.number
@@ -4238,11 +4252,14 @@ func (s *Session) DatabaseNames() (names []string, err error) {
 func (q *Query) Iter() *Iter {
 	q.m.Lock()
 	session := q.session
-	txn := session.transaction
 	op := q.op
 	prefetch := q.prefetch
 	limit := q.limit
 	q.m.Unlock()
+	session.m.RLock()
+	txn := session.transaction
+	startTxn := txn != nil && !txn.started
+	session.m.RUnlock()
 
 	iter := &Iter{
 		session:  session,
@@ -4266,7 +4283,7 @@ func (q *Query) Iter() *Iter {
 	session.prepareQuery(&op)
 	op.replyFunc = iter.op.replyFunc
 
-	if prepareFindOp(socket, &op, limit, txn) {
+	if prepareFindOp(socket, &op, limit, txn, startTxn) {
 		iter.isFindCmd = true
 	}
 
@@ -4277,6 +4294,11 @@ func (q *Query) Iter() *Iter {
 		iter.m.Lock()
 		iter.err = err
 		iter.m.Unlock()
+	}
+	if startTxn {
+		session.m.Lock()
+		txn.started = true
+		session.m.Unlock()
 	}
 
 	return iter
@@ -5514,6 +5536,7 @@ func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err
 	s.m.RLock()
 	safeOp := s.safeOp
 	bypassValidation := s.bypassValidation
+	txn := s.transaction
 	s.m.RUnlock()
 
 	if socket.ServerInfo().MaxWireVersion >= 2 {
@@ -5529,7 +5552,7 @@ func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err
 					l = len(all)
 				}
 				op.documents = all[i:l]
-				oplerr, err := c.writeOpCommand(socket, safeOp, op, ordered, bypassValidation)
+				oplerr, err := c.writeOpCommand(socket, safeOp, op, ordered, bypassValidation, txn)
 				lerr.N += oplerr.N
 				lerr.modified += oplerr.modified
 				if err != nil {
@@ -5557,7 +5580,7 @@ func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err
 					l = len(updateOp)
 				}
 
-				oplerr, err := c.writeOpCommand(socket, safeOp, updateOp[i:l], ordered, bypassValidation)
+				oplerr, err := c.writeOpCommand(socket, safeOp, updateOp[i:l], ordered, bypassValidation, txn)
 
 				lerr.N += oplerr.N
 				lerr.modified += oplerr.modified
@@ -5583,7 +5606,7 @@ func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err
 					l = len(deleteOps)
 				}
 
-				oplerr, err := c.writeOpCommand(socket, safeOp, deleteOps[i:l], ordered, bypassValidation)
+				oplerr, err := c.writeOpCommand(socket, safeOp, deleteOps[i:l], ordered, bypassValidation, txn)
 
 				lerr.N += oplerr.N
 				lerr.modified += oplerr.modified
@@ -5599,7 +5622,7 @@ func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err
 			}
 			return &lerr, nil
 		}
-		return c.writeOpCommand(socket, safeOp, op, ordered, bypassValidation)
+		return c.writeOpCommand(socket, safeOp, op, ordered, bypassValidation, txn)
 	} else if updateOps, ok := op.(bulkUpdateOp); ok {
 		var lerr LastError
 		for i, updateOp := range updateOps {
@@ -5684,7 +5707,7 @@ func (c *Collection) writeOpQuery(socket *mongoSocket, safeOp *queryOp, op inter
 	return result, nil
 }
 
-func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op interface{}, ordered, bypassValidation bool) (lerr *LastError, err error) {
+func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op interface{}, ordered, bypassValidation bool, txn *transaction) (lerr *LastError, err error) {
 	var writeConcern interface{}
 	if safeOp == nil {
 		writeConcern = bson.D{{Name: "w", Value: 0}}
@@ -5693,7 +5716,6 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 	}
 
 	var cmd bson.D
-	txn := c.Database.Session.transaction
 	switch op := op.(type) {
 	case *insertOp:
 		// http://docs.mongodb.org/manual/reference/command/insert
@@ -5734,19 +5756,25 @@ func (c *Collection) writeOpCommand(socket *mongoSocket, safeOp *queryOp, op int
 	if bypassValidation {
 		cmd = append(cmd, bson.DocElem{Name: "bypassDocumentValidation", Value: true})
 	}
+	started := false
 	if txn != nil {
-		if txn.finished {
-			//TODO ERROR
-		}
+		c.Database.Session.m.RLock()
 		if !txn.started {
 			cmd = append(cmd, bson.DocElem{Name: "startTransaction", Value: true})
-			txn.started = true
+			started = true
 		}
+		c.Database.Session.m.RUnlock()
 		cmd = append(cmd, bson.DocElem{Name: "autocommit", Value: false})
 		cmd = append(cmd, bson.DocElem{Name: "txnNumber", Value: txn.number})
 		cmd = append(cmd, bson.DocElem{Name: "lsid", Value: bson.M{"id": txn.sessionId}})
 	} else {
-		cmd = append(cmd, bson.DocElem{Name: "writeConcern", Value: writeConcern})
+		cmd = append(cmd, bson.DocElem{"writeConcern", writeConcern})
+	}
+
+	if started {
+		c.Database.Session.m.Lock()
+		txn.started = started
+		c.Database.Session.m.Unlock()
 	}
 
 	var result writeCmdResult
@@ -5862,9 +5890,12 @@ func rdnOIDToShortName(oid asn1.ObjectIdentifier) string {
 }
 
 func (s *Session) ensureSessionId() error {
+	s.m.RLock()
 	if len(s.sessionId.Data) != 0 {
+		s.m.RUnlock()
 		return nil
 	}
+	s.m.RUnlock()
 	var info sessionInfo
 	// TODO(jam): 2019-02-27 the startSession call can take a few optional parameters.
 	//  We could put them as Session attributes that we pass along. It seems to be
@@ -5875,7 +5906,9 @@ func (s *Session) ensureSessionId() error {
 	if err != nil {
 		return err
 	}
+	s.m.Lock()
 	s.sessionId = info.Id.Id
+	s.m.Unlock()
 	return nil
 }
 
@@ -5883,7 +5916,9 @@ func (s *Session) StartTransaction() error {
 	if err := s.ensureSessionId(); err != nil {
 		return err
 	}
+	s.m.Lock()
 	if s.transaction != nil {
+		s.m.Unlock()
 		return errors.New("transaction already started")
 	}
 	s.nextTransactionNumber++
@@ -5892,65 +5927,56 @@ func (s *Session) StartTransaction() error {
 		sessionId: s.sessionId,
 		started:   false,
 	}
+	s.m.Unlock()
 	// TODO: readConcern, writeConcern, readPreference can all be set separately for a given transaction
 	return nil
 }
 
 func (s *Session) finishTransaction(command string) error {
-	cmd := bson.D{
-		{Name: command, Value: 1},
-		{Name: "txnNumber", Value: s.transaction.number},
-		{Name: "autocommit", Value: false},
-		{Name: "lsid", Value: bson.M{"id": s.sessionId}},
+	s.m.RLock()
+	if len(s.sessionId.Data) == 0 {
+		s.m.RUnlock()
+		return errors.New("no transaction in progress")
 	}
-	return s.Run(cmd, nil)
+	if s.transaction == nil {
+		s.m.RUnlock()
+		return errors.New("no transaction in progress")
+	}
+	txn := s.transaction
+	sessionId := s.sessionId
+	txnNumber := txn.number
+	started := txn.started
+	s.m.RUnlock()
+	var err error
+	if started {
+		// XXX: Python has a retry tracking 'retryable' errors around finishTransaction
+		cmd := bson.D{
+			{Name: command, Value: 1},
+			{Name: "txnNumber", Value: txnNumber},
+			{Name: "autocommit", Value: false},
+			{Name: "lsid", Value: bson.M{"id": sessionId}},
+		}
+		err = s.Run(cmd, nil)
+	}
+	s.m.Lock()
+	if s.transaction == txn {
+		s.transaction = nil
+	} else {
+		// TODO: How to exercise this code?
+		err = errors.New(fmt.Sprintf("transaction changed during %s, %v != %v",
+			command, txn, s.transaction))
+	}
+	s.m.Unlock()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Session) CommitTransaction() error {
-	if len(s.sessionId.Data) == 0 {
-		// XXX: error?, shouldn't commit if we never called s.ensureSessionId
-		return nil
-	}
-	if s.transaction == nil || !s.transaction.started {
-		// XXX: error?, no active transaction
-		return nil
-	}
-	if s.transaction.finished {
-		// XXX: logic error, we shouldn't be able to get here
-		return nil
-	}
-	// XXX: Python has a retry tracking 'retryable' errors around finishTransaction
-	err := s.finishTransaction("commitTransaction")
-	// TODO(jam): 2019-02-28 do we need a mutex around this since Insert/Update/etc are potentially different goroutines?
-	s.transaction.finished = false
-	s.transaction = nil
-	if err != nil {
-		return err
-	}
-	return nil
+	return s.finishTransaction("commitTransaction")
 }
 
 func (s *Session) AbortTransaction() error {
-	if len(s.sessionId.Data) == 0 {
-		// XXX: error?, shouldn't commit if we never called s.ensureSessionId
-		return nil
-	}
-	if s.transaction == nil {
-		// XXX: error?, no active transaction
-		return nil
-	}
-	if !s.transaction.started {
-		// nothing to do
-		return nil
-	}
-	// XXX: do we want to track a transaction STATE, like they do in Python with states of:
-	// NONE, STARTING, IN_PROGRESS, ABORTED, COMMITTED, COMMITTED_EMPTY
-	err := s.finishTransaction("abortTransaction")
-	// TODO(jam): 2019-02-28 do we need a mutex around this since Insert/Update/etc are potentially different goroutines?
-	s.transaction.finished = false
-	s.transaction = nil
-	if err != nil {
-		return err
-	}
-	return nil
+	return s.finishTransaction("abortTransaction")
 }
