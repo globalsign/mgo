@@ -33,8 +33,8 @@ import (
 	"time"
 
 	. "gopkg.in/check.v1"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
+	"github.com/globalsign/mgo"
+	"github.com/globalsign/mgo/bson"
 )
 
 func (s *S) setupTxnSession(c *C) *mgo.Session {
@@ -42,7 +42,7 @@ func (s *S) setupTxnSession(c *C) *mgo.Session {
 	if !s.versionAtLeast(4, 0) {
 		c.Skip("transactions not supported before 4.0")
 	}
-	session, err := mgo.Dial("localhost:40011")
+	session, err := mgo.DialWithTimeout("localhost:40011", 10*time.Second)
 	c.Assert(err, IsNil)
 	return session
 }
