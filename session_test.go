@@ -869,6 +869,44 @@ func (s *S) TestUpdateAll(c *C) {
 	}
 }
 
+func (s *S) TestUpdateArray(c *C) {
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+
+	ns := []int{1, 2, 3, 4, 5}
+	for _, n := range ns {
+		err := coll.Insert(M{"i": n, "g": []M{{"s": []M{{"o": 1, "n": 1}, {"o": 2, "n": 2}, {"o": 3, "n": 3}}}}})
+		c.Assert(err, IsNil)
+	}
+
+	err = coll.UpdateArray(M{"i": 1}, M{"$inc": M{"g.$[].s.$[ss].n": 1}}, []M{{"ss.o": 1}})
+	c.Assert(err, IsNil)
+	err = coll.UpdateArray(M{"i": 2}, M{"$inc": M{"g.$[].s.$[ss].n": 1}}, []M{{"ss.o": 2}})
+	c.Assert(err, IsNil)
+	err = coll.UpdateArray(M{"i": 3}, M{"$inc": M{"g.$[].s.$[ss].n": 1}}, []M{{"ss.o": 3}})
+	c.Assert(err, IsNil)
+
+	result := make(M)
+	err = coll.Find(M{"i": 1}).One(result)
+	c.Assert(err, IsNil)
+	n := result["g"].([]interface{})[0].(M)["s"].([]interface{})[0].(M)["n"]
+	c.Assert(n, Equals, 2)
+
+	err = coll.Find(M{"i": 2}).One(result)
+	c.Assert(err, IsNil)
+	n = result["g"].([]interface{})[0].(M)["s"].([]interface{})[1].(M)["n"]
+	c.Assert(n, Equals, 3)
+
+	err = coll.Find(M{"i": 3}).One(result)
+	c.Assert(err, IsNil)
+	n = result["g"].([]interface{})[0].(M)["s"].([]interface{})[2].(M)["n"]
+	c.Assert(n, Equals, 4)
+
+}
+
 func (s *S) TestRemove(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
