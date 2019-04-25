@@ -288,7 +288,7 @@ func (d *decoder) readDocTo(out reflect.Value) {
 		case reflect.Struct:
 			if info, ok := fieldsMap[name]; ok {
 				if info.Inline == nil {
-					d.readElemTo(out.Field(info.Num), kind)
+					d.readElemToWithTags(out.Field(info.Num), kind, info.ObjectId)
 				} else {
 					f, err := safeFieldByIndex(out, info.Inline)
 					if err != nil {
@@ -306,13 +306,13 @@ func (d *decoder) readDocTo(out reflect.Value) {
 						// retry now
 						f, err = safeFieldByIndex(out, info.Inline)
 						if err == nil {
-							d.readElemTo(f, kind)
+							d.readElemToWithTags(f, kind, info.ObjectId)
 						} else {
 							d.dropElem(kind)
 						}
 
 					} else {
-						d.readElemTo(f, kind)
+						d.readElemToWithTags(f, kind, info.ObjectId)
 					}
 				}
 			} else if inlineMap.IsValid() {
@@ -543,7 +543,7 @@ func (d *decoder) readRaw(kind byte) Raw {
 	d.i += size
 	return Raw{
 		Kind: kind,
-		Data: d.in[d.i-size : d.i : d.i],
+		Data: d.in[d.i-size : d.i:d.i],
 	}
 }
 
@@ -650,6 +650,19 @@ func (d *decoder) dropElem(kind byte) {
 // If the types are not compatible, the returned ok value will be
 // false and out will be unchanged.
 func (d *decoder) readElemTo(out reflect.Value, kind byte) (good bool) {
+	return d.readElemToWithTags(out, kind, false)
+}
+
+// Attempt to decode an element from the document and put it into out.
+// If the types are not compatible, the returned ok value will be
+// false and out will be unchanged. This function should only be called
+// directly if field tags need to be passed along. In all other cases
+// readElemTo is preferred.
+//
+// The objectid parameter is intended to be set to true if the element
+// we are decoding has the objectid flag specified. In all other cases
+// this parameter should be false.
+func (d *decoder) readElemToWithTags(out reflect.Value, kind byte, objectid bool) (good bool) {
 	outt := out.Type()
 
 	if outt == typeRaw {
@@ -744,7 +757,18 @@ func (d *decoder) readElemTo(out reflect.Value, kind byte) (good bool) {
 	case Element06: // Undefined (obsolete, but still seen in the wild)
 		in = Undefined
 	case ElementObjectId:
-		in = ObjectId(d.readBytes(12))
+		if objectid {
+			switch out.Kind() {
+			case reflect.String:
+				in = ObjectId(d.readBytes(12)).Hex()
+			case reflect.Array, reflect.Slice:
+				in = d.readBytes(12)
+			default:
+				in = ObjectId(d.readBytes(12))
+			}
+		} else {
+			in = ObjectId(d.readBytes(12))
+		}
 	case ElementBool:
 		in = d.readBool()
 	case ElementDatetime: // Timestamp

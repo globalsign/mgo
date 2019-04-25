@@ -28,6 +28,7 @@
 package bson
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -245,6 +246,10 @@ func (e *encoder) addStruct(v reflect.Value) {
 		if info.OmitEmpty && isZero(value) {
 			continue
 		}
+		if info.ObjectId {
+			e.addObjectIdElem(info.Key, value)
+			continue
+		}
 		if useRespectNilValues &&
 			(value.Kind() == reflect.Slice || value.Kind() == reflect.Map) &&
 			value.IsNil() {
@@ -252,6 +257,34 @@ func (e *encoder) addStruct(v reflect.Value) {
 			continue
 		}
 		e.addElem(info.Key, value, info.MinSize)
+	}
+}
+
+func (e *encoder) addObjectIdElem(name string, v reflect.Value) {
+	switch v.Kind() {
+	case reflect.Slice, reflect.Array:
+		if v.Type().Elem().Kind() != reflect.Uint8 {
+			panic(fmt.Errorf("Field %s is an array of neither type byte nor type uint8", name))
+		}
+		n := v.Len()
+		if n != 12 {
+			panic(fmt.Errorf("Field %s does not contain a valid ObjectID", name))
+		}
+		e.addElemName(0x07, name)
+		for i := 0; i < n; i++ {
+			el := v.Index(i)
+			e.addBytes(byte(el.Uint()))
+		}
+	case reflect.String:
+		s := v.String()
+		d, err := hex.DecodeString(s)
+		if err != nil || len(d) != 12 {
+			panic(fmt.Errorf("Field %s does not contain a valid ObjectID", name))
+		}
+		e.addElemName(0x07, name)
+		e.addBytes(d...)
+	default:
+		panic("Only hex strings and arrays of type byte or type uint8 are supported for ObjectID aliasing")
 	}
 }
 
