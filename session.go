@@ -94,7 +94,7 @@ const (
 // All Session methods are concurrency-safe and may be called from multiple
 // goroutines. In all session modes but Eventual, using the session from
 // multiple goroutines will cause them to share the same underlying socket.
-// See the documentation on Session.SetMode for more details.
+// See the documentation on Session.SetMode for more details.git@github.com:eclipseo/mgo.git
 type Session struct {
 	defaultdb        string
 	sourcedb         string
@@ -3885,7 +3885,7 @@ func (db *Database) run(socket *mongoSocket, cmd, result interface{}) (err error
 	if result != nil {
 		err = bson.Unmarshal(data, result)
 		if err != nil {
-			debugf("Run command unmarshaling failed: %#v", op, err)
+			debugf("Run command unmarshaling failed: %#v, error: %#v", op, err)
 			return err
 		}
 		if globalDebug && globalLogger != nil {
