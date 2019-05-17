@@ -3,7 +3,7 @@ package txn
 import (
 	"fmt"
 
-	mgo "github.com/globalsign/mgo"
+	"github.com/globalsign/mgo"
 
 	"github.com/globalsign/mgo/bson"
 )
@@ -857,12 +857,13 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 					updated := false
 					if !hasToken(stash.Queue, tt) {
 						var set, unset bson.D
+						cleanedQueue := filterQueue(info.Queue, pull, tt)
 						if revno == 0 {
 							// Missing revno in stash means -1.
-							set = bson.D{{Name: "txn-queue", Value: info.Queue}}
+							set = bson.D{{Name: "txn-queue", Value: cleanedQueue}}
 							unset = bson.D{{Name: "n", Value: 1}, {Name: "txn-revno", Value: 1}}
 						} else {
-							set = bson.D{{Name: "txn-queue", Value: info.Queue}, {Name: "txn-revno", Value: newRevno}}
+							set = bson.D{{Name: "txn-queue", Value: cleanedQueue}, {Name: "txn-revno", Value: newRevno}}
 							unset = bson.D{{Name: "n", Value: 1}}
 						}
 						qdoc := bson.D{{Name: "_id", Value: dkey}, {Name: "n", Value: nonce}}
@@ -898,7 +899,12 @@ func (f *flusher) apply(t *transaction, pull map[bson.ObjectId]*transaction) err
 				var info txnInfo
 				if _, err = f.sc.Find(qdoc).Apply(change, &info); err == nil {
 					f.debugf("Stash for document %v has revno %d and queue: %v", dkey, info.Revno, info.Queue)
-					d = setInDoc(d, bson.D{{Name: "_id", Value: op.Id}, {Name: "txn-revno", Value: newRevno}, {Name: "txn-queue", Value: info.Queue}})
+					cleanedQueue := filterQueue(info.Queue, pull, tt)
+					d = setInDoc(d, bson.D{
+						{Name: "_id", Value: op.Id},
+						{Name: "txn-revno", Value: newRevno},
+						{Name: "txn-queue", Value: cleanedQueue},
+					})
 					// Unlikely yet unfortunate race in here if this gets seriously
 					// delayed. If someone inserts+removes meanwhile, this will
 					// reinsert, and there's no way to avoid that while keeping the
@@ -996,6 +1002,24 @@ func tokensToPull(dqueue []tokenAndId, pull map[bson.ObjectId]*transaction, dont
 		}
 	}
 	return result
+}
+
+// filterQueue takes an existing queue and removes all the items in pull from it. The returned slice will only contain
+// items that aren't in 'pull'.
+func filterQueue(queue []token, pull map[bson.ObjectId]*transaction, dontPull token) ([]token) {
+	cleaned := make([]token, 0, len(queue))
+	for _, tt := range queue {
+		if tt == dontPull {
+			cleaned = append(cleaned, tt)
+			continue
+		}
+		txnId := tt.id()
+		if _, ok := pull[txnId]; !ok {
+			// shouldn't be pulled, so add it to the cleaned queue
+			cleaned = append(cleaned, tt)
+		}
+	}
+	return cleaned
 }
 
 func objToDoc(obj interface{}) (d bson.D, err error) {
