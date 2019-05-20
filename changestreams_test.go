@@ -23,6 +23,7 @@ type changeEvent struct {
 	Ns                evNamespace `bson:"ns"`
 	DocumentKey       M           `bson:"documentKey"`
 	UpdateDescription *updateDesc `bson:"updateDescription,omitempty"`
+	ClusterTime       bson.MongoTimestamp `bson:"clusterTime,omitempty"`
 }
 
 type watchable interface {
@@ -56,6 +57,69 @@ func (s *S) TestStreamsWatch(c *C) {
 		//cluster level
 		testF(session)
 	}
+}
+
+func (s *S) TestStreamsStartAtOperationTime(c *C) {
+	if !s.versionAtLeast(4, 0) {
+		c.Skip("StartAtOperationTime only works on 4.0+")
+	}
+	session, err := mgo.Dial("localhost:40011")
+	c.Assert(err, IsNil)
+	defer session.Close()
+	coll := session.DB("mydb").C("mycoll")
+
+	var id bson.ObjectId
+	var ts bson.MongoTimestamp
+
+	// checkEv will check the event is correct
+	var checkEv = func(ev changeEvent) {
+		oid := ev.DocumentKey["_id"].(bson.ObjectId)
+		ots := ev.ClusterTime
+		c.Assert(oid, Equals, id)
+		c.Assert(ots > 0, Equals, true)
+		c.Assert(ots, Equals, ts)
+	}
+	var testF = func(w watchable) {
+		var hasEvent bool
+		pipeline := []bson.M{}
+		changeStream, e := w.Watch(pipeline, mgo.ChangeStreamOptions{MaxAwaitTimeMS: 1500})
+		c.Assert(e, IsNil)
+
+		//insert a new document while the change stream is listening
+		id = bson.NewObjectId()
+		e = coll.Insert(M{"_id": id, "a": 1})
+		c.Assert(e, IsNil)
+
+		//read the insert event
+		changeEv := changeEvent{}
+		hasEvent = changeStream.Next(&changeEv)
+		c.Assert(hasEvent, Equals, true)
+
+		//capture timestamp of insert event
+		ts = changeEv.ClusterTime
+
+		//verify the insert event
+		checkEv(changeEv)
+		e = changeStream.Close()
+		c.Assert(e, IsNil)
+
+		//start another change stream starting at the insert event
+		changeStream, e = w.Watch(pipeline, mgo.ChangeStreamOptions{StartAtOperationTime: ts, MaxAwaitTimeMS: 1500})
+		changeEv = changeEvent{}
+		hasEvent = changeStream.Next(&changeEv)
+		c.Assert(hasEvent, Equals, true)
+
+		//check that we restarted at the insert event
+		checkEv(changeEv)
+		e = changeStream.Close()
+		c.Assert(e, IsNil)
+	}
+	//collection level
+	testF(coll)
+	//db level
+	testF(session.DB("mydb"))
+	//cluster level
+	testF(session)
 }
 
 func (s *S) TestStreamsInsert(c *C) {
@@ -162,6 +226,9 @@ func (s *S) TestStreamsNextNoEventTimeout(c *C) {
 		c.Assert(hasEvent, Equals, false)
 		c.Assert(changeStream.Err(), IsNil)
 		c.Assert(changeStream.Timeout(), Equals, true)
+
+		err = changeStream.Close()
+		c.Assert(err, IsNil)
 
 		//test the same with default timeout (MaxTimeMS=1000)
 		//create the stream

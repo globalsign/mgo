@@ -28,6 +28,7 @@ const (
 type ChangeStream struct {
 	iter           *Iter
 	isClosed       bool
+	timedout       bool
 	options        ChangeStreamOptions
 	pipeline       interface{}
 	resumeToken    *bson.Raw
@@ -35,7 +36,6 @@ type ChangeStream struct {
 	readPreference *ReadPreference
 	err            error
 	m              sync.Mutex
-	sessionCopied  bool
 	domainType     changeDomainType
 	session        *Session
 	database       *Database
@@ -59,6 +59,10 @@ type ChangeStreamOptions struct {
 
 	// Collation specifies the way the server should collate returned data.
 	//TODO Collation *Collation
+
+	// Specify StartAtOperationTime to open the cursor at a particular point in time.
+	// If the specified starting point is in the past, it must be in the time range of the oplog.
+	StartAtOperationTime bson.MongoTimestamp
 }
 
 var errMissingResumeToken = errors.New("resume token missing from result")
@@ -89,7 +93,6 @@ func (c *Collection) Watch(pipeline interface{},
 		return nil, err
 	}
 
-	pIter.isChangeStream = true
 	return &ChangeStream{
 		iter:        pIter,
 		collection:  c,
@@ -97,6 +100,7 @@ func (c *Collection) Watch(pipeline interface{},
 		options:     options,
 		pipeline:    pipeline,
 		domainType:  changeDomainCollection,
+		session:     c.Database.Session,
 	}, nil
 }
 
@@ -126,7 +130,6 @@ func (sess *Session) Watch(pipeline interface{},
 		return nil, err
 	}
 
-	pIter.isChangeStream = true
 	return &ChangeStream{
 		iter:        pIter,
 		resumeToken: nil,
@@ -163,7 +166,6 @@ func (db *Database) Watch(pipeline interface{},
 		return nil, err
 	}
 
-	pIter.isChangeStream = true
 	return &ChangeStream{
 		iter:        pIter,
 		resumeToken: nil,
@@ -204,6 +206,8 @@ func (changeStream *ChangeStream) Next(result interface{}) bool {
 
 	defer changeStream.m.Unlock()
 
+	changeStream.timedout = false
+
 	// if we are in a state of error, then don't continue.
 	if changeStream.err != nil {
 		return false
@@ -219,13 +223,20 @@ func (changeStream *ChangeStream) Next(result interface{}) bool {
 	// attempt to fetch the change stream result.
 	err = changeStream.fetchResultSet(result)
 	if err == nil {
+		if changeStream.iter.Timeout() {
+			changeStream.timedout = true
+			return false
+		}
 		return true
 	}
 
 	// if we get no results we return false with no errors so the user can call Next
 	// again, resuming is not needed as the iterator is simply timed out as no events happened.
 	// The user will call Timeout in order to understand if this was the case.
-	if err == ErrNotFound {
+	if err == ErrNotFound && changeStream.iter.op.cursorId != 0 {
+		// must reset error if cursor is to be reused
+		changeStream.iter.err = nil
+		changeStream.timedout = true
 		return false
 	}
 
@@ -245,15 +256,10 @@ func (changeStream *ChangeStream) Next(result interface{}) bool {
 		return false
 	}
 
-	// we've successfully resumed the changestream.
-	// try to fetch the next result.
-	err = changeStream.fetchResultSet(result)
-	if err != nil {
-		changeStream.err = err
-		return false
-	}
-
-	return true
+	// resume was ok so return a timeout to the client indicating
+	// it is ok to call Next again for results
+	changeStream.timedout = true
+	return false
 }
 
 // Err returns nil if no errors happened during iteration, or the actual
@@ -274,10 +280,6 @@ func (changeStream *ChangeStream) Close() error {
 	if err != nil {
 		changeStream.err = err
 	}
-	if changeStream.sessionCopied {
-		changeStream.iter.session.Close()
-		changeStream.sessionCopied = false
-	}
 	return err
 }
 
@@ -296,7 +298,7 @@ func (changeStream *ChangeStream) ResumeToken() *bson.Raw {
 
 // Timeout returns true if the last call of Next returned false because of an iterator timeout.
 func (changeStream *ChangeStream) Timeout() bool {
-	return changeStream.iter.Timeout()
+	return changeStream.timedout
 }
 
 func constructChangeStreamPipeline(pipeline interface{},
@@ -317,6 +319,9 @@ func constructChangeStreamPipeline(pipeline interface{},
 	}
 	if options.ResumeAfter != nil {
 		changeStreamStageOptions["resumeAfter"] = options.ResumeAfter
+	}
+	if options.StartAtOperationTime > 0 {
+		changeStreamStageOptions["startAtOperationTime"] = options.StartAtOperationTime
 	}
 	if domain == changeDomainCluster {
 		changeStreamStageOptions["allChangesForCluster"] = true
@@ -339,35 +344,21 @@ func constructChangeStreamPipeline(pipeline interface{},
 }
 
 func (changeStream *ChangeStream) resume() error {
-	// copy the information for the new socket.
 
-	// Thanks to Copy() future uses will acquire a new socket against the newly selected DB.
-	newSession := changeStream.iter.session.Copy()
-
-	// fetch the cursor from the iterator and use it to run a killCursors
-	// on the connection.
-	cursorId := changeStream.iter.op.cursorId
-	err := runKillCursorsOnSession(newSession, cursorId)
-	if err != nil {
-		newSession.Close()
+	// Close and kill the cursor of the current iterator
+	if err := changeStream.iter.Close(); err != nil {
 		return err
 	}
-
-	// change out the old connection to the database with the new connection.
-	if changeStream.sessionCopied {
-		changeStream.collection.Database.Session.Close()
-	}
-	changeStream.collection.Database.Session = newSession
-	changeStream.sessionCopied = true
 
 	opts := changeStream.options
 	if changeStream.resumeToken != nil {
 		opts.ResumeAfter = changeStream.resumeToken
+		opts.StartAtOperationTime = bson.MongoTimestamp(0)
 	}
 	// make a new pipeline containing the resume token.
 	changeStreamPipeline := constructChangeStreamPipeline(changeStream.pipeline, opts, changeStream.domainType)
 
-	// generate the new iterator with the new connection.
+	// generate the new pipe
 	var newPipe *Pipe
 	if changeStream.domainType == changeDomainCollection {
 		newPipe = changeStream.collection.Pipe(changeStreamPipeline)
@@ -377,11 +368,19 @@ func (changeStream *ChangeStream) resume() error {
 		newPipe = changeStream.database.pipe(changeStreamPipeline)
 	}
 
+	// apply any options set to the new pipe
+	if opts.MaxAwaitTimeMS > 0 {
+		newPipe.SetMaxTime(opts.MaxAwaitTimeMS)
+	}
+	if opts.BatchSize > 0 {
+		newPipe.Batch(opts.BatchSize)
+	}
+
+	// pipes internally create new socket connnections
 	changeStream.iter = newPipe.Iter()
 	if err := changeStream.iter.Err(); err != nil {
 		return err
 	}
-	changeStream.iter.isChangeStream = true
 	return nil
 }
 
@@ -439,13 +438,4 @@ func isResumableError(err error) bool {
 	// but the error is a notMaster error
 	//and is not a missingResumeToken error (caused by the user provided pipeline)
 	return (!isQueryError || isNotMasterError(err)) && (err != errMissingResumeToken)
-}
-
-func runKillCursorsOnSession(session *Session, cursorId int64) error {
-	socket, err := session.acquireSocket(true)
-	if err != nil {
-		return err
-	}
-	defer socket.Release()
-	return socket.Query(&killCursorsOp{[]int64{cursorId}})
 }

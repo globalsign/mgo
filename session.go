@@ -177,7 +177,6 @@ type Iter struct {
 	limit          int32
 	timedout       bool
 	isFindCmd      bool
-	isChangeStream bool
 	maxTimeMS      int64
 }
 
@@ -4463,11 +4462,6 @@ func (iter *Iter) Next(result interface{}) bool {
 	iter.m.Lock()
 	iter.timedout = false
 	timeout := time.Time{}
-	// for a ChangeStream iterator we have to call getMore before the loop otherwise
-	// we'll always return false
-	if iter.isChangeStream {
-		iter.getMore()
-	}
 	// check should we expect more data.
 	for iter.err == nil && iter.docData.Len() == 0 && (iter.docsToReceive > 0 || iter.op.cursorId != 0) {
 		// we should expect more data.
@@ -4483,12 +4477,6 @@ func (iter *Iter) Next(result interface{}) bool {
 					iter.m.Unlock()
 					return false
 				}
-			}
-			// for a ChangeStream one loop i enought to declare the timeout
-			if iter.isChangeStream {
-				iter.timedout = true
-				iter.m.Unlock()
-				return false
 			}
 			// run a getmore to fetch more data.
 			iter.getMore()
@@ -4715,7 +4703,7 @@ func (iter *Iter) getMore() {
 		}
 	}
 	var op interface{}
-	if iter.isFindCmd || iter.isChangeStream {
+	if iter.isFindCmd {
 		op = iter.getMoreCmd()
 	} else {
 		op = &iter.op
@@ -5388,7 +5376,7 @@ func (iter *Iter) replyFunc() replyFunc {
 				iter.err = err
 			} else if !findReply.Ok && findReply.Errmsg != "" {
 				iter.err = &QueryError{Code: findReply.Code, Message: findReply.Errmsg}
-			} else if !iter.isChangeStream && len(findReply.Cursor.FirstBatch) == 0 && len(findReply.Cursor.NextBatch) == 0 {
+			} else if len(findReply.Cursor.FirstBatch) == 0 && len(findReply.Cursor.NextBatch) == 0 {
 				iter.err = ErrNotFound
 			} else {
 				batch := findReply.Cursor.FirstBatch
