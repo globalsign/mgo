@@ -560,6 +560,10 @@ func handleErr(err *error) {
 //                they were part of the outer struct. For maps, keys must
 //                not conflict with the bson keys of other struct fields.
 //
+//     objectid   Treat the field as an ObjectID for marshalling purposes.
+//                Only supports valid hex strings and valid arrays of type
+//                byte or uint8.
+//
 // Some examples:
 //
 //     type T struct {
@@ -569,6 +573,8 @@ func handleErr(err *error) {
 //         D string `bson:",omitempty" json:"jsonkey"`
 //         E int64  ",minsize"
 //         F int64  "myf,omitempty,minsize"
+//         G []byte ",objectid"
+//         H string `bson:"_id,objectid"`
 //     }
 //
 func Marshal(in interface{}) (out []byte, err error) {
@@ -701,6 +707,7 @@ type fieldInfo struct {
 	Num       int
 	OmitEmpty bool
 	MinSize   bool
+	ObjectId  bool
 	Inline    []int
 }
 
@@ -762,6 +769,8 @@ func getStructInfo(st reflect.Type) (*structInfo, error) {
 					info.OmitEmpty = true
 				case "minsize":
 					info.MinSize = true
+				case "objectid":
+					info.ObjectId = true
 				case "inline":
 					inline = true
 				default:

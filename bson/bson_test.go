@@ -812,6 +812,14 @@ var marshalErrorItems = []testItemType{
 		"Option ,inline needs a map with string keys in struct bson_test.inlineBadKeyMap"},
 	{&inlineMap{A: 1, M: map[string]interface{}{"a": 1}},
 		`Can't have key "a" in inlined map; conflicts with struct field`},
+	{&aliasedIntBadId{A: 1},
+		"Only hex strings and arrays of type byte or type uint8 are supported for ObjectID aliasing"},
+	{&aliasedIntArrBadId{A: []int{1}},
+		"Field _id is an array of neither type byte nor type uint8"},
+	{&aliasedByteArrId{A: []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}},
+		"Field _id does not contain a valid ObjectID"},
+	{&aliasedStrId{A: "hello world"},
+		"Field _id does not contain a valid ObjectID"},
 }
 
 func (s *S) TestMarshalErrorItems(c *C) {
@@ -1265,6 +1273,18 @@ type inlineUnexported struct {
 }
 type unexported struct {
 	A int
+}
+type aliasedStrId struct {
+	A string `bson:"_id,objectid"`
+}
+type aliasedByteArrId struct {
+	A []byte `bson:"_id,objectid"`
+}
+type aliasedIntBadId struct {
+	A int `bson:"_id,objectid"`
+}
+type aliasedIntArrBadId struct {
+	A []int `bson:"_id,objectid"`
 }
 
 // Structures for `inline pointers` feature
@@ -1913,6 +1933,47 @@ func (s *S) TestObjectIdXMLMarshaling(c *C) {
 				c.Assert(err, ErrorMatches, test.error)
 			}
 		}
+	}
+}
+
+// --------------------------------------------------------------------------
+// ObjectId aliasing.
+
+type basicId struct {
+	ID bson.ObjectId `bson:"_id"`
+}
+
+var aliasedIDTests = []struct {
+	value interface{}
+}{{
+	value: basicId{ID: bson.ObjectIdHex("5cfdfd7efd11174a0a2851fd")},
+}, {
+	value: aliasedStrId{A: bson.ObjectIdHex("5cfdfd7efd11174a0a2851fd").Hex()},
+}, {
+	value: aliasedByteArrId{A: []byte{92, 253, 253, 126, 253, 17, 23, 74, 10, 40, 81, 253}},
+}, {
+	value: aliasedByteArrId{A: []uint8{92, 253, 253, 126, 253, 17, 23, 74, 10, 40, 81, 253}},
+}}
+
+func (s *S) TestObjectIdAliasing(c *C) {
+	expectedBasic := basicId{ID: bson.ObjectIdHex("5cfdfd7efd11174a0a2851fd")}
+	expectedStr := aliasedStrId{A: bson.ObjectIdHex("5cfdfd7efd11174a0a2851fd").Hex()}
+	expectedByteArr := aliasedByteArrId{A: []byte{92, 253, 253, 126, 253, 17, 23, 74, 10, 40, 81, 253}}
+	for _, test := range aliasedIDTests {
+		out, err := bson.Marshal(test.value)
+		c.Assert(err, IsNil)
+		unmarshalledBasic := basicId{}
+		err = bson.Unmarshal(out, &unmarshalledBasic)
+		c.Assert(err, IsNil)
+		c.Assert(unmarshalledBasic, DeepEquals, expectedBasic)
+		unmarshalledAliasedStr := aliasedStrId{}
+		err = bson.Unmarshal(out, &unmarshalledAliasedStr)
+		c.Assert(err, IsNil)
+		c.Assert(unmarshalledAliasedStr, DeepEquals, expectedStr)
+		unmarshalledAliasedByteArr := aliasedByteArrId{}
+		err = bson.Unmarshal(out, &unmarshalledAliasedByteArr)
+		c.Assert(err, IsNil)
+		c.Assert(unmarshalledAliasedByteArr, DeepEquals, expectedByteArr)
 	}
 }
 
