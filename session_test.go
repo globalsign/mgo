@@ -4024,6 +4024,42 @@ func (s *S) TestEnsureIndexKey(c *C) {
 	}
 }
 
+func (s *S) TestEnsureIndexes(c *C) {
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+
+	err = coll.EnsureIndexes([]mgo.Index{
+		mgo.Index{Key: []string{"foo", "-bar"}, Name: "foobar"},
+		mgo.Index{Key: []string{"dead", "beef"}}},
+	)
+	c.Assert(err, IsNil)
+
+	if s.versionAtLeast(3, 2, 17) {
+		// system.indexes is deprecated since 3.0, use
+		// db.runCommand({"listIndexes": <collectionName>})
+		// instead
+
+		// Assert it exists
+		c.Assert(getIndex34(session, "mydb", "mycoll", "dead_1_beef_1"), DeepEquals, M{"key": M{"dead": 1, "beef": 1}, "name": "dead_1_beef_1", "ns": "mydb.mycoll"})
+
+		// Assert a missing index returns an empty M{}
+		c.Assert(getIndex34(session, "mydb", "mycoll", "foobar"), DeepEquals, M{"key": M{"foo": 1, "bar": -1}, "name": "foobar", "ns": "mydb.mycoll"})
+	} else {
+		sysidx := session.DB("mydb").C("system.indexes")
+
+		result1 := M{}
+		err = sysidx.Find(M{"name": "dead_1_beef_1"}).One(result1)
+		c.Assert(err, IsNil)
+
+		result1 = M{}
+		err = sysidx.Find(M{"name": "foobar"}).One(result1)
+		c.Assert(err, IsNil)
+	}
+}
+
 func (s *S) TestEnsureIndexDropIndex(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)

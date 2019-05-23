@@ -1400,6 +1400,8 @@ type indexSpec struct {
 	PartialFilterExpression bson.M  `bson:"partialFilterExpression,omitempty"`
 
 	Collation *Collation `bson:"collation,omitempty"`
+
+	logicalKeyName string
 }
 
 // Index are special data structures that store a small portion of the collection’s
@@ -1660,58 +1662,75 @@ func (c *Collection) EnsureIndexKey(key ...string) error {
 //     http://www.mongodb.org/display/DOCS/Multikeys
 //
 func (c *Collection) EnsureIndex(index Index) error {
-	if index.Sparse && index.PartialFilter != nil {
-		return errors.New("cannot mix sparse and partial indexes")
-	}
+	return c.EnsureIndexes([]Index{index})
+}
 
-	keyInfo, err := parseIndexKey(index.Key)
-	if err != nil {
-		return err
-	}
+// EnsureIndexes ensures all indexes exist submitting one batch command with any new and/or changed indexes to Mongo for best performance.
+//
+// See EnsureIndex for details on the index specifications.
+func (c *Collection) EnsureIndexes(indexes []Index) error {
+	indexSpecs := []indexSpec{}
 
 	session := c.Database.Session
-	cacheKey := c.FullName + "\x00" + keyInfo.name
-	if session.cluster().HasCachedIndex(cacheKey) {
-		return nil
-	}
-
-	spec := indexSpec{
-		Name:                    keyInfo.name,
-		NS:                      c.FullName,
-		Key:                     keyInfo.key,
-		Unique:                  index.Unique,
-		Background:              index.Background,
-		Sparse:                  index.Sparse,
-		Bits:                    index.Bits,
-		Min:                     index.Minf,
-		Max:                     index.Maxf,
-		BucketSize:              index.BucketSize,
-		ExpireAfter:             int(index.ExpireAfter / time.Second),
-		Weights:                 keyInfo.weights,
-		DefaultLanguage:         index.DefaultLanguage,
-		LanguageOverride:        index.LanguageOverride,
-		Collation:               index.Collation,
-		PartialFilterExpression: index.PartialFilter,
-	}
-
-	if spec.Min == 0 && spec.Max == 0 {
-		spec.Min = float64(index.Min)
-		spec.Max = float64(index.Max)
-	}
-
-	if index.Name != "" {
-		spec.Name = index.Name
-	}
-
-NextField:
-	for name, weight := range index.Weights {
-		for i, elem := range spec.Weights {
-			if elem.Name == name {
-				spec.Weights[i].Value = weight
-				continue NextField
-			}
+	for _, index := range indexes {
+		if index.Sparse && index.PartialFilter != nil {
+			return errors.New("cannot mix sparse and partial indexes")
 		}
-		panic("weight provided for field that is not part of index key: " + name)
+
+		keyInfo, err := parseIndexKey(index.Key)
+		if err != nil {
+			return err
+		}
+
+		cacheKey := c.FullName + "\x00" + keyInfo.name
+		if session.cluster().HasCachedIndex(cacheKey) {
+			continue
+		}
+
+		spec := indexSpec{
+			Name:                    keyInfo.name,
+			NS:                      c.FullName,
+			Key:                     keyInfo.key,
+			Unique:                  index.Unique,
+			Background:              index.Background,
+			Sparse:                  index.Sparse,
+			Bits:                    index.Bits,
+			Min:                     index.Minf,
+			Max:                     index.Maxf,
+			BucketSize:              index.BucketSize,
+			ExpireAfter:             int(index.ExpireAfter / time.Second),
+			Weights:                 keyInfo.weights,
+			DefaultLanguage:         index.DefaultLanguage,
+			LanguageOverride:        index.LanguageOverride,
+			Collation:               index.Collation,
+			PartialFilterExpression: index.PartialFilter,
+			logicalKeyName:          keyInfo.name,
+		}
+
+		if spec.Min == 0 && spec.Max == 0 {
+			spec.Min = float64(index.Min)
+			spec.Max = float64(index.Max)
+		}
+
+		if index.Name != "" {
+			spec.Name = index.Name
+		}
+
+	NextField:
+		for name, weight := range index.Weights {
+			for i, elem := range spec.Weights {
+				if elem.Name == name {
+					spec.Weights[i].Value = weight
+					continue NextField
+				}
+			}
+			panic("weight provided for field that is not part of index key: " + name)
+		}
+		indexSpecs = append(indexSpecs, spec)
+	}
+	// Were all the indexes cached?
+	if len(indexSpecs) < 1 {
+		return nil
 	}
 
 	cloned := session.Clone()
@@ -1721,13 +1740,21 @@ NextField:
 	db := c.Database.With(cloned)
 
 	// Try with a command first.
-	err = db.Run(bson.D{{Name: "createIndexes", Value: c.Name}, {Name: "indexes", Value: []indexSpec{spec}}}, nil)
+	err := db.Run(bson.D{{Name: "createIndexes", Value: c.Name}, {Name: "indexes", Value: indexSpecs}}, nil)
 	if isNoCmd(err) {
-		// Command not yet supported. Insert into the indexes collection instead.
-		err = db.C("system.indexes").Insert(&spec)
+		// Command not yet supported. Insert into the indexes collection instead. Return the last error only. Really, if running Mongo before 2.6 at this point.....
+		for _, spec := range indexSpecs {
+			if ierr := db.C("system.indexes").Insert(&spec); ierr != nil {
+				err = ierr
+			}
+		}
 	}
+	// if no errors , update cluster index cache for all of them
 	if err == nil {
-		session.cluster().CacheIndex(cacheKey, true)
+		for _, spec := range indexSpecs {
+			cacheKey := c.FullName + "\x00" + spec.logicalKeyName
+			session.cluster().CacheIndex(cacheKey, true)
+		}
 	}
 	return err
 }
