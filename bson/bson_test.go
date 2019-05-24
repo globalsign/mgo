@@ -292,7 +292,7 @@ func (s *S) TestPtrInline(c *C) {
 
 	// deeper struct with inline pointer
 	{
-		in := InlineG2{G2: 15, InlineG1: &InlineG1{G1:16, Final: &Final{G0: 23}}}
+		in := InlineG2{G2: 15, InlineG1: &InlineG1{G1: 16, Final: &Final{G0: 23}}}
 		c.Assert(in.InlineG1, NotNil)
 		c.Assert(in.Final, NotNil)
 
@@ -1272,11 +1272,11 @@ type Final struct {
 	G0 int `bson:"g0,omitempty"`
 }
 type InlineG1 struct {
-	G1 int `bson:"g1,omitempty"`
+	G1     int `bson:"g1,omitempty"`
 	*Final `bson:",inline"`
 }
 type InlineG2 struct {
-	G2 int    `bson:"g2,omitempty"`
+	G2        int `bson:"g2,omitempty"`
 	*InlineG1 `bson:",inline"`
 }
 
@@ -1530,6 +1530,9 @@ var twoWayCrossItems = []crossTypeItem{
 	// arrays
 	{&struct{ V [2]int }{[...]int{1, 2}}, map[string][2]int{"v": {1, 2}}},
 	{&struct{ V [2]byte }{[...]byte{1, 2}}, map[string][2]byte{"v": {1, 2}}},
+	{&struct{ V *[2]byte }{&[...]byte{1, 2}}, map[string]*[2]byte{"v": &[2]byte{1, 2}}},
+	{&struct{ V [2]float64 }{[...]float64{1, 2}}, map[string][2]float64{"v": [2]float64{1, 2}}},
+	{&struct{ V *[2]float64 }{&[...]float64{1, 2}}, map[string]*[2]float64{"v": &[2]float64{1, 2}}},
 
 	// zero time
 	{&struct{ V time.Time }{}, map[string]interface{}{"v": time.Time{}}},
