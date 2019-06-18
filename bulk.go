@@ -312,7 +312,7 @@ func (b *Bulk) Run() (*BulkResult, error) {
 	}
 	if failed {
 		sort.Sort(bulkErrorCases(berr.ecases))
-		return nil, &berr
+		return &result, &berr
 	}
 	return &result, nil
 }
