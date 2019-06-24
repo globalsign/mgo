@@ -3097,6 +3097,11 @@ func (c *Collection) Insert(docs ...interface{}) error {
 //     http://www.mongodb.org/display/DOCS/Atomic+Operations
 //
 func (c *Collection) Update(selector interface{}, update interface{}) error {
+	_, err := c.UpdateWithChangeInfo(selector, update)
+	return err
+}
+
+func (c *Collection) UpdateWithChangeInfo(selector interface{}, update interface{}) (info *ChangeInfo, err error) {
 	if selector == nil {
 		selector = bson.D{}
 	}
@@ -3106,10 +3111,13 @@ func (c *Collection) Update(selector interface{}, update interface{}) error {
 		Update:     update,
 	}
 	lerr, err := c.writeOp(&op, true)
-	if err == nil && lerr != nil && !lerr.UpdatedExisting {
-		return ErrNotFound
+	if err == nil && lerr != nil {
+		if !lerr.UpdatedExisting {
+			return info, ErrNotFound
+		}
+		info = &ChangeInfo{Updated: lerr.modified, Matched: lerr.N}
 	}
-	return err
+	return info, err
 }
 
 // UpdateId is a convenience helper equivalent to:
@@ -3270,14 +3278,22 @@ func (c *Collection) UpsertId(id interface{}, update interface{}) (info *ChangeI
 //     http://www.mongodb.org/display/DOCS/Removing
 //
 func (c *Collection) Remove(selector interface{}) error {
+	_, err := c.RemoveWithChangeInfo(selector)
+	return err
+}
+
+func (c *Collection) RemoveWithChangeInfo(selector interface{}) (info *ChangeInfo, err error) {
 	if selector == nil {
 		selector = bson.D{}
 	}
 	lerr, err := c.writeOp(&deleteOp{c.FullName, selector, 1, 1}, true)
-	if err == nil && lerr != nil && lerr.N == 0 {
-		return ErrNotFound
+	if err == nil && lerr != nil {
+		if lerr.N == 0 {
+			return info, ErrNotFound
+		}
+		info = &ChangeInfo{Removed: lerr.N, Matched: lerr.N}
 	}
-	return err
+	return info, err
 }
 
 // RemoveId is a convenience helper equivalent to:

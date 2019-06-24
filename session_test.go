@@ -683,6 +683,46 @@ func (s *S) TestUpdate(c *C) {
 	c.Assert(err, Equals, mgo.ErrNotFound)
 }
 
+func (s *S) TestUpdateWithChangeInfo(c *C) {
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+
+	ns := []int{40, 41, 42, 43, 44, 45, 46}
+	for _, n := range ns {
+		err := coll.Insert(M{"k": n, "n": n})
+		c.Assert(err, IsNil)
+	}
+
+	// No changes is a no-op and shouldn't return an error.
+	info, err := coll.UpdateWithChangeInfo(M{"k": 42}, M{"$set": M{"n": 42}})
+	c.Assert(err, IsNil)
+	c.Assert(info.Matched, Equals, 1)
+	c.Assert(info.Updated, Equals, 0)
+	c.Assert(info.Removed, Equals, 0)
+	c.Assert(info.UpsertedId, IsNil)
+
+	info, err = coll.UpdateWithChangeInfo(M{"k": 42}, M{"$inc": M{"n": 1}})
+	c.Assert(err, IsNil)
+	c.Assert(info.Matched, Equals, 1)
+	c.Assert(info.Updated, Equals, 1)
+	c.Assert(info.Removed, Equals, 0)
+	c.Assert(info.UpsertedId, IsNil)
+
+	result := make(M)
+	err = coll.Find(M{"k": 42}).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result["n"], Equals, 43)
+
+	info, err = coll.UpdateWithChangeInfo(M{"k": 47}, M{"k": 47, "n": 47})
+	c.Assert(err, Equals, mgo.ErrNotFound)
+
+	err = coll.Find(M{"k": 47}).One(result)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+}
+
 func (s *S) TestUpdateId(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
@@ -1015,6 +1055,39 @@ func (s *S) TestRemove(c *C) {
 
 	err = coll.Remove(M{"n": M{"$gt": 42}})
 	c.Assert(err, IsNil)
+
+	result := &struct{ N int }{}
+	err = coll.Find(M{"n": 42}).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result.N, Equals, 42)
+
+	err = coll.Find(M{"n": 43}).One(result)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+
+	err = coll.Find(M{"n": 44}).One(result)
+	c.Assert(err, IsNil)
+	c.Assert(result.N, Equals, 44)
+}
+
+func (s *S) TestRemoveWithChangeInfo(c *C) {
+	session, err := mgo.Dial("localhost:40001")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("mydb").C("mycoll")
+
+	ns := []int{40, 41, 42, 43, 44, 45, 46}
+	for _, n := range ns {
+		err := coll.Insert(M{"n": n})
+		c.Assert(err, IsNil)
+	}
+
+	info, err := coll.RemoveWithChangeInfo(M{"n": M{"$gt": 42}})
+	c.Assert(err, IsNil)
+	c.Assert(info.Removed, Equals, 1)
+	c.Assert(info.Matched, Equals, 1)
+	c.Assert(info.Updated, Equals, 0)
+	c.Assert(info.UpsertedId, IsNil)
 
 	result := &struct{ N int }{}
 	err = coll.Find(M{"n": 42}).One(result)
