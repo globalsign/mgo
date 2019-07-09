@@ -1,0 +1,8 @@
+#!/bin/sh
+
+. ../.env
+
+exec mongod $COMMONDOPTS \
+	--port 40093 \
+	--shardsvr
+

@@ -3731,6 +3731,13 @@ func (q *Query) SetMaxTime(d time.Duration) *Query {
 	return q
 }
 
+func (q *Query) AllowPartial() *Query {
+	q.m.Lock()
+	q.op.AllowPartial()
+	q.m.Unlock()
+	return q
+}
+
 // Snapshot will force the performed query to make use of an available
 // index on the _id field to prevent the same document from being returned
 // more than once in a single iteration. This might happen without this
@@ -3907,25 +3914,26 @@ func prepareFindOp(socket *mongoSocket, op *queryOp, limit int32) bool {
 	}
 
 	find := findCmd{
-		Collection:      op.collection[nameDot+1:],
-		Filter:          op.query,
-		Projection:      op.selector,
-		Sort:            op.options.OrderBy,
-		Skip:            op.skip,
-		Limit:           limit,
-		MaxTimeMS:       op.options.MaxTimeMS,
-		MaxScan:         op.options.MaxScan,
-		Hint:            op.options.Hint,
-		Min:             op.options.Min,
-		Max:             op.options.Max,
-		Comment:         op.options.Comment,
-		Snapshot:        op.options.Snapshot,
-		Collation:       op.options.Collation,
-		Tailable:        op.flags&flagTailable != 0,
-		AwaitData:       op.flags&flagAwaitData != 0,
-		OplogReplay:     op.flags&flagLogReplay != 0,
-		NoCursorTimeout: op.flags&flagNoCursorTimeout != 0,
-		ReadConcern:     readLevel{level: op.readConcern},
+		Collection:          op.collection[nameDot+1:],
+		Filter:              op.query,
+		Projection:          op.selector,
+		Sort:                op.options.OrderBy,
+		Skip:                op.skip,
+		Limit:               limit,
+		MaxTimeMS:           op.options.MaxTimeMS,
+		MaxScan:             op.options.MaxScan,
+		Hint:                op.options.Hint,
+		Min:                 op.options.Min,
+		Max:                 op.options.Max,
+		Comment:             op.options.Comment,
+		Snapshot:            op.options.Snapshot,
+		Collation:           op.options.Collation,
+		Tailable:            op.flags&flagTailable != 0,
+		AwaitData:           op.flags&flagAwaitData != 0,
+		OplogReplay:         op.flags&flagLogReplay != 0,
+		NoCursorTimeout:     op.flags&flagNoCursorTimeout != 0,
+		ReadConcern:         readLevel{level: op.readConcern},
+		AllowPartialResults: op.flags&flagPartial != 0,
 	}
 
 	if op.limit < 0 {

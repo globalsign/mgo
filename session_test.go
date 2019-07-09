@@ -2045,6 +2045,34 @@ func (s *S) TestQueryComment(c *C) {
 	c.Assert(err, IsNil)
 }
 
+func (s *S) TestPartial(c *C) {
+	session, err := mgo.Dial("localhost:40209")
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	coll := session.DB("partial").C("partial")
+
+	expectedCount := 0
+	// These docs were inserted as a part of the testing setup process
+	expectedDocs := map[int]bool{0: true, 1: true, 2: true, 3: true, 4: true, 5: true, 7: true, 9: true}
+	iter := coll.Find(M{}).AllowPartial().Iter()
+	result := M{}
+	for {
+		gotDoc := iter.Next(&result)
+		if !gotDoc {
+			break
+		}
+		expectedCount += 1
+		_, ok := expectedDocs[int(result["_id"].(float64))]
+		c.Assert(ok, Equals, true)
+	}
+	c.Assert(iter.Err(), IsNil)
+	c.Assert(expectedCount, Equals, len(expectedDocs))
+
+	err = coll.Find(M{}).One(&result)
+	c.Assert(err, Not(IsNil))
+}
+
 func (s *S) TestFindOneNotFound(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)

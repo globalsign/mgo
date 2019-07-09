@@ -33,6 +33,10 @@ for (var i = 0; i != 60; i++) {
         cfg1 = new Mongo("127.0.0.1:40101").getDB("admin")
         cfg2 = new Mongo("127.0.0.1:40102").getDB("admin")
         cfg3 = new Mongo("127.0.0.1:40103").getDB("admin")
+        cfgx = new Mongo("127.0.0.1:40109").getDB("admin")
+        dbx1 = new Mongo("127.0.0.1:40091").getDB("admin")
+        dbx2 = new Mongo("127.0.0.1:40092").getDB("admin")
+        dbx3 = new Mongo("127.0.0.1:40093").getDB("admin")
         break
     } catch (err) {
         print("Can't connect yet...")
@@ -63,6 +67,7 @@ if (versionAtLeast(3, 4)) {
     cfg1.runCommand({ replSetInitiate: { _id: "conf1", configsvr: true, members: [{ "_id": 1, "host": "localhost:40101" }] } })
     cfg2.runCommand({ replSetInitiate: { _id: "conf2", configsvr: true, members: [{ "_id": 1, "host": "localhost:40102" }] } })
     cfg3.runCommand({ replSetInitiate: { _id: "conf3", configsvr: true, members: [{ "_id": 1, "host": "localhost:40103" }] } })
+    cfgx.runCommand({ replSetInitiate: { _id: "confx", configsvr: true, members: [{ "_id": 1, "host": "localhost:40109" }] } })
 }
 
 sleep(3000)
@@ -85,12 +90,12 @@ function configAuth() {
             try {
                 db.createUser({ user: "root", pwd: "rapadura", roles: ["root"] })
             } catch (err) {
-                // 3.2 consistently fails replication of creds on 40031 (config server) 
+                // 3.2 consistently fails replication of creds on 40031 (config server)
                 print("createUser command returned an error: " + err)
                 if (String(err).indexOf("timed out") >= 0) {
                     timedOut = true;
                 }
-                // on 3.6 cluster with keyFile, we sometimes get this error 
+                // on 3.6 cluster with keyFile, we sometimes get this error
                 if (String(err).indexOf("Cache Reader No keys found for HMAC that is valid for time")) {
                     sleep(500)
                     continue createUser;
@@ -145,6 +150,20 @@ function configShards() {
     addShard(s3, ["rs3/127.0.0.1:40031"])
 }
 
+function configShardedCluster() {
+    sx = new Mongo("127.0.0.1:40209")
+    addShard(sx.getDB("admin"), ["127.0.0.1:40091"])
+    addShard(sx.getDB("admin"), ["127.0.0.1:40092"])
+    addShard(sx.getDB("admin"), ["127.0.0.1:40093"])
+
+    sx.getDB("partial").getCollection("partial").find({})
+    sx.getDB("admin").runCommand({enableSharding:"partial"})
+    sx.getDB("admin").runCommand({shardCollection:"partial.partial", key : {_id : "hashed"}, numInitialChunks : 3})
+    for (var i = 0; i < 10; i++) {
+        sx.getDB("partial").getCollection("partial").insertOne({_id : i})
+    }
+}
+
 function countHealthy(rs) {
     var status = rs.runCommand({ replSetGetStatus: 1 })
     var count = 0
@@ -165,6 +184,9 @@ function countHealthy(rs) {
     }
     return count
 }
+
+sleep(5000)
+configShardedCluster()
 
 var totalRSMembers = rs1cfg.members.length + rs2cfg.members.length + rs3cfg.members.length
 
