@@ -3788,6 +3788,7 @@ func prepareFindOp(socket *mongoSocket, op *queryOp, limit int32) bool {
 	op.hasOptions = false
 
 	if explain {
+		find.ReadConcern.Level = ""
 		op.query = bson.D{{Name: "explain", Value: op.query}}
 		return false
 	}
