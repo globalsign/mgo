@@ -22,6 +22,7 @@ A [sub-package](https://godoc.org/github.com/globalsign/mgo/bson) that implement
 MongoDB 4.0 is currently experimental - we would happily accept PRs to help improve support!
 
 ## Changes
+* Adds support for SCRAM-SHA-256 authentication mechanism
 * Fixes attempting to authenticate before every query ([details](https://github.com/go-mgo/mgo/issues/254))
 * Removes bulk update / delete batch size limitations ([details](https://github.com/go-mgo/mgo/issues/288))
 * Adds native support for `time.Duration` marshalling ([details](https://github.com/go-mgo/mgo/pull/373))

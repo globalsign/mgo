@@ -884,6 +884,55 @@ func (s *S) TestAuthScramSha1URL(c *C) {
 	c.Assert(err, Equals, mgo.ErrNotFound)
 }
 
+func (s *S) TestAuthScramSha256Cred(c *C) {
+	if !s.versionAtLeast(4, 0, 0) {
+		c.Skip("SCRAM-SHA-256 tests depend on 4.0.0")
+	}
+	cred := &mgo.Credential{
+		Username:  "root",
+		Password:  "rapadura",
+		Mechanism: "SCRAM-SHA-256",
+		Source:    "admin",
+	}
+	host := "localhost:40002"
+	c.Logf("Connecting to %s...", host)
+	session, err := mgo.Dial(host)
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	mycoll := session.DB("admin").C("mycoll")
+
+	c.Logf("Connected! Testing the need for authentication...")
+	err = mycoll.Find(nil).One(nil)
+	c.Assert(err, ErrorMatches, "unauthorized|not authorized .*|.* requires authentication")
+
+	c.Logf("Authenticating...")
+	err = session.Login(cred)
+	c.Assert(err, IsNil)
+	c.Logf("Authenticated!")
+
+	c.Logf("Connected! Testing the need for authentication...")
+	err = mycoll.Find(nil).One(nil)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+}
+
+func (s *S) TestAuthScramSha256URL(c *C) {
+	if !s.versionAtLeast(4, 0, 0) {
+		c.Skip("SCRAM-SHA-256 tests depend on 4.0.0")
+	}
+	host := "localhost:40002"
+	c.Logf("Connecting to %s...", host)
+	session, err := mgo.Dial(fmt.Sprintf("root:rapadura@%s?authMechanism=SCRAM-SHA-256", host))
+	c.Assert(err, IsNil)
+	defer session.Close()
+
+	mycoll := session.DB("admin").C("mycoll")
+
+	c.Logf("Connected! Testing the need for authentication...")
+	err = mycoll.Find(nil).One(nil)
+	c.Assert(err, Equals, mgo.ErrNotFound)
+}
+
 func (s *S) TestAuthX509Cred(c *C) {
 	session, err := mgo.Dial("localhost:40001")
 	c.Assert(err, IsNil)
