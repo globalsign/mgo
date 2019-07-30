@@ -5365,12 +5365,13 @@ func (r *writeCmdResult) BulkErrorCases() []BulkErrorCase {
 func (c *Collection) writeOp(op interface{}, ordered bool) (lerr *LastError, err error) {
 	s := c.Database.Session
 	start := time.Now()
-	span, ctx := opentracing.StartSpanFromContext(s.dialInfo.ctx, "mgo_query")
+	ctx, cancel := context.WithCancel(s.dialInfo.ctx)
+	span, ctx := opentracing.StartSpanFromContext(ctx, "mgo_query")
 	defer span.Finish()
+	defer cancel()
 	span = span.SetTag("db.type", "mongodb")
 	span = span.SetTag("db.kind", "query")
 	span = span.SetTag("db.statement", reflect.TypeOf(op))
-	s.dialInfo.ctx = ctx
 	socket, err := s.acquireSocket(c.Database.Name == "local")
 	if err != nil {
 		reportSpan(span, time.Since(start).Seconds(), err)
