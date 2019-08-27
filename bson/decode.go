@@ -250,7 +250,8 @@ func (d *decoder) readDocTo(out reflect.Value) {
 					case reflect.Int32:
 						fallthrough
 					case reflect.Int64:
-						fallthrough
+						parsed := d.parseMapKeyAsInt64(k, mapKeyKind)
+						k = reflect.ValueOf(parsed)
 					case reflect.Uint:
 						fallthrough
 					case reflect.Uint8:
@@ -260,7 +261,8 @@ func (d *decoder) readDocTo(out reflect.Value) {
 					case reflect.Uint32:
 						fallthrough
 					case reflect.Uint64:
-						fallthrough
+						parsed := d.parseMapKeyAsUInt64(k, mapKeyKind)
+						k = reflect.ValueOf(parsed)
 					case reflect.Float32:
 						fallthrough
 					case reflect.Float64:
@@ -306,6 +308,26 @@ func (d *decoder) readDocTo(out reflect.Value) {
 		corrupted()
 	}
 	d.docType = docType
+}
+
+func (decoder) parseMapKeyAsUInt64(k reflect.Value, mapKeyKind reflect.Kind) uint64 {
+	parsed, err := strconv.ParseUint(k.String(), 10, 64)
+	if err != nil {
+		panic("Map key is defined to be a decimal type (" + mapKeyKind.String() + ") but got error " +
+			err.Error())
+	}
+
+	return parsed
+}
+
+func (decoder) parseMapKeyAsInt64(k reflect.Value, mapKeyKind reflect.Kind) int64 {
+	parsed, err := strconv.ParseInt(k.String(), 10, 64)
+	if err != nil {
+		panic("Map key is defined to be a decimal type (" + mapKeyKind.String() + ") but got error " +
+			err.Error())
+	}
+
+	return parsed
 }
 
 func (decoder) parseMapKeyAsFloat(k reflect.Value, mapKeyKind reflect.Kind) float64 {
