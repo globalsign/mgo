@@ -313,7 +313,7 @@ func (d *decoder) readDocTo(out reflect.Value) {
 func (decoder) parseMapKeyAsUInt64(k reflect.Value, mapKeyKind reflect.Kind) uint64 {
 	parsed, err := strconv.ParseUint(k.String(), 10, 64)
 	if err != nil {
-		panic("Map key is defined to be a decimal type (" + mapKeyKind.String() + ") but got error " +
+		panic("Map key is defined to be an integer type (" + mapKeyKind.String() + ") but got error " +
 			err.Error())
 	}
 
