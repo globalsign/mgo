@@ -304,6 +304,18 @@ const (
 //        false: Initiate the connection without TLS/SSL.
 //        The default value is false.
 //
+//     w=<wmode>
+//
+//         Write mode for MongoDB 2.0+ (e.g. "majority").
+//
+//     j=<true|false>
+//
+//         Sync via the journal if present
+//
+//     readPreference=<nearest|primary|primaryPreferred|secondary|secondaryPreferred>
+//
+//         Read preference mode. See Mode for details.
+//
 // Relevant documentation:
 //
 //     http://docs.mongodb.org/manual/reference/connection-string/
@@ -341,19 +353,19 @@ func ParseURL(url string) (*DialInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	ssl := false
-	direct := false
-	mechanism := ""
-	service := ""
-	source := ""
-	setName := ""
-	poolLimit := 0
-	appName := ""
-	readPreferenceMode := Primary
-	var readPreferenceTagSets []bson.D
-	minPoolSize := 0
-	maxIdleTimeMS := 0
-	safe := Safe{}
+	ssl := false // ssl
+	direct := false  // connect
+	mechanism := "" // authMechanism
+	service := "" // gssapiServiceNname
+	source := "" // authSource
+	setName := "" // replicaSet
+	poolLimit := 0 // maxPoolSize
+	appName := "" // appName
+	readPreferenceMode := Primary // readPreference
+	var readPreferenceTagSets []bson.D // readPreferenceTags
+	minPoolSize := 0 // minPoolSize
+	maxIdleTimeMS := 0 // maxIdleTimeMS
+	safe := Safe{} // w/j
 	for _, opt := range uinfo.options {
 		switch opt.key {
 		case "ssl":
