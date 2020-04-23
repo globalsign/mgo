@@ -245,6 +245,9 @@ func (e *encoder) addStruct(v reflect.Value) {
 		if info.OmitEmpty && isZero(value) {
 			continue
 		}
+		if info.OmitAlways {
+			continue
+		}
 		if useRespectNilValues &&
 			(value.Kind() == reflect.Slice || value.Kind() == reflect.Map) &&
 			value.IsNil() {
