@@ -552,6 +552,10 @@ func handleErr(err *error) {
 //     omitempty  Only include the field if it's not set to the zero
 //                value for the type or to empty slices or maps.
 //
+//     omitalways Never include the field. This is most useful for
+//                embedded structs that should be decoded, but never
+//                encoded.
+//
 //     minsize    Marshal an int64 value as an int32, if that's feasible
 //                while preserving the numeric value.
 //
@@ -564,11 +568,12 @@ func handleErr(err *error) {
 //
 //     type T struct {
 //         A bool
-//         B int    "myb"
-//         C string "myc,omitempty"
-//         D string `bson:",omitempty" json:"jsonkey"`
-//         E int64  ",minsize"
-//         F int64  "myf,omitempty,minsize"
+//         B int        "myb"
+//         C string     "myc,omitempty"
+//         D string     `bson:",omitempty" json:"jsonkey"`
+//         E int64      ",minsize"
+//         F int64      "myf,omitempty,minsize"
+//         G CustomType "myg,omitalways"
 //     }
 //
 func Marshal(in interface{}) (out []byte, err error) {
@@ -693,11 +698,12 @@ type structInfo struct {
 }
 
 type fieldInfo struct {
-	Key       string
-	Num       int
-	OmitEmpty bool
-	MinSize   bool
-	Inline    []int
+	Key         string
+	Num         int
+	OmitEmpty   bool
+	OmitAlways  bool
+	MinSize     bool
+	Inline      []int
 }
 
 var structMap = make(map[reflect.Type]*structInfo)
@@ -755,6 +761,8 @@ func getStructInfo(st reflect.Type) (*structInfo, error) {
 				switch flag {
 				case "omitempty":
 					info.OmitEmpty = true
+				case "omitalways":
+					info.OmitAlways = true
 				case "minsize":
 					info.MinSize = true
 				case "inline":
