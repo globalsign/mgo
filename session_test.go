@@ -233,6 +233,35 @@ func (s *S) TestURLInvalidSafe(c *C) {
 	}
 }
 
+// it is difficult to set up a service record on demand as it requires new DNS entries.
+// This cannot just be done using an /etc/hosts file modification.
+// This test will be disabled by default. If you want to test the code
+// that performs a mongo connection using a DNS SVR (service) record,
+// you will need to set that up yourself. I would recommend using a free tier
+// of Mongo Atlas for the test.
+//
+// For more information, please see
+// https://www.mongodb.com/blog/post/mongodb-3-6-here-to-SRV-you-with-easier-replica-set-connections.
+func (s *S) TestURLMongoServiceRecord(c *C) {
+	c.Skip("Requires DNS configuration / Atlas")
+	url := "mongodb+srv://<username>:<password>@<host>.mongodb.net/<db>?ssl=true"
+	dialInfo, err := mgo.ParseURL(url)
+	c.Assert(err, IsNil)
+
+	session, err := mgo.DialWithInfo(dialInfo)
+	c.Assert(err, IsNil)
+
+	defer session.Close()
+
+	db := session.DB("id")
+
+	var result map[string]interface{}
+
+	err = db.C("<collection>").Find(nil).Sort("-_id").One(&result)
+	c.Assert(err, IsNil)
+	c.Assert(len(result), Not(Equals), 0)
+}
+
 func (s *S) TestURLUnixSocket(c *C) {
 	type test struct {
 		url      string
