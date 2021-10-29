@@ -668,6 +668,14 @@ func (socket *mongoSocket) readLoop() {
 				}
 
 				b := make([]byte, int(getInt32(s, 0)))
+				
+				// sometimes there is panic ()
+				// panic: runtime error: index out of range [1] with length 1
+
+				if int(getInt32(s, 0)) < 4 {
+					socket.Close()
+					return
+				}
 
 				// copy(b, s) in an efficient way.
 				b[0] = s[0]
