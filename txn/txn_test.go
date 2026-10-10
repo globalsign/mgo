@@ -3,6 +3,7 @@ package txn_test
 import (
 	"flag"
 	"fmt"
+	"os/exec"
 	"sync"
 	"testing"
 	"time"
@@ -32,10 +33,17 @@ var _ = Suite(&S{})
 type M map[string]interface{}
 
 func (s *S) SetUpSuite(c *C) {
+	if _, err := exec.LookPath("mongod"); err != nil {
+		c.Skip("mongod executable not found in PATH")
+		return
+	}
 	s.server.SetPath(c.MkDir())
 }
 
 func (s *S) TearDownSuite(c *C) {
+	if _, err := exec.LookPath("mongod"); err != nil {
+		return
+	}
 	s.server.Stop()
 }
 

@@ -2,6 +2,7 @@ package dbtest_test
 
 import (
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -22,6 +23,12 @@ type S struct {
 }
 
 var _ = Suite(&S{})
+
+func (s *S) SetUpSuite(c *C) {
+	if _, err := exec.LookPath("mongod"); err != nil {
+		c.Skip("mongod executable not found in PATH")
+	}
+}
 
 func (s *S) SetUpTest(c *C) {
 	s.oldCheckSessions = os.Getenv("CHECK_SESSIONS")

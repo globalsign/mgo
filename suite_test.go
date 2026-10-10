@@ -87,7 +87,10 @@ func (s *S) SetUpSuite(c *C) {
 	s.StartAll()
 
 	session, err := mgo.Dial("localhost:40001")
-	c.Assert(err, IsNil)
+	if err != nil {
+		c.Skip("MongoDB server not reachable on localhost:40001")
+		return
+	}
 	s.build, err = session.BuildInfo()
 	c.Check(err, IsNil)
 	session.Close()

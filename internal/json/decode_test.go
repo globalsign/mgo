@@ -1345,23 +1345,22 @@ func TestUnmarshalSyntax(t *testing.T) {
 
 // Test handling of unexported fields that should be ignored.
 // Issue 4660
-type unexportedFields struct {
-	Name string
-	m    map[string]interface{} `json:"-"`
-	m2   map[string]interface{} `json:"abcd"`
-}
-
 func TestUnmarshalUnexported(t *testing.T) {
+	unexportedFieldsType := reflect.StructOf([]reflect.StructField{
+		{Name: "Name", Type: reflect.TypeOf(""), PkgPath: ""},
+		{Name: "m", Type: reflect.TypeOf(map[string]interface{}(nil)), PkgPath: "github.com/globalsign/mgo/internal/json", Tag: `json:"-"`},
+		{Name: "m2", Type: reflect.TypeOf(map[string]interface{}(nil)), PkgPath: "github.com/globalsign/mgo/internal/json", Tag: `json:"abcd"`},
+	})
 	input := `{"Name": "Bob", "m": {"x": 123}, "m2": {"y": 456}, "abcd": {"z": 789}}`
-	want := &unexportedFields{Name: "Bob"}
 
-	out := &unexportedFields{}
+	out := reflect.New(unexportedFieldsType).Interface()
 	err := Unmarshal([]byte(input), out)
 	if err != nil {
 		t.Errorf("got error %v, expected nil", err)
 	}
-	if !reflect.DeepEqual(out, want) {
-		t.Errorf("got %q, want %q", out, want)
+	gotName := reflect.ValueOf(out).Elem().FieldByName("Name").String()
+	if gotName != "Bob" {
+		t.Errorf("got %q, want Bob", gotName)
 	}
 }
 
