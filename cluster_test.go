@@ -1322,7 +1322,7 @@ func (s *S) TestMonotonicSlaveOkFlagWithMongos(c *C) {
 				break
 			}
 			if i == 0 {
-				c.Fatalf("Inserted data never reached " + addr)
+				c.Fatalf("Inserted data never reached %s", addr)
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
@@ -1418,7 +1418,7 @@ func (s *S) TestSecondaryModeWithMongos(c *C) {
 				break
 			}
 			if i == 0 {
-				c.Fatalf("Inserted data never reached " + addr)
+				c.Fatalf("Inserted data never reached %s", addr)
 			}
 			time.Sleep(100 * time.Millisecond)
 		}

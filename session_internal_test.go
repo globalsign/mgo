@@ -101,3 +101,178 @@ func (s *S) TestDialTimeouts(c *C) {
 	info.WriteTimeout = time.Second
 	c.Assert(info.writeTimeout(), Equals, time.Second)
 }
+
+func makeTestServer(addr string, master bool, mongos bool, ping time.Duration, tags bson.D) *mongoServer {
+	return &mongoServer{
+		Addr:         addr,
+		ResolvedAddr: addr,
+		info: &mongoServerInfo{
+			Master: master,
+			Mongos: mongos,
+			Tags:   tags,
+		},
+		pingValue: ping,
+	}
+}
+
+func (s *S) TestReadPreferenceTagSetsPrioritisedPrimaryPreferred(c *C) {
+	// Issue #300: With PrimaryPreferred, a secondary matching the first tag set
+	// must be chosen over a primary that only matches a fallback empty tag set.
+	primary := makeTestServer("1.1.1.1:27017", true, false, 5*time.Millisecond, nil)
+	secondary := makeTestServer("1.1.1.2:27017", false, false, 50*time.Millisecond, bson.D{{Name: "foo", Value: "bar"}})
+
+	servers := &mongoServers{}
+	servers.Add(primary)
+	servers.Add(secondary)
+
+	tagSets := []bson.D{
+		{{Name: "foo", Value: "bar"}},
+		{},
+	}
+
+	best := servers.BestFit(PrimaryPreferred, tagSets)
+	c.Assert(best, Equals, secondary)
+}
+
+func (s *S) TestReadPreferenceTagSetsPriorityOrder(c *C) {
+	// The first matching tag set must be chosen even if a server matching a later tag set has lower ping.
+	serverEast := makeTestServer("1.1.1.1:27017", false, false, 100*time.Millisecond, bson.D{{Name: "dc", Value: "east"}})
+	serverWest := makeTestServer("1.1.1.2:27017", false, false, 5*time.Millisecond, bson.D{{Name: "dc", Value: "west"}})
+
+	servers := &mongoServers{}
+	servers.Add(serverEast)
+	servers.Add(serverWest)
+
+	// Priority: east then west
+	tagSetsEastFirst := []bson.D{
+		{{Name: "dc", Value: "east"}},
+		{{Name: "dc", Value: "west"}},
+	}
+	best := servers.BestFit(SecondaryPreferred, tagSetsEastFirst)
+	c.Assert(best, Equals, serverEast)
+
+	// Priority: west then east
+	tagSetsWestFirst := []bson.D{
+		{{Name: "dc", Value: "west"}},
+		{{Name: "dc", Value: "east"}},
+	}
+	best = servers.BestFit(SecondaryPreferred, tagSetsWestFirst)
+	c.Assert(best, Equals, serverWest)
+}
+
+func (s *S) TestReadPreferenceTagSetsFallback(c *C) {
+	// If no server matches the first tag set, fall back to the second tag set.
+	server1 := makeTestServer("1.1.1.1:27017", false, false, 10*time.Millisecond, bson.D{{Name: "use", Value: "reporting"}})
+
+	servers := &mongoServers{}
+	servers.Add(server1)
+
+	tagSets := []bson.D{
+		{{Name: "use", Value: "nonexistent"}},
+		{{Name: "use", Value: "reporting"}},
+	}
+
+	best := servers.BestFit(SecondaryPreferred, tagSets)
+	c.Assert(best, Equals, server1)
+}
+
+func (s *S) TestReadPreferenceTagSetsMultipleTagsInSet(c *C) {
+	// A server must match all tags within a single tag set.
+	serverA := makeTestServer("1.1.1.1:27017", false, false, 10*time.Millisecond, bson.D{{Name: "dc", Value: "east"}, {Name: "rack", Value: "1"}})
+	serverB := makeTestServer("1.1.1.2:27017", false, false, 10*time.Millisecond, bson.D{{Name: "dc", Value: "east"}, {Name: "rack", Value: "2"}})
+
+	servers := &mongoServers{}
+	servers.Add(serverA)
+	servers.Add(serverB)
+
+	tagSets := []bson.D{
+		{{Name: "dc", Value: "east"}, {Name: "rack", Value: "2"}},
+	}
+
+	best := servers.BestFit(SecondaryPreferred, tagSets)
+	c.Assert(best, Equals, serverB)
+}
+
+func (s *S) TestReadPreferenceTagSetsMultipleServersInFirstMatch(c *C) {
+	// If multiple servers match the first tag set, the nearest server among them is selected.
+	slowMatch := makeTestServer("1.1.1.1:27017", false, false, 80*time.Millisecond, bson.D{{Name: "env", Value: "prod"}})
+	fastMatch := makeTestServer("1.1.1.2:27017", false, false, 10*time.Millisecond, bson.D{{Name: "env", Value: "prod"}})
+	fastestOther := makeTestServer("1.1.1.3:27017", false, false, 1*time.Millisecond, bson.D{{Name: "env", Value: "dev"}})
+
+	servers := &mongoServers{}
+	servers.Add(slowMatch)
+	servers.Add(fastMatch)
+	servers.Add(fastestOther)
+
+	tagSets := []bson.D{
+		{{Name: "env", Value: "prod"}},
+		{{Name: "env", Value: "dev"}},
+	}
+
+	best := servers.BestFit(SecondaryPreferred, tagSets)
+	c.Assert(best, Equals, fastMatch)
+}
+
+func (s *S) TestReadPreferenceTagSetsSecondaryModeSkipsPrimary(c *C) {
+	// In Secondary mode, a master matching the first tag set is not eligible, so it falls back to a secondary.
+	primary := makeTestServer("1.1.1.1:27017", true, false, 5*time.Millisecond, bson.D{{Name: "dc", Value: "east"}})
+	secondary := makeTestServer("1.1.1.2:27017", false, false, 20*time.Millisecond, bson.D{{Name: "dc", Value: "west"}})
+
+	servers := &mongoServers{}
+	servers.Add(primary)
+	servers.Add(secondary)
+
+	tagSets := []bson.D{
+		{{Name: "dc", Value: "east"}},
+		{{Name: "dc", Value: "west"}},
+	}
+
+	best := servers.BestFit(Secondary, tagSets)
+	c.Assert(best, Equals, secondary)
+}
+
+func (s *S) TestReadPreferenceTagSetsNoMatchReturnsNil(c *C) {
+	server := makeTestServer("1.1.1.1:27017", false, false, 10*time.Millisecond, bson.D{{Name: "dc", Value: "east"}})
+
+	servers := &mongoServers{}
+	servers.Add(server)
+
+	tagSets := []bson.D{
+		{{Name: "dc", Value: "north"}},
+		{{Name: "dc", Value: "south"}},
+	}
+
+	best := servers.BestFit(SecondaryPreferred, tagSets)
+	c.Assert(best, IsNil)
+}
+
+func (s *S) TestReadPreferenceTagSetsEmptySetWildcard(c *C) {
+	server1 := makeTestServer("1.1.1.1:27017", false, false, 30*time.Millisecond, bson.D{{Name: "rack", Value: "1"}})
+	server2 := makeTestServer("1.1.1.2:27017", false, false, 10*time.Millisecond, bson.D{{Name: "rack", Value: "2"}})
+
+	servers := &mongoServers{}
+	servers.Add(server1)
+	servers.Add(server2)
+
+	tagSets := []bson.D{
+		{{Name: "rack", Value: "99"}},
+		{},
+	}
+
+	best := servers.BestFit(SecondaryPreferred, tagSets)
+	c.Assert(best, Equals, server2)
+}
+
+func (s *S) TestReadPreferenceTagSetsMongos(c *C) {
+	mongos := makeTestServer("1.1.1.1:27017", false, true, 10*time.Millisecond, nil)
+
+	servers := &mongoServers{}
+	servers.Add(mongos)
+
+	tagSets := []bson.D{
+		{{Name: "dc", Value: "east"}},
+	}
+
+	best := servers.BestFit(SecondaryPreferred, tagSets)
+	c.Assert(best, Equals, mongos)
+}

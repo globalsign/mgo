@@ -411,22 +411,27 @@ func (server *mongoServer) Info() *mongoServerInfo {
 	return info
 }
 
-func (server *mongoServer) hasTags(serverTags []bson.D) bool {
-NextTagSet:
-	for _, tags := range serverTags {
-	NextReqTag:
-		for _, req := range tags {
-			for _, has := range server.info.Tags {
-				if req.Name == has.Name {
-					if req.Value == has.Value {
-						continue NextReqTag
-					}
-					continue NextTagSet
+func (server *mongoServer) hasTag(tags bson.D) bool {
+NextReqTag:
+	for _, req := range tags {
+		for _, has := range server.info.Tags {
+			if req.Name == has.Name {
+				if req.Value == has.Value {
+					continue NextReqTag
 				}
+				return false
 			}
-			continue NextTagSet
 		}
-		return true
+		return false
+	}
+	return true
+}
+
+func (server *mongoServer) hasTags(serverTags []bson.D) bool {
+	for _, tags := range serverTags {
+		if server.hasTag(tags) {
+			return true
+		}
 	}
 	return false
 }
@@ -621,24 +626,35 @@ func (servers *mongoServers) HasMongos() bool {
 // BestFit returns the best guess of what would be the most interesting
 // server to perform operations on at this point in time.
 func (servers *mongoServers) BestFit(mode Mode, serverTags []bson.D) *mongoServer {
+	if len(serverTags) == 0 {
+		return servers.bestFit(mode, nil)
+	}
+	for _, tags := range serverTags {
+		if server := servers.bestFit(mode, tags); server != nil {
+			return server
+		}
+	}
+	return nil
+}
+
+func (servers *mongoServers) bestFit(mode Mode, tags bson.D) *mongoServer {
 	var best *mongoServer
 	for _, next := range servers.slice {
-		if best == nil {
-			best = next
-			best.RLock()
-			if len(serverTags) != 0 && !next.info.Mongos && !best.hasTags(serverTags) {
-				best.RUnlock()
-				best = nil
-			}
+		next.RLock()
+		if tags != nil && !next.info.Mongos && !next.hasTag(tags) {
+			next.RUnlock()
 			continue
 		}
-		next.RLock()
+		if mode == Secondary && next.info.Master && !next.info.Mongos {
+			next.RUnlock()
+			continue
+		}
+		if best == nil {
+			best = next
+			continue
+		}
 		swap := false
 		switch {
-		case len(serverTags) != 0 && !next.info.Mongos && !next.hasTags(serverTags):
-			// Must have requested tags.
-		case mode == Secondary && next.info.Master && !next.info.Mongos:
-			// Must be a secondary or mongos.
 		case next.info.Master != best.info.Master && mode != Nearest:
 			// Prefer slaves, unless the mode is PrimaryPreferred.
 			swap = (mode == PrimaryPreferred) != best.info.Master
